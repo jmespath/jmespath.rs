@@ -121,8 +121,8 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Main parse function of the Pratt parser that parses while RBP < LBP
     pub fn expr(&mut self, rbp: usize) -> Result<Ast, ParseError> {
-
         // Parse the NUD token.
         let mut left = match self.token.clone() {
             Token::At               => self.nud_at(),
@@ -133,7 +133,6 @@ impl<'a> Parser<'a> {
             // Token::Literal(_, _)    => self.nud_literal(),
             // Token::Ampersand        => self.nud_ampersand(),
             // Token::Lbrace           => self.nud_lbrace(),
-            // Token::Lbracket         => self.nud_lbracket(),
             // Token::Filter           => self.nud_filter(),
             _ => { return self.err(&"Unexpected NUD token"); }
         };
@@ -141,7 +140,9 @@ impl<'a> Parser<'a> {
         // Parse any LED tokens with a higher binding power.
         while rbp < self.token.lbp() {
             left = match self.token {
-                Token::Dot => self.led_dot(left.unwrap()),
+                Token::Dot      => self.led_dot(left.unwrap()),
+                Token::Lbracket => self.led_lbracket(left.unwrap()),
+                Token::Flatten  => self.led_flatten(left.unwrap()),
                 _ => {
                     self.err(&"Unexpected LED token");
                     break;
@@ -165,16 +166,19 @@ impl<'a> Parser<'a> {
         })
     }
 
+    /// Examples: "@"
     fn nud_at(&mut self) -> Result<Ast, ParseError> {
         self.advance();
         Ok(CurrentNode)
     }
 
+    /// Examples: "Foo"
     fn nud_identifier(&mut self, s: String) -> Result<Ast, ParseError> {
         self.advance();
         Ok(Identifier(s))
     }
 
+    /// Examples: "[0]", "[*]", "[a, b]", "[0:1]", etc...
     fn nud_lbracket(&mut self) -> Result<Ast, ParseError> {
         self.advance();
         match self.token {
@@ -184,21 +188,31 @@ impl<'a> Parser<'a> {
                     return self.parse_multi_list();
                 }
                 try!(self.expect("Star"));
-                try!(self.expect("Rbracket"));
-                let lhs = Box::new(CurrentNode);
-                let rhs = try!(self.projection_rhs(Token::Star.lbp()));
-                Ok(Projection(ProjectionNode::ArrayProjection(lhs, Box::new(rhs))))
+                self.parse_wildcard_index()
             },
             _ => self.parse_multi_list()
         }
     }
 
-    fn nud_star(&mut self) -> Result<Ast, ParseError> {
-        self.advance();
-        Ok(WildcardValues)
+    /// Examples: foo[*], foo[0], foo[:-1], etc.
+    fn led_lbracket(&mut self, lhs: Ast) -> Result<Ast, ParseError> {
+        try!(self.expect("Number|Colon|Star"));
+        match self.token {
+            Token::Number(_, _) | Token::Colon => {
+                let rhs = try!(self.parse_wildcard_index());
+                Ok(Subexpr(Box::new(lhs), Box::new(rhs)))
+            },
+            _ => self.parse_wildcard_index()
+        }
     }
 
-    /// Turns a nud flatten into "@[]"
+    /// Examples: "*" (e.g., "* | *" would be a pipe containing two nud stars)
+    fn nud_star(&mut self) -> Result<Ast, ParseError> {
+        self.advance();
+        self.parse_wildcard_values(CurrentNode)
+    }
+
+    /// Examples: "[]". Turns it into a LED flatten (i.e., "@[]").
     fn nud_flatten(&mut self) -> Result<Ast, ParseError> {
         self.led_flatten(CurrentNode)
     }
@@ -219,6 +233,18 @@ impl<'a> Parser<'a> {
         Ok(Ast::Subexpr(Box::new(left), Box::new(rhs)))
     }
 
+    /// Parses the right hand side of a dot expression.
+    fn parse_dot(&mut self, lbp: usize) -> Result<Ast, ParseError> {
+        try!(self.expect("Identifier|Star|Lbrace|Lbracket|Ampersand|Filter"));
+        match self.token {
+            Token::Lbracket => {
+                self.advance();
+                self.parse_multi_list()
+            },
+            _ => self.expr(lbp)
+        }
+    }
+
     /// Parses the right hand side of a projection, using the given LBP to determine
     /// when to stop consuming tokens.
     fn projection_rhs(&mut self, lbp: usize) -> Result<Ast, ParseError> {
@@ -232,16 +258,20 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Parses the right hand side of a dot expression.
-    fn parse_dot(&mut self, lbp: usize) -> Result<Ast, ParseError> {
-        try!(self.expect("Identifier|Star|Lbrace|Lbracket|Ampersand|Filter"));
-        match self.token {
-            Token::Lbracket => {
-                self.advance();
-                self.parse_multi_list()
-            },
-            _ => self.expr(lbp)
-        }
+    /// Creates a projection for "[*]"
+    fn parse_wildcard_index(&mut self) -> Result<Ast, ParseError> {
+        try!(self.expect("Rbracket"));
+        let lhs = Box::new(CurrentNode);
+        let rhs = try!(self.projection_rhs(Token::Star.lbp()));
+        Ok(Projection(ProjectionNode::ArrayProjection(lhs, Box::new(rhs))))
+    }
+
+    /// Creates a projection for "*"
+    fn parse_wildcard_values(&mut self, lhs: Ast) -> Result<Ast, ParseError> {
+        let rhs = try!(self.projection_rhs(Token::Star.lbp()));
+        Ok(Projection(
+            ProjectionNode::ObjectProjection(Box::new(lhs), Box::new(rhs)))
+        )
     }
 
     /// @todo
