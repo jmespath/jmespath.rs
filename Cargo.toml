@@ -1,0 +1,7 @@
+[package]
+name = "jmespath"
+version = "0.0.1"
+authors = ["Michael Dowling <mtdowling@gmail.com>"]
+
+[dependencies]
+rustc-serialize = "0.3"
