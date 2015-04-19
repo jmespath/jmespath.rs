@@ -61,31 +61,7 @@ impl Token {
             &Number(_, _)     => "Number".to_string(),
             &Literal(_, _)    => "Literal".to_string(),
             &Unknown(_)       => "Unknown".to_string(),
-            &Dot              => "Dot".to_string(),
-            &Star             => "Star".to_string(),
-            &Flatten          => "Flatten".to_string(),
-            &Or               => "Or".to_string(),
-            &Pipe             => "Pipe".to_string(),
-            &Filter           => "Filter".to_string(),
-            &Lbracket         => "Lbracket".to_string(),
-            &Rbracket         => "Rbracket".to_string(),
-            &Comma            => "Comma".to_string(),
-            &Colon            => "Colon".to_string(),
-            &Not              => "Not".to_string(),
-            &Ne               => "Ne".to_string(),
-            &Eq               => "Eq".to_string(),
-            &Gt               => "Get".to_string(),
-            &Gte              => "Gte".to_string(),
-            &Lt               => "Lt".to_string(),
-            &Lte              => "Lte".to_string(),
-            &At               => "At".to_string(),
-            &Ampersand        => "Ampersand".to_string(),
-            &Lparen           => "Lparen".to_string(),
-            &Rparen           => "Rparen".to_string(),
-            &Lbrace           => "Lbrace".to_string(),
-            &Rbrace           => "Rbrace".to_string(),
-            &Whitespace       => "Whitespace".to_string(),
-            &Eof              => "Eof".to_string(),
+            _                 => format!("{:?}", self)
         }
     }
 
@@ -457,7 +433,7 @@ mod test {
         assert!(tokens.next() == None);
     }
 
-    #[test] fn token_has_size() {
+    #[test] fn token_has_size_test() {
         assert!(1 == Rparen.size());
         assert!(2 == Flatten.size());
         assert!(2 == Filter.size());
@@ -466,14 +442,48 @@ mod test {
         assert!(4 == Unknown("test".to_string()).size());
     }
 
-    #[test] fn token_has_lbp() {
+    #[test] fn token_has_lbp_test() {
         assert!(0 == Rparen.lbp());
         assert!(1 == Pipe.lbp());
         assert!(60 == Lparen.lbp());
     }
 
-    #[test] fn token_knows_if_is_whitespace() {
+    #[test] fn token_knows_if_is_whitespace_test() {
         assert!(true == Whitespace.is_whitespace());
         assert!(false == Rparen.is_whitespace());
+    }
+
+    #[test] fn returns_token_name_test() {
+        assert_eq!("Identifier", Identifier("a".to_string(), 1).token_to_string());
+        assert_eq!("Number", Number(0, 1).token_to_string());
+        assert_eq!("Literal", Literal(Json::String("a".to_string()), 5).token_to_string());
+        assert_eq!("Unknown", Unknown("".to_string()).token_to_string());
+        assert_eq!("Dot".to_string(), Dot.token_to_string());
+        assert_eq!("Star".to_string(), Star.token_to_string());
+        assert_eq!("Flatten".to_string(), Flatten.token_to_string());
+        assert_eq!("Or".to_string(), Or.token_to_string());
+        assert_eq!("Pipe".to_string(), Pipe.token_to_string());
+        assert_eq!("Filter".to_string(), Filter.token_to_string());
+        assert_eq!("Lbracket".to_string(), Lbracket.token_to_string());
+        assert_eq!("Rbracket".to_string(), Rbracket.token_to_string());
+        assert_eq!("Comma".to_string(), Comma.token_to_string());
+        assert_eq!("Colon".to_string(), Colon.token_to_string());
+        assert_eq!("Not".to_string(), Not.token_to_string());
+        assert_eq!("Ne".to_string(), Ne.token_to_string());
+        assert_eq!("Eq".to_string(), Eq.token_to_string());
+        assert_eq!("Gt".to_string(), Gt.token_to_string());
+        assert_eq!("Gte".to_string(), Gte.token_to_string());
+        assert_eq!("Lt".to_string(), Lt.token_to_string());
+        assert_eq!("Lte".to_string(), Lte.token_to_string());
+        assert_eq!("At".to_string(), At.token_to_string());
+        assert_eq!("Ampersand".to_string(), Ampersand.token_to_string());
+        assert_eq!("Lparen".to_string(), Lparen.token_to_string());
+        assert_eq!("Rparen".to_string(), Rparen.token_to_string());
+        assert_eq!("Lbrace".to_string(), Lbrace.token_to_string());
+        assert_eq!("Rbrace".to_string(), Rbrace.token_to_string());
+        assert_eq!("Whitespace".to_string(), Whitespace.token_to_string());
+        assert_eq!("Eof".to_string(), Eof.token_to_string());
+        assert_eq!("Rbracket".to_string(), Rbracket.token_to_string());
+        assert_eq!("Lbracket".to_string(), Lbracket.token_to_string());
     }
 }
