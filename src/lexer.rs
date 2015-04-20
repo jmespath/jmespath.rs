@@ -1,4 +1,4 @@
-/// Lexer is an iterator that yields Token enums.
+//! Lexer is an iterator that yields Token enums.
 
 pub use self::Token::*;
 

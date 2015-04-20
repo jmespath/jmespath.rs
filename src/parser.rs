@@ -237,10 +237,7 @@ impl<'a> Parser<'a> {
     fn parse_dot(&mut self, lbp: usize) -> Result<Ast, ParseError> {
         try!(self.expect("Identifier|Star|Lbrace|Lbracket|Ampersand|Filter"));
         match self.token {
-            Token::Lbracket => {
-                self.advance();
-                self.parse_multi_list()
-            },
+            Token::Lbracket => { self.advance(); self.parse_multi_list() },
             _ => self.expr(lbp)
         }
     }
@@ -280,10 +277,29 @@ impl<'a> Parser<'a> {
         Ok(CurrentNode)
     }
 
-    /// @todo
+    /// Parses multi-select lists (e.g., "[foo, bar, baz]")
     fn parse_multi_list(&mut self) -> Result<Ast, ParseError> {
-        self.advance();
-        Ok(CurrentNode)
+        let mut nodes = vec!();
+        loop {
+            nodes.push(Box::new(try!(self.expr(0))));
+            match self.token {
+                // Skip comma tokens
+                Token::Comma => {
+                    self.advance();
+                    // The closing "Rbracket" token cannot follow a comma.
+                    if self.token.token_to_string() == "Rbracket" {
+                        return self.err("Unexpected token after comma");
+                    }
+                },
+                // Terminal conditon
+                Token::Rbracket => break,
+                // Got to EOF without closing
+                Token::Eof => return self.err("Unclosed multi-select"),
+                _ => {}
+            }
+        }
+
+        Ok(MultiList(nodes))
     }
 }
 
@@ -300,7 +316,9 @@ mod test {
     }
 
     #[test] fn wildcard_values_test() {
-        assert_eq!(parse("*").unwrap(), WildcardValues);
+        assert_eq!(parse("*").unwrap(),
+                   Projection(ProjectionNode::ObjectProjection(Box::new(CurrentNode),
+                                                               Box::new(CurrentNode))));
     }
 
     #[test] fn dot_test() {
@@ -310,5 +328,17 @@ mod test {
 
     #[test] fn ensures_nud_token_is_valid_test() {
 
+    }
+
+    #[test] fn multi_list_test() {
+        let l = MultiList(vec![Box::new(Identifier("a".to_string())),
+                               Box::new(Identifier("b".to_string()))]);
+        assert_eq!(parse("[a, b]").unwrap(), l);
+    }
+
+    #[test] fn multi_list_after_dot_test() {
+        let l = MultiList(vec![Box::new(Identifier("a".to_string())),
+                               Box::new(Identifier("b".to_string()))]);
+        assert_eq!(parse("@.[a, b]").unwrap(), Subexpr(Box::new(CurrentNode), Box::new(l)));
     }
 }
