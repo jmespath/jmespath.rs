@@ -296,6 +296,7 @@ impl<'a> Iterator for Lexer<'a> {
             '(' => tok!(Lparen),
             ')' => tok!(Rparen),
             ',' => tok!(Comma),
+            ':' => tok!(Colon),
             '>' => tok!(self.consume_gt_lt(Gte, Gt)),
             '<' => tok!(self.consume_gt_lt(Lte, Lt)),
             '=' => tok!(self.consume_eq()),

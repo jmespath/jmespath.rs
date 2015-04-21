@@ -26,18 +26,12 @@ pub enum Ast {
     Literal(Box<Json>),
     MultiList(Vec<Box<Ast>>),
     MultiHash(Vec<Vec<(char, Box<Ast>)>>),
-    Projection(ProjectionNode),
-    Slice(i32, i32, i32),
+    ArrayProjection(Box<Ast>, Box<Ast>),
+    ObjectProjection(Box<Ast>, Box<Ast>),
+    Slice(Option<i32>, Option<i32>, Option<i32>),
     Subexpr(Box<Ast>, Box<Ast>),
     WildcardIndex,
     WildcardValues,
-}
-
-/// The different projection types.
-#[derive(Clone, PartialEq, Debug)]
-pub enum ProjectionNode {
-    ArrayProjection(Box<Ast>, Box<Ast>),
-    ObjectProjection(Box<Ast>, Box<Ast>)
 }
 
 /// Comparators (i.e., less than, greater than, etc.)
@@ -84,15 +78,20 @@ impl<'a> Parser<'a> {
     pub fn parse(&mut self) -> Result<Ast, ParseError> {
         let result = self.expr(0);
         let token = self.stream.next();
-        // After parsing the expression, we should have reached the end of the stream.
-        if token.is_some() && token.unwrap() != Token::Eof {
-            return self.err("Did not reach the end of the token stream".as_ref());
+        // After parsing the expression, we should have reached the end of the
+        // stream.
+        if result.is_err()
+        || token.is_none()
+        || token.unwrap() == Token::Eof {
+            result
+        } else {
+            return self.err("Did not reach token stream EOF".as_ref());
         }
-        result
     }
 
-    /// Ensures that the next token in the token stream is one of the pipe separated
-    /// token named provided as the edible argument (e.g., "Identifier|Eof").
+    /// Ensures that the next token in the token stream is one of the pipe
+    /// separated token named provided as the edible argument (e.g.,
+    /// "Identifier|Eof").
     fn expect(&mut self, edible: &str) -> Result<Ast, ParseError> {
         self.advance();
         // Get the string name of the token.
@@ -100,8 +99,8 @@ impl<'a> Parser<'a> {
         if edible.contains(&token_name) {
             return Ok(CurrentNode);
         }
-        let message = format!("Expected one of the following tokens: {:?}", edible);
-        self.err(&message)
+        let msg = format!("Expected one of the following tokens: {:?}", edible);
+        self.err(&msg)
     }
 
     /// Advances the cursor position, skipping any whitespace encountered.
@@ -198,10 +197,7 @@ impl<'a> Parser<'a> {
     fn led_lbracket(&mut self, lhs: Ast) -> Result<Ast, ParseError> {
         try!(self.expect("Number|Colon|Star"));
         match self.token {
-            Token::Number(_, _) | Token::Colon => {
-                let rhs = try!(self.parse_wildcard_index());
-                Ok(Subexpr(Box::new(lhs), Box::new(rhs)))
-            },
+            Token::Number(_, _) | Token::Colon => self.parse_array_index(),
             _ => self.parse_wildcard_index()
         }
     }
@@ -220,11 +216,9 @@ impl<'a> Parser<'a> {
     /// Creates a Projection AST node for a flatten token.
     fn led_flatten(&mut self, lhs: Ast) -> Result<Ast, ParseError> {
         let rhs = try!(self.projection_rhs(Token::Flatten.lbp()));
-        Ok(Projection(
-            ProjectionNode::ArrayProjection(
-                Box::new(Flatten(Box::new(lhs))),
-                Box::new(rhs)
-            )
+        Ok(ArrayProjection(
+            Box::new(Flatten(Box::new(lhs))),
+            Box::new(rhs)
         ))
     }
 
@@ -242,8 +236,8 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Parses the right hand side of a projection, using the given LBP to determine
-    /// when to stop consuming tokens.
+    /// Parses the right hand side of a projection, using the given LBP to
+    /// determine when to stop consuming tokens.
     fn projection_rhs(&mut self, lbp: usize) -> Result<Ast, ParseError> {
         let lbp = self.token.lbp();
         match self.token {
@@ -260,21 +254,46 @@ impl<'a> Parser<'a> {
         try!(self.expect("Rbracket"));
         let lhs = Box::new(CurrentNode);
         let rhs = try!(self.projection_rhs(Token::Star.lbp()));
-        Ok(Projection(ProjectionNode::ArrayProjection(lhs, Box::new(rhs))))
+        Ok(ArrayProjection(lhs, Box::new(rhs)))
     }
 
     /// Creates a projection for "*"
     fn parse_wildcard_values(&mut self, lhs: Ast) -> Result<Ast, ParseError> {
         let rhs = try!(self.projection_rhs(Token::Star.lbp()));
-        Ok(Projection(
-            ProjectionNode::ObjectProjection(Box::new(lhs), Box::new(rhs)))
-        )
+        Ok(ObjectProjection(Box::new(lhs), Box::new(rhs)))
     }
 
-    /// @todo
+    /// Parses [0], [::-1], [0:-1], [0:1], etc...
     fn parse_array_index(&mut self) -> Result<Ast, ParseError> {
-        self.advance();
-        Ok(CurrentNode)
+        let mut parts = [None, None, None];
+        let mut pos = 0;
+        loop {
+            match self.token {
+                Token::Colon => {
+                    pos += 1;
+                    if pos > 2 {
+                        return self.err("Too many colons in slice expr");
+                    }
+                    try!(self.expect("Number|Colon|Rbracket"));
+                },
+                Token::Number(value, _) => {
+                    parts[pos] = Some(value);
+                    try!(self.expect("Colon|Rbracket"));
+                },
+                Token::Rbracket => { self.advance(); break; },
+                _ => { return self.err("Unexpected token"); },
+            }
+        }
+
+        if pos == 0 {
+            // No colons were found, so this is a simple index extraction.
+            Ok(Index(parts[0].unwrap()))
+        } else {
+            // Sliced array from start (e.g., [2:])
+            let lhs = Slice(parts[0], parts[1], parts[2]);
+            let rhs = try!(self.projection_rhs(Token::Star.lbp()));
+            Ok(ArrayProjection(Box::new(lhs), Box::new(rhs)))
+        }
     }
 
     /// Parses multi-select lists (e.g., "[foo, bar, baz]")
@@ -317,8 +336,8 @@ mod test {
 
     #[test] fn wildcard_values_test() {
         assert_eq!(parse("*").unwrap(),
-                   Projection(ProjectionNode::ObjectProjection(Box::new(CurrentNode),
-                                                               Box::new(CurrentNode))));
+                   ObjectProjection(Box::new(CurrentNode),
+                                    Box::new(CurrentNode)));
     }
 
     #[test] fn dot_test() {
@@ -340,5 +359,27 @@ mod test {
         let l = MultiList(vec![Box::new(Identifier("a".to_string())),
                                Box::new(Identifier("b".to_string()))]);
         assert_eq!(parse("@.[a, b]").unwrap(), Subexpr(Box::new(CurrentNode), Box::new(l)));
+    }
+
+    #[test] fn parses_simple_index_extractions_test() {
+        assert_eq!(parse("[0]").unwrap(), Index(0));
+    }
+
+    #[test] fn parses_single_element_slice_test() {
+        assert_eq!(parse("[-1:]").unwrap(),
+                   ArrayProjection(Box::new(Slice(Some(-1), None, None)),
+                                   Box::new(CurrentNode)));
+    }
+
+    #[test] fn parses_double_element_slice_test() {
+        assert_eq!(parse("[1:-1].a").unwrap(),
+                   ArrayProjection(Box::new(Slice(Some(1), Some(-1), None)),
+                                   Box::new(Identifier("a".to_string()))));
+    }
+
+    #[test] fn parses_revese_slice_test() {
+        assert_eq!(parse("[::-1].a").unwrap(),
+                   ArrayProjection(Box::new(Slice(None, None, Some(-1))),
+                                   Box::new(Identifier("a".to_string()))));
     }
 }
