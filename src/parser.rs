@@ -130,7 +130,7 @@ impl<'a> Parser<'a> {
             Token::Star             => self.nud_star(),
             Token::Lbracket         => self.nud_lbracket(),
             Token::Flatten          => self.nud_flatten(),
-            // Token::Literal(_, _)    => self.nud_literal(),
+            Token::Literal(v, _)    => self.nud_literal(v),
             // Token::Ampersand        => self.nud_ampersand(),
             // Token::Lbrace           => self.nud_lbrace(),
             // Token::Filter           => self.nud_filter(),
@@ -203,6 +203,11 @@ impl<'a> Parser<'a> {
             Token::Number(_, _) | Token::Colon => self.parse_array_index(),
             _ => self.parse_wildcard_index()
         }
+    }
+
+    fn nud_literal(&mut self, value: Json) -> Result<Ast, ParseError> {
+        self.advance();
+        Ok(Literal(Box::new(value)))
     }
 
     /// Examples: "*" (e.g., "* | *" would be a pipe containing two nud stars)
@@ -339,7 +344,10 @@ impl<'a> Parser<'a> {
 
 #[cfg(test)]
 mod test {
+    extern crate rustc_serialize;
+
     use super::*;
+    use self::rustc_serialize::json::{Json};
 
     #[test] fn indentifier_test() {
         assert_eq!(parse("foo").unwrap(), Identifier("foo".to_string()));
@@ -408,5 +416,10 @@ mod test {
         assert_eq!(parse("a | b").unwrap(),
                    Subexpr(Box::new(Identifier("a".to_string())),
                       Box::new(Identifier("b".to_string()))));
+    }
+
+    #[test] fn parses_literal_token_test() {
+        assert_eq!(parse("`\"foo\"`").unwrap(),
+                   Literal(Box::new(Json::String("foo".to_string()))))
     }
 }
