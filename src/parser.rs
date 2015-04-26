@@ -28,6 +28,7 @@ pub enum Ast {
     MultiHash(Vec<Vec<(char, Box<Ast>)>>),
     ArrayProjection(Box<Ast>, Box<Ast>),
     ObjectProjection(Box<Ast>, Box<Ast>),
+    Or(Box<Ast>, Box<Ast>),
     Slice(Option<i32>, Option<i32>, Option<i32>),
     Subexpr(Box<Ast>, Box<Ast>),
     WildcardIndex,
@@ -142,6 +143,8 @@ impl<'a> Parser<'a> {
                 Token::Dot      => self.led_dot(left.unwrap()),
                 Token::Lbracket => self.led_lbracket(left.unwrap()),
                 Token::Flatten  => self.led_flatten(left.unwrap()),
+                Token::Or       => self.led_or(left.unwrap()),
+                Token::Pipe     => self.led_pipe(left.unwrap()),
                 _ => {
                     self.err(&"Unexpected LED token");
                     break;
@@ -225,6 +228,18 @@ impl<'a> Parser<'a> {
     fn led_dot(&mut self, left: Ast) -> Result<Ast, ParseError> {
         let rhs = try!(self.parse_dot(Token::Dot.lbp()));
         Ok(Ast::Subexpr(Box::new(left), Box::new(rhs)))
+    }
+
+    fn led_or(&mut self, left: Ast) -> Result<Ast, ParseError> {
+        self.advance();
+        let rhs = try!(self.expr(Token::Or.lbp()));
+        Ok(Or(Box::new(left), Box::new(rhs)))
+    }
+
+    fn led_pipe(&mut self, left: Ast) -> Result<Ast, ParseError> {
+        self.advance();
+        let rhs = try!(self.expr(Token::Pipe.lbp()));
+        Ok(Subexpr(Box::new(left), Box::new(rhs)))
     }
 
     /// Parses the right hand side of a dot expression.
@@ -381,5 +396,17 @@ mod test {
         assert_eq!(parse("[::-1].a").unwrap(),
                    ArrayProjection(Box::new(Slice(None, None, Some(-1))),
                                    Box::new(Identifier("a".to_string()))));
+    }
+
+    #[test] fn parses_or_test() {
+        assert_eq!(parse("a || b").unwrap(),
+                   Or(Box::new(Identifier("a".to_string())),
+                      Box::new(Identifier("b".to_string()))));
+    }
+
+    #[test] fn parses_pipe_test() {
+        assert_eq!(parse("a | b").unwrap(),
+                   Subexpr(Box::new(Identifier("a".to_string())),
+                      Box::new(Identifier("b".to_string()))));
     }
 }
