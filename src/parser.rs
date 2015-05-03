@@ -20,12 +20,12 @@ pub enum Ast {
     CurrentNode,
     Expref(Box<Ast>),
     Flatten(Box<Ast>),
-    Function(char, Vec<(Box<Ast>, Box<Ast>)>),
+    Function(char, Vec<Box<Ast>>),
     Identifier(String),
     Index(i32),
-    Literal(Box<Json>),
+    Literal(Json),
     MultiList(Vec<Box<Ast>>),
-    MultiHash(Vec<Vec<(char, Box<Ast>)>>),
+    MultiHash(Vec<KeyValuePair>),
     ArrayProjection(Box<Ast>, Box<Ast>),
     ObjectProjection(Box<Ast>, Box<Ast>),
     Or(Box<Ast>, Box<Ast>),
@@ -33,6 +33,13 @@ pub enum Ast {
     Subexpr(Box<Ast>, Box<Ast>),
     WildcardIndex,
     WildcardValues,
+}
+
+/// Represents a key value pair in a multi-hash
+#[derive(Clone, PartialEq, Debug)]
+pub struct KeyValuePair {
+    key: Box<Ast>,
+    value: Box<Ast>
 }
 
 /// Comparators (i.e., less than, greater than, etc.)
@@ -86,7 +93,7 @@ impl<'a> Parser<'a> {
         || token.unwrap() == Token::Eof {
             result
         } else {
-            return self.err("Did not reach token stream EOF".as_ref());
+            return Err(self.err(&"Did not reach token stream EOF"));
         }
     }
 
@@ -101,7 +108,7 @@ impl<'a> Parser<'a> {
             return Ok(CurrentNode);
         }
         let msg = format!("Expected one of the following tokens: {:?}", edible);
-        self.err(&msg)
+        Err(self.err(&msg))
     }
 
     /// Advances the cursor position, skipping any whitespace encountered.
@@ -131,10 +138,10 @@ impl<'a> Parser<'a> {
             Token::Lbracket         => self.nud_lbracket(),
             Token::Flatten          => self.nud_flatten(),
             Token::Literal(v, _)    => self.nud_literal(v),
+            Token::Lbrace           => self.nud_lbrace(),
             // Token::Ampersand        => self.nud_ampersand(),
-            // Token::Lbrace           => self.nud_lbrace(),
             // Token::Filter           => self.nud_filter(),
-            _ => { return self.err(&"Unexpected NUD token"); }
+            _ => { return Err(self.err(&"Unexpected NUD token")); }
         };
 
         // Parse any LED tokens with a higher binding power.
@@ -145,10 +152,7 @@ impl<'a> Parser<'a> {
                 Token::Flatten  => self.led_flatten(left.unwrap()),
                 Token::Or       => self.led_or(left.unwrap()),
                 Token::Pipe     => self.led_pipe(left.unwrap()),
-                _ => {
-                    self.err(&"Unexpected LED token");
-                    break;
-                }
+                _ => { return Err(self.err(&"Unexpected LED token")); }
             };
         }
 
@@ -156,16 +160,16 @@ impl<'a> Parser<'a> {
     }
 
     /// Returns a formatted ParseError with the given message.
-    fn err(&self, msg: &str) -> Result<Ast, ParseError> {
+    fn err(&self, msg: &str) -> ParseError {
         // Find each new line and create a formatted error message.
         let mut line = 0;
         let mut col = self.pos;
-        Err(ParseError {
+        ParseError {
             msg: format!("Error at {:?} token, {}: {}",
                          self.token, self.pos, msg),
             col: line,
             line: col
-        })
+        }
     }
 
     /// Examples: "@"
@@ -207,7 +211,7 @@ impl<'a> Parser<'a> {
 
     fn nud_literal(&mut self, value: Json) -> Result<Ast, ParseError> {
         self.advance();
-        Ok(Literal(Box::new(value)))
+        Ok(Literal(value))
     }
 
     /// Examples: "*" (e.g., "* | *" would be a pipe containing two nud stars)
@@ -219,6 +223,39 @@ impl<'a> Parser<'a> {
     /// Examples: "[]". Turns it into a LED flatten (i.e., "@[]").
     fn nud_flatten(&mut self) -> Result<Ast, ParseError> {
         self.led_flatten(CurrentNode)
+    }
+
+    /// Example "{foo: bar, baz: `12`}"
+    fn nud_lbrace(&mut self) -> Result<Ast, ParseError> {
+        // Consume and skip the Lbrace token.
+        self.advance();
+        let mut pairs = vec![];
+        loop {
+            // Requires at least on key value pair.
+            pairs.push(try!(self.parse_kvp()));
+            match self.token {
+                // Terminal condition is the Rbrace token "}".
+                Token::Rbrace => { self.advance(); break; },
+                // Skip commas as they are used to delineate kvps
+                Token::Comma  => { self.advance(); },
+                _ => { return Err(self.err("Expected Rbrace or Comma")); }
+            }
+        }
+        Ok(MultiHash(pairs))
+    }
+
+    fn parse_kvp(&mut self) -> Result<KeyValuePair, ParseError> {
+        match self.token.clone() {
+            Token::Identifier(name, _) => {
+                self.expect("Colon");
+                self.advance();
+                Ok(KeyValuePair {
+                    key: Box::new(Literal(Json::String(name))),
+                    value: Box::new(try!(self.expr(0)))
+                })
+            },
+            _ => Err(self.err("Expected Identifier to start key value pair"))
+        }
     }
 
     /// Creates a Projection AST node for a flatten token.
@@ -265,7 +302,7 @@ impl<'a> Parser<'a> {
             Token::Lbracket => self.expr(lbp),
             Token::Filter   => self.expr(lbp),
             _ if lbp < 10   => Ok(CurrentNode),
-            _               => self.err("Syntax error found in projection")
+            _               => Err(self.err("Syntax error found in projection"))
         }
     }
 
@@ -292,7 +329,7 @@ impl<'a> Parser<'a> {
                 Token::Colon => {
                     pos += 1;
                     if pos > 2 {
-                        return self.err("Too many colons in slice expr");
+                        return Err(self.err("Too many colons in slice expr"));
                     }
                     try!(self.expect("Number|Colon|Rbracket"));
                 },
@@ -301,7 +338,7 @@ impl<'a> Parser<'a> {
                     try!(self.expect("Colon|Rbracket"));
                 },
                 Token::Rbracket => { self.advance(); break; },
-                _ => { return self.err("Unexpected token"); },
+                _ => { return Err(self.err("Unexpected token")); },
             }
         }
 
@@ -327,13 +364,13 @@ impl<'a> Parser<'a> {
                     self.advance();
                     // The closing "Rbracket" token cannot follow a comma.
                     if self.token.token_to_string() == "Rbracket" {
-                        return self.err("Unexpected token after comma");
+                        return Err(self.err("Unexpected token after comma"));
                     }
                 },
                 // Terminal conditon
                 Token::Rbracket => break,
                 // Got to EOF without closing
-                Token::Eof => return self.err("Unclosed multi-select"),
+                Token::Eof => return Err(self.err("Unclosed multi-select")),
                 _ => {}
             }
         }
@@ -420,6 +457,20 @@ mod test {
 
     #[test] fn parses_literal_token_test() {
         assert_eq!(parse("`\"foo\"`").unwrap(),
-                   Literal(Box::new(Json::String("foo".to_string()))))
+                   Literal(Json::String("foo".to_string())))
+    }
+
+    #[test] fn parses_multi_hash() {
+        let result = MultiHash(vec![
+            KeyValuePair {
+                key: Box::new(Literal(Json::String("foo".to_string()))),
+                value: Box::new(Identifier("bar".to_string()))
+            },
+            KeyValuePair {
+                key: Box::new(Literal(Json::String("baz".to_string()))),
+                value: Box::new(Identifier("bam".to_string()))
+            }
+        ]);
+        assert_eq!(parse("{foo: bar, baz: bam}").unwrap(), result);
     }
 }
