@@ -213,7 +213,7 @@ impl<'a> Parser<'a> {
                     return self.parse_multi_list();
                 }
                 try!(self.expect("Star"));
-                self.parse_wildcard_index()
+                self.parse_wildcard_index(CurrentNode)
             },
             _ => self.parse_multi_list()
         }
@@ -223,8 +223,11 @@ impl<'a> Parser<'a> {
     fn led_lbracket(&mut self, lhs: Ast) -> Result<Ast, ParseError> {
         try!(self.expect("Number|Colon|Star"));
         match self.token {
-            Token::Number(_, _) | Token::Colon => self.parse_array_index(),
-            _ => self.parse_wildcard_index()
+            Token::Number(_, _) | Token::Colon => {
+                Ok(Subexpr(Box::new(lhs),
+                           Box::new(try!(self.parse_array_index()))))
+            },
+            _ => self.parse_wildcard_index(lhs)
         }
     }
 
@@ -266,7 +269,7 @@ impl<'a> Parser<'a> {
     fn parse_kvp(&mut self) -> Result<KeyValuePair, ParseError> {
         match self.token.clone() {
             Token::Identifier(name, _) => {
-                self.expect("Colon");
+                try!(self.expect("Colon"));
                 self.advance();
                 Ok(KeyValuePair {
                     key: Box::new(Literal(Json::String(name))),
@@ -315,22 +318,22 @@ impl<'a> Parser<'a> {
     /// Parses the right hand side of a projection, using the given LBP to
     /// determine when to stop consuming tokens.
     fn projection_rhs(&mut self, lbp: usize) -> Result<Ast, ParseError> {
-        let lbp = self.token.lbp();
+        if self.token.lbp() < 10 {
+            return Ok(CurrentNode);
+        }
         match self.token {
             Token::Dot      => self.parse_dot(lbp),
             Token::Lbracket => self.expr(lbp),
             Token::Filter   => self.expr(lbp),
-            _ if lbp < 10   => Ok(CurrentNode),
             _               => Err(self.err("Syntax error found in projection"))
         }
     }
 
     /// Creates a projection for "[*]"
-    fn parse_wildcard_index(&mut self) -> Result<Ast, ParseError> {
+    fn parse_wildcard_index(&mut self, lhs: Ast) -> Result<Ast, ParseError> {
         try!(self.expect("Rbracket"));
-        let lhs = Box::new(CurrentNode);
         let rhs = try!(self.projection_rhs(Token::Star.lbp()));
-        Ok(ArrayProjection(lhs, Box::new(rhs)))
+        Ok(ArrayProjection(Box::new(lhs), Box::new(rhs)))
     }
 
     /// Creates a projection for "*"
