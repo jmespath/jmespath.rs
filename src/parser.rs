@@ -84,14 +84,11 @@ impl<'a> Parser<'a> {
     pub fn parse(&mut self) -> Result<Ast, ParseError> {
         let result = self.expr(0);
         let token = self.stream.next();
-        // After parsing the expression, we should have reached the end of the
-        // stream.
-        if result.is_err()
-        || token.is_none()
-        || token.unwrap() == Token::Eof {
+        // After parsing the expr, we should reach the end of the stream.
+        if result.is_err() || token.is_none() || token.unwrap() == Token::Eof {
             result
         } else {
-            return Err(self.err(&"Did not reach token stream EOF"));
+            Err(self.err(&"Did not reach token stream EOF"))
         }
     }
 
@@ -101,27 +98,22 @@ impl<'a> Parser<'a> {
     fn expect(&mut self, edible: &str) -> Result<Ast, ParseError> {
         self.advance();
         // Get the string name of the token.
-        let token_name = self.token.token_to_string();
-        if edible.contains(&token_name) {
-            return Ok(CurrentNode);
+        if edible.contains(&self.token.token_to_string()) {
+            Ok(CurrentNode)
+        } else {
+            Err(self.err(&format!("Expected one of the following tokens: {:?}", edible)))
         }
-        let msg = format!("Expected one of the following tokens: {:?}", edible);
-        Err(self.err(&msg))
     }
 
     /// Advances the cursor position, skipping any whitespace encountered.
     #[inline]
     fn advance(&mut self) {
-        self.pos += self.token.size();
         loop {
-            let tok = self.stream.next();
-            match tok {
+            self.pos += self.token.size();
+            match self.stream.next() {
                 None => break,
-                Some(Token::Whitespace) => self.pos += self.token.size(),
-                _ => {
-                    self.token = tok.unwrap();
-                    break
-                }
+                Some(Token::Whitespace) => continue,
+                tok @ _ => { self.token = tok.unwrap(); break }
             }
         }
     }
