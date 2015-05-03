@@ -130,7 +130,7 @@ impl<'a> Parser<'a> {
 
     /// Main parse function of the Pratt parser that parses while RBP < LBP
     pub fn expr(&mut self, rbp: usize) -> Result<Ast, ParseError> {
-        // Parse the NUD token.
+        // Parse the nud token.
         let mut left = match self.token.clone() {
             Token::At               => self.nud_at(),
             Token::Identifier(s, _) => self.nud_identifier(s),
@@ -141,10 +141,11 @@ impl<'a> Parser<'a> {
             Token::Lbrace           => self.nud_lbrace(),
             // Token::Ampersand        => self.nud_ampersand(),
             // Token::Filter           => self.nud_filter(),
-            _ => { return Err(self.err(&"Unexpected NUD token")); }
+            Token::Eof => return Err(self.err(&"Unexpected EOF")),
+            _ => return Err(self.err(&"Unexpected nud token"))
         };
 
-        // Parse any LED tokens with a higher binding power.
+        // Parse any led tokens with a higher binding power.
         while rbp < self.token.lbp() {
             left = match self.token {
                 Token::Dot      => self.led_dot(left.unwrap()),
@@ -152,7 +153,7 @@ impl<'a> Parser<'a> {
                 Token::Flatten  => self.led_flatten(left.unwrap()),
                 Token::Or       => self.led_or(left.unwrap()),
                 Token::Pipe     => self.led_pipe(left.unwrap()),
-                _ => { return Err(self.err(&"Unexpected LED token")); }
+                _ => return Err(self.err(&"Unexpected led token")),
             };
         }
 
@@ -167,8 +168,8 @@ impl<'a> Parser<'a> {
         ParseError {
             msg: format!("Error at {:?} token, {}: {}",
                          self.token, self.pos, msg),
-            col: line,
-            line: col
+            col: col,
+            line: line
         }
     }
 
@@ -220,25 +221,25 @@ impl<'a> Parser<'a> {
         self.parse_wildcard_values(CurrentNode)
     }
 
-    /// Examples: "[]". Turns it into a LED flatten (i.e., "@[]").
+    /// Examples: "[]". Turns it into a led flatten (i.e., "@[]").
     fn nud_flatten(&mut self) -> Result<Ast, ParseError> {
         self.led_flatten(CurrentNode)
     }
 
     /// Example "{foo: bar, baz: `12`}"
     fn nud_lbrace(&mut self) -> Result<Ast, ParseError> {
-        // Consume and skip the Lbrace token.
-        self.advance();
         let mut pairs = vec![];
         loop {
+            // Skip the opening brace and any encountered commas.
+            self.advance();
             // Requires at least on key value pair.
             pairs.push(try!(self.parse_kvp()));
             match self.token {
                 // Terminal condition is the Rbrace token "}".
                 Token::Rbrace => { self.advance(); break; },
                 // Skip commas as they are used to delineate kvps
-                Token::Comma  => { self.advance(); },
-                _ => { return Err(self.err("Expected Rbrace or Comma")); }
+                Token::Comma => continue,
+                _ => return Err(self.err("Expected Rbrace or Comma"))
             }
         }
         Ok(MultiHash(pairs))
@@ -338,7 +339,7 @@ impl<'a> Parser<'a> {
                     try!(self.expect("Colon|Rbracket"));
                 },
                 Token::Rbracket => { self.advance(); break; },
-                _ => { return Err(self.err("Unexpected token")); },
+                _ => return Err(self.err("Unexpected token")),
             }
         }
 
@@ -359,22 +360,11 @@ impl<'a> Parser<'a> {
         loop {
             nodes.push(Box::new(try!(self.expr(0))));
             match self.token {
-                // Skip comma tokens
-                Token::Comma => {
-                    self.advance();
-                    // The closing "Rbracket" token cannot follow a comma.
-                    if self.token.token_to_string() == "Rbracket" {
-                        return Err(self.err("Unexpected token after comma"));
-                    }
-                },
-                // Terminal conditon
+                Token::Comma    => self.advance(),
                 Token::Rbracket => break,
-                // Got to EOF without closing
-                Token::Eof => return Err(self.err("Unclosed multi-select")),
-                _ => {}
+                _               => continue,
             }
         }
-
         Ok(MultiList(nodes))
     }
 }
@@ -406,13 +396,27 @@ mod test {
     }
 
     #[test] fn ensures_nud_token_is_valid_test() {
-
+        let result = parse(",");
+        assert!(result.is_err());
+        assert!(result.err().unwrap().msg.contains("Unexpected nud token"));
     }
 
     #[test] fn multi_list_test() {
         let l = MultiList(vec![Box::new(Identifier("a".to_string())),
                                Box::new(Identifier("b".to_string()))]);
         assert_eq!(parse("[a, b]").unwrap(), l);
+    }
+
+    #[test] fn multi_list_unclosed() {
+        let result = parse("[a, b");
+        assert!(result.is_err());
+        assert!(result.err().unwrap().msg.contains("Unexpected EOF"));
+    }
+
+    #[test] fn multi_list_unclosed_after_comma() {
+        let result = parse("[a,");
+        assert!(result.is_err());
+        assert!(result.err().unwrap().msg.contains("Unexpected EOF"));
     }
 
     #[test] fn multi_list_after_dot_test() {
