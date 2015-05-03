@@ -20,7 +20,7 @@ pub enum Ast {
     CurrentNode,
     Expref(Box<Ast>),
     Flatten(Box<Ast>),
-    Function(char, Vec<Box<Ast>>),
+    Function(String, Vec<Box<Ast>>),
     Identifier(String),
     Index(i32),
     Literal(Json),
@@ -151,6 +151,7 @@ impl<'a> Parser<'a> {
                 Token::Flatten  => self.led_flatten(left.unwrap()),
                 Token::Or       => self.led_or(left.unwrap()),
                 Token::Pipe     => self.led_pipe(left.unwrap()),
+                Token::Lparen   => self.led_lparen(left.unwrap()),
                 _ => return Err(self.err(&"Unexpected led token")),
             };
         }
@@ -300,6 +301,16 @@ impl<'a> Parser<'a> {
         Ok(Or(Box::new(left), Box::new(rhs)))
     }
 
+    fn led_lparen(&mut self, lhs: Ast) -> Result<Ast, ParseError> {
+        let fname: String;
+        match lhs {
+            Identifier(v) => fname = v,
+            _ => return Err(self.err("Functions must be preceded by an identifier"))
+        }
+        self.advance();
+        Ok(Function(fname, try!(self.parse_list(Token::Rparen))))
+    }
+
     fn led_pipe(&mut self, left: Ast) -> Result<Ast, ParseError> {
         self.advance();
         let rhs = try!(self.expr(Token::Pipe.lbp()));
@@ -377,16 +388,23 @@ impl<'a> Parser<'a> {
 
     /// Parses multi-select lists (e.g., "[foo, bar, baz]")
     fn parse_multi_list(&mut self) -> Result<Ast, ParseError> {
-        let mut nodes = vec!();
+        Ok(MultiList(try!(self.parse_list(Token::Rbracket))))
+    }
+
+    /// Parse a comma separated list of expressions until a closing token or
+    /// error. This function is used for functions and multi-list parsing.
+    fn parse_list(&mut self, closing: Token) -> Result<Vec<Box<Ast>>, ParseError> {
+        let mut nodes = vec![];
         loop {
             nodes.push(Box::new(try!(self.expr(0))));
-            match self.token {
-                Token::Comma    => self.advance(),
-                Token::Rbracket => break,
-                _               => continue,
+            if self.token == closing {
+                break;
+            } else if self.token == Token::Comma {
+                self.advance();
             }
         }
-        Ok(MultiList(nodes))
+        self.advance();
+        Ok(nodes)
     }
 }
 
@@ -497,5 +515,11 @@ mod test {
             }
         ]);
         assert_eq!(parse("{foo: bar, baz: bam}").unwrap(), result);
+    }
+
+    #[test] fn parses_functions() {
+        assert_eq!(parse("length(a)").unwrap(),
+                   Function("length".to_string(),
+                            vec![Box::new(Identifier("a".to_string()))]));
     }
 }
