@@ -31,8 +31,6 @@ pub enum Ast {
     Or(Box<Ast>, Box<Ast>),
     Slice(Option<i32>, Option<i32>, Option<i32>),
     Subexpr(Box<Ast>, Box<Ast>),
-    WildcardIndex,
-    WildcardValues,
 }
 
 /// Represents a key value pair in a multi-hash
