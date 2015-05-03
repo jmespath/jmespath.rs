@@ -67,6 +67,15 @@ pub struct Parser<'a> {
     pos: usize,
 }
 
+fn inject_err_pointer(expr: &mut String, col: usize) {
+    expr.push('\n');
+    for _ in 0..col {
+        expr.push(' ');
+    }
+    expr.push('^');
+    expr.push('\n');
+}
+
 impl<'a> Parser<'a> {
     // Constructs a new lexer using the given expression string.
     pub fn new(expr: &'a str) -> Parser<'a> {
@@ -101,7 +110,7 @@ impl<'a> Parser<'a> {
         if edible.contains(&self.token.token_to_string()) {
             Ok(CurrentNode)
         } else {
-            Err(self.err(&format!("Expected one of the following tokens: {:?}", edible)))
+            Err(self.err(&format!("Expected {:?}", edible)))
         }
     }
 
@@ -131,7 +140,6 @@ impl<'a> Parser<'a> {
             Token::Lbrace           => self.nud_lbrace(),
             // Token::Ampersand        => self.nud_ampersand(),
             // Token::Filter           => self.nud_filter(),
-            Token::Eof => return Err(self.err(&"Unexpected EOF")),
             _ => return Err(self.err(&"Unexpected nud token"))
         };
 
@@ -153,11 +161,31 @@ impl<'a> Parser<'a> {
     /// Returns a formatted ParseError with the given message.
     fn err(&self, msg: &str) -> ParseError {
         // Find each new line and create a formatted error message.
-        let mut line = 0;
-        let mut col = self.pos;
+        let mut line: usize = 0;
+        let mut col: usize = 0;
+        let mut placed = false;
+        let mut expr = String::new();
+        // Determine the line and col, and create an array to the position.
+        for (pos, c) in self.expr.chars().enumerate() {
+            col += 1;
+            expr.push(c);
+            if c == '\n' {
+                line += 1;
+                if pos > self.pos && !placed {
+                    placed = true;
+                    inject_err_pointer(&mut expr, col);
+                }
+                col = 0;
+            }
+        }
+
+        if !placed {
+            inject_err_pointer(&mut expr, col);
+        }
+
         ParseError {
-            msg: format!("Error at {:?} token, {}: {}",
-                         self.token, self.pos, msg),
+            msg: format!("Unexpected \"{}\" at {}:{}, {}\n{}",
+                         self.token.token_to_string(), line, col, msg, expr),
             col: col,
             line: line
         }
@@ -400,13 +428,13 @@ mod test {
     #[test] fn multi_list_unclosed() {
         let result = parse("[a, b");
         assert!(result.is_err());
-        assert!(result.err().unwrap().msg.contains("Unexpected EOF"));
+        assert!(result.err().unwrap().msg.contains("Unexpected nud"));
     }
 
     #[test] fn multi_list_unclosed_after_comma() {
         let result = parse("[a,");
         assert!(result.is_err());
-        assert!(result.err().unwrap().msg.contains("Unexpected EOF"));
+        assert!(result.err().unwrap().msg.contains("Unexpected nud"));
     }
 
     #[test] fn multi_list_after_dot_test() {
