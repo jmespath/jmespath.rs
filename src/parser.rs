@@ -1,12 +1,14 @@
+//! JMESPath parser and AST
 extern crate rustc_serialize;
 
-pub use self::Ast::*;
+use std::iter::Peekable;
+use self::rustc_serialize::json::{Json};
 
 use lexer::Lexer;
 use lexer::Token;
-use self::rustc_serialize::json::{Json};
 
-use std::iter::Peekable;
+pub use self::Ast::*;
+
 
 /// Parses a JMESPath expression into an AST
 pub fn parse(expr: &str) -> Result<Ast, ParseError> {

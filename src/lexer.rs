@@ -1,13 +1,11 @@
 //! Lexer is an iterator that yields Token enums.
-
-pub use self::Token::*;
-
 extern crate rustc_serialize;
 
 use std::str::Chars;
 use std::iter::Peekable;
-
 use self::rustc_serialize::json::{Json};
+
+pub use self::Token::*;
 
 /// Tokenizes a JMESPath expression into a stream of tokens.
 pub fn tokenize(expr: &str) -> Lexer {
@@ -56,56 +54,54 @@ impl Token {
 
     /// Gets the string name of the token.
     pub fn token_to_string(&self) -> String {
-        match self {
-            &Identifier(_, _) => "Identifier".to_string(),
-            &Number(_, _)     => "Number".to_string(),
-            &Literal(_, _)    => "Literal".to_string(),
-            &Unknown(_)       => "Unknown".to_string(),
+        match *self {
+            Identifier(_, _) => "Identifier".to_string(),
+            Number(_, _)     => "Number".to_string(),
+            Literal(_, _)    => "Literal".to_string(),
+            Unknown(_)       => "Unknown".to_string(),
             _                 => format!("{:?}", self)
         }
     }
 
     /// Provides the left binding power of the token.
     pub fn lbp(&self) -> usize {
-        match self {
-            &Pipe     => 1,
-            &Eq       => 2,
-            &Gt       => 2,
-            &Lt       => 2,
-            &Gte      => 2,
-            &Lte      => 2,
-            &Ne       => 2,
-            &Or       => 5,
-            &Flatten  => 6,
-            &Star     => 20,
-            &Filter   => 20,
-            &Dot      => 40,
-            &Lbrace   => 50,
-            &Lbracket => 55,
-            &Lparen   => 60,
+        match *self {
+            Pipe     => 1,
+            Eq       => 2,
+            Gt       => 2,
+            Lt       => 2,
+            Gte      => 2,
+            Lte      => 2,
+            Ne       => 2,
+            Or       => 5,
+            Flatten  => 6,
+            Star     => 20,
+            Filter   => 20,
+            Dot      => 40,
+            Lbrace   => 50,
+            Lbracket => 55,
+            Lparen   => 60,
             _         => 0,
         }
     }
 
     /// Provides the lexeme length of a token.
     pub fn size(&self) -> usize {
-        match self {
-            &Identifier(_, len) => len,
-            &Number(_, len)     => len,
-            &Literal(_, len)    => len,
-            &Unknown(ref s)     => s.len(),
-            &Flatten | &Filter  => 2,
-            &Eof                => 0,
-            _                   => 1,
+        match *self {
+            Identifier(_, len) => len,
+            Number(_, len)     => len,
+            Literal(_, len)    => len,
+            Unknown(ref s)     => s.len(),
+            Filter             => 2,
+            Flatten            => 2,
+            Eof                => 0,
+            _                  => 1,
         }
     }
 
     /// Returns `true` if the token is a whitespace token.
     pub fn is_whitespace(&self) -> bool {
-        match self {
-            &Whitespace => true,
-            _           => false
-        }
+        return *self == Whitespace;
     }
 }
 
