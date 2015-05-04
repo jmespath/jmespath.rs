@@ -4,47 +4,14 @@ extern crate rustc_serialize;
 use std::iter::Peekable;
 use self::rustc_serialize::json::{Json};
 
+use ast::*;
 use lexer::Lexer;
 use lexer::Token;
-
-pub use self::Ast::*;
-
 
 /// Parses a JMESPath expression into an AST
 pub fn parse(expr: &str) -> Result<Ast, ParseError> {
     Parser::new(expr).parse()
 }
-
-/// Represents the abstract syntax tree of a JMESPath expression.
-#[derive(Clone, PartialEq, Debug)]
-pub enum Ast {
-    Comparison(Comparator, Box<Ast>, Box<Ast>),
-    CurrentNode,
-    Expref(Box<Ast>),
-    Flatten(Box<Ast>),
-    Function(String, Vec<Box<Ast>>),
-    Identifier(String),
-    Index(i32),
-    Literal(Json),
-    MultiList(Vec<Box<Ast>>),
-    MultiHash(Vec<KeyValuePair>),
-    ArrayProjection(Box<Ast>, Box<Ast>),
-    ObjectProjection(Box<Ast>, Box<Ast>),
-    Or(Box<Ast>, Box<Ast>),
-    Slice(Option<i32>, Option<i32>, Option<i32>),
-    Subexpr(Box<Ast>, Box<Ast>),
-}
-
-/// Represents a key value pair in a multi-hash
-#[derive(Clone, PartialEq, Debug)]
-pub struct KeyValuePair {
-    key: Box<Ast>,
-    value: Box<Ast>
-}
-
-/// Comparators (i.e., less than, greater than, etc.)
-#[derive(Clone, PartialEq, Debug)]
-pub enum Comparator { Eq, Lt, Le, Ne, Ge, Gt }
 
 /// Encountered when an invalid JMESPath expression is parsed.
 #[derive(Clone, PartialEq, Debug)]
@@ -204,13 +171,13 @@ impl<'a> Parser<'a> {
     /// Examples: "@"
     fn nud_at(&mut self) -> Result<Ast, ParseError> {
         self.advance();
-        Ok(CurrentNode)
+        Ok(Ast::CurrentNode)
     }
 
     /// Examples: "Foo"
     fn nud_identifier(&mut self, s: String) -> Result<Ast, ParseError> {
         self.advance();
-        Ok(Identifier(s))
+        Ok(Ast::Identifier(s))
     }
 
     /// Examples: "[0]", "[*]", "[a, b]", "[0:1]", etc...
@@ -234,8 +201,8 @@ impl<'a> Parser<'a> {
         try!(self.expect("Number|Colon|Star"));
         match self.token {
             Token::Number(_, _) | Token::Colon => {
-                Ok(Subexpr(Box::new(lhs),
-                           Box::new(try!(self.parse_array_index()))))
+                Ok(Ast::Subexpr(Box::new(lhs),
+                                Box::new(try!(self.parse_array_index()))))
             },
             _ => self.parse_wildcard_index(lhs)
         }
@@ -243,18 +210,18 @@ impl<'a> Parser<'a> {
 
     fn nud_literal(&mut self, value: Json) -> Result<Ast, ParseError> {
         self.advance();
-        Ok(Literal(value))
+        Ok(Ast::Literal(value))
     }
 
     /// Examples: "*" (e.g., "* | *" would be a pipe containing two nud stars)
     fn nud_star(&mut self) -> Result<Ast, ParseError> {
         self.advance();
-        self.parse_wildcard_values(CurrentNode)
+        self.parse_wildcard_values(Ast::CurrentNode)
     }
 
     /// Examples: "[]". Turns it into a led flatten (i.e., "@[]").
     fn nud_flatten(&mut self) -> Result<Ast, ParseError> {
-        self.led_flatten(CurrentNode)
+        self.led_flatten(Ast::CurrentNode)
     }
 
     /// Example "{foo: bar, baz: `12`}"
@@ -273,7 +240,7 @@ impl<'a> Parser<'a> {
                 _ => return Err(self.err("Expected Rbrace or Comma"))
             }
         }
-        Ok(MultiHash(pairs))
+        Ok(Ast::MultiHash(pairs))
     }
 
     fn parse_kvp(&mut self) -> Result<KeyValuePair, ParseError> {
@@ -282,7 +249,7 @@ impl<'a> Parser<'a> {
                 try!(self.expect("Colon"));
                 self.advance();
                 Ok(KeyValuePair {
-                    key: Box::new(Literal(Json::String(name))),
+                    key: Box::new(Ast::Literal(Json::String(name))),
                     value: Box::new(try!(self.expr(0)))
                 })
             },
@@ -293,8 +260,8 @@ impl<'a> Parser<'a> {
     /// Creates a Projection AST node for a flatten token.
     fn led_flatten(&mut self, lhs: Ast) -> Result<Ast, ParseError> {
         let rhs = try!(self.projection_rhs(Token::Flatten.lbp()));
-        Ok(ArrayProjection(
-            Box::new(Flatten(Box::new(lhs))),
+        Ok(Ast::ArrayProjection(
+            Box::new(Ast::Flatten(Box::new(lhs))),
             Box::new(rhs)
         ))
     }
@@ -307,23 +274,23 @@ impl<'a> Parser<'a> {
     fn led_or(&mut self, left: Ast) -> Result<Ast, ParseError> {
         self.advance();
         let rhs = try!(self.expr(Token::Or.lbp()));
-        Ok(Or(Box::new(left), Box::new(rhs)))
+        Ok(Ast::Or(Box::new(left), Box::new(rhs)))
     }
 
     fn led_lparen(&mut self, lhs: Ast) -> Result<Ast, ParseError> {
         let fname: String;
         match lhs {
-            Identifier(v) => fname = v,
+            Ast::Identifier(v) => fname = v,
             _ => return Err(self.err("Functions must be preceded by an identifier"))
         }
         self.advance();
-        Ok(Function(fname, try!(self.parse_list(Token::Rparen))))
+        Ok(Ast::Function(fname, try!(self.parse_list(Token::Rparen))))
     }
 
     fn led_pipe(&mut self, left: Ast) -> Result<Ast, ParseError> {
         self.advance();
         let rhs = try!(self.expr(Token::Pipe.lbp()));
-        Ok(Subexpr(Box::new(left), Box::new(rhs)))
+        Ok(Ast::Subexpr(Box::new(left), Box::new(rhs)))
     }
 
     /// Parses the right hand side of a dot expression.
@@ -353,13 +320,13 @@ impl<'a> Parser<'a> {
     fn parse_wildcard_index(&mut self, lhs: Ast) -> Result<Ast, ParseError> {
         try!(self.expect("Rbracket"));
         let rhs = try!(self.projection_rhs(Token::Star.lbp()));
-        Ok(ArrayProjection(Box::new(lhs), Box::new(rhs)))
+        Ok(Ast::ArrayProjection(Box::new(lhs), Box::new(rhs)))
     }
 
     /// Creates a projection for "*"
     fn parse_wildcard_values(&mut self, lhs: Ast) -> Result<Ast, ParseError> {
         let rhs = try!(self.projection_rhs(Token::Star.lbp()));
-        Ok(ObjectProjection(Box::new(lhs), Box::new(rhs)))
+        Ok(Ast::ObjectProjection(Box::new(lhs), Box::new(rhs)))
     }
 
     /// Parses [0], [::-1], [0:-1], [0:1], etc...
@@ -386,18 +353,18 @@ impl<'a> Parser<'a> {
 
         if pos == 0 {
             // No colons were found, so this is a simple index extraction.
-            Ok(Index(parts[0].unwrap()))
+            Ok(Ast::Index(parts[0].unwrap()))
         } else {
             // Sliced array from start (e.g., [2:])
-            let lhs = Slice(parts[0], parts[1], parts[2]);
+            let lhs = Ast::Slice(parts[0], parts[1], parts[2]);
             let rhs = try!(self.projection_rhs(Token::Star.lbp()));
-            Ok(ArrayProjection(Box::new(lhs), Box::new(rhs)))
+            Ok(Ast::ArrayProjection(Box::new(lhs), Box::new(rhs)))
         }
     }
 
     /// Parses multi-select lists (e.g., "[foo, bar, baz]")
     fn parse_multi_list(&mut self) -> Result<Ast, ParseError> {
-        Ok(MultiList(try!(self.parse_list(Token::Rbracket))))
+        Ok(Ast::MultiList(try!(self.parse_list(Token::Rbracket))))
     }
 
     /// Parse a comma separated list of expressions until a closing token or
@@ -420,27 +387,29 @@ impl<'a> Parser<'a> {
 #[cfg(test)]
 mod test {
     extern crate rustc_serialize;
-
     use super::*;
+    use ast::*;
     use self::rustc_serialize::json::{Json};
 
     #[test] fn indentifier_test() {
-        assert_eq!(parse("foo").unwrap(), Identifier("foo".to_string()));
+        assert_eq!(parse("foo").unwrap(),
+                   Ast::Identifier("foo".to_string()));
     }
 
     #[test] fn current_node_test() {
-        assert_eq!(parse("@").unwrap(), CurrentNode);
+        assert_eq!(parse("@").unwrap(), Ast::CurrentNode);
     }
 
     #[test] fn wildcard_values_test() {
         assert_eq!(parse("*").unwrap(),
-                   ObjectProjection(Box::new(CurrentNode),
-                                    Box::new(CurrentNode)));
+                   Ast::ObjectProjection(Box::new(Ast::CurrentNode),
+                                         Box::new(Ast::CurrentNode)));
     }
 
     #[test] fn dot_test() {
-        assert!(parse("@.b").unwrap() == Subexpr(Box::new(CurrentNode),
-                                                 Box::new(Identifier("b".to_string()))));
+        assert_eq!(parse("@.b").unwrap(),
+                  Ast::Subexpr(Box::new(Ast::CurrentNode),
+                               ident(&"b")));
     }
 
     #[test] fn ensures_nud_token_is_valid_test() {
@@ -450,8 +419,7 @@ mod test {
     }
 
     #[test] fn multi_list_test() {
-        let l = MultiList(vec![Box::new(Identifier("a".to_string())),
-                               Box::new(Identifier("b".to_string()))]);
+        let l = MultiList(vec![ident(&"a"), ident(&"b")]);
         assert_eq!(parse("[a, b]").unwrap(), l);
     }
 
@@ -468,72 +436,74 @@ mod test {
     }
 
     #[test] fn multi_list_after_dot_test() {
-        let l = MultiList(vec![Box::new(Identifier("a".to_string())),
-                               Box::new(Identifier("b".to_string()))]);
-        assert_eq!(parse("@.[a, b]").unwrap(), Subexpr(Box::new(CurrentNode), Box::new(l)));
+        let l = Ast::MultiList(vec![ident(&"a"), ident(&"b")]);
+        assert_eq!(parse("@.[a, b]").unwrap(),
+                   Ast::Subexpr(Box::new(Ast::CurrentNode),
+                                Box::new(l)));
     }
 
     #[test] fn parses_simple_index_extractions_test() {
-        assert_eq!(parse("[0]").unwrap(), Index(0));
+        assert_eq!(parse("[0]").unwrap(), Ast::Index(0));
     }
 
     #[test] fn parses_single_element_slice_test() {
         assert_eq!(parse("[-1:]").unwrap(),
-                   ArrayProjection(Box::new(Slice(Some(-1), None, None)),
-                                   Box::new(CurrentNode)));
+                   Ast::ArrayProjection(Box::new(Ast::Slice(Some(-1), None, None)),
+                                        Box::new(Ast::CurrentNode)));
     }
 
     #[test] fn parses_double_element_slice_test() {
         assert_eq!(parse("[1:-1].a").unwrap(),
-                   ArrayProjection(Box::new(Slice(Some(1), Some(-1), None)),
-                                   Box::new(Identifier("a".to_string()))));
+                   Ast::ArrayProjection(Box::new(Ast::Slice(Some(1), Some(-1), None)),
+                                        ident(&"a")));
     }
 
     #[test] fn parses_revese_slice_test() {
         assert_eq!(parse("[::-1].a").unwrap(),
-                   ArrayProjection(Box::new(Slice(None, None, Some(-1))),
-                                   Box::new(Identifier("a".to_string()))));
+                   Ast::ArrayProjection(Box::new(Ast::Slice(None, None, Some(-1))),
+                                        ident(&"a")));
     }
 
     #[test] fn parses_or_test() {
-        assert_eq!(parse("a || b").unwrap(),
-                   Or(Box::new(Identifier("a".to_string())),
-                      Box::new(Identifier("b".to_string()))));
+        let result = Ast::Or(ident(&"a"), ident(&"b"));
+        assert_eq!(parse("a || b").unwrap(), result);
     }
 
     #[test] fn parses_pipe_test() {
-        assert_eq!(parse("a | b").unwrap(),
-                   Subexpr(Box::new(Identifier("a".to_string())),
-                      Box::new(Identifier("b".to_string()))));
+        let result = Ast::Subexpr(ident(&"a"), ident(&"b"));
+        assert_eq!(parse("a | b").unwrap(), result);
     }
 
     #[test] fn parses_literal_token_test() {
         assert_eq!(parse("`\"foo\"`").unwrap(),
-                   Literal(Json::String("foo".to_string())))
+                   Ast::Literal(Json::String("foo".to_string())))
     }
 
     #[test] fn parses_multi_hash() {
         let result = MultiHash(vec![
             KeyValuePair {
-                key: Box::new(Literal(Json::String("foo".to_string()))),
-                value: Box::new(Identifier("bar".to_string()))
+                key: Box::new(Ast::Literal(Json::String("foo".to_string()))),
+                value: ident(&"bar")
             },
             KeyValuePair {
-                key: Box::new(Literal(Json::String("baz".to_string()))),
-                value: Box::new(Identifier("bam".to_string()))
+                key: Box::new(Ast::Literal(Json::String("baz".to_string()))),
+                value: ident(&"bam")
             }
         ]);
         assert_eq!(parse("{foo: bar, baz: bam}").unwrap(), result);
     }
 
     #[test] fn parses_functions() {
-        assert_eq!(parse("length(a)").unwrap(),
-                   Function("length".to_string(),
-                            vec![Box::new(Identifier("a".to_string()))]));
+        let r = Ast::Function("length".to_string(), vec![ident(&"a")]);
+        assert_eq!(parse("length(a)").unwrap(), r);
     }
 
     #[test] fn parses_expref() {
-        assert_eq!(parse("&foo").unwrap(),
-                   Expref(Box::new(Identifier("foo".to_string()))));
+        let result = Ast::Expref(ident(&"foo"));
+        assert_eq!(parse("&foo").unwrap(), result);
+    }
+
+    fn ident(name: &str) -> Box<Ast> {
+        Box::new(Ast::Identifier(name.to_string()))
     }
 }

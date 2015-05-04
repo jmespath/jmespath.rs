@@ -142,13 +142,23 @@ impl<'a> Lexer<'a> {
     }
 
     // Consumes from the char iterator while the predicate function returns
-    // true. Returns a string buffer of the consumed characters.
+    // true and there are peekable tokens. Returns a string buffer of the
+    /// consumed characters.
     #[inline]
     fn consume_while<F>(&mut self, predicate: F) -> String
         where F: Fn(char) -> bool {
         let mut buffer = self.iter.next().unwrap().to_string();
-        while predicate(*self.iter.peek().unwrap_or(&'ε')) {
-            buffer.push(self.iter.next().unwrap());
+        loop {
+            match self.iter.peek() {
+                None => break,
+                Some(&c) => {
+                    if !predicate(c) {
+                        break;
+                    } else {
+                        buffer.push(self.iter.next().unwrap());
+                    }
+                }
+            }
         }
         buffer
     }
@@ -157,7 +167,10 @@ impl<'a> Lexer<'a> {
     #[inline]
     fn consume_identifier(&mut self) -> Token {
         let lexeme = self.consume_while(|c| {
-            match c { 'a' ... 'z' | 'A' ... 'Z' | '_' | '0' ... '9' => true, _ => false }
+            match c {
+                'a' ... 'z' | 'A' ... 'Z' | '_' | '0' ... '9' => true,
+                _ => false
+            }
         });
         let len = lexeme.len();
         Identifier(lexeme, len)
