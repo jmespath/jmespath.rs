@@ -279,40 +279,44 @@ impl<'a> Iterator for Lexer<'a> {
         macro_rules! tok {
             ($x:expr) => {{ self.iter.next(); Some($x) }};
         }
-        match *self.iter.peek().unwrap_or(&'ε') {
-            '.' => tok!(Dot),
-            '*' => tok!(Star),
-            '|' => tok!(self.consume_pipe()),
-            '@' => tok!(At),
-            '[' => tok!(self.consume_lbracket()),
-            ']' => tok!(Rbracket),
-            '{' => tok!(Lbrace),
-            '}' => tok!(Rbrace),
-            '&' => tok!(Ampersand),
-            '(' => tok!(Lparen),
-            ')' => tok!(Rparen),
-            ',' => tok!(Comma),
-            ':' => tok!(Colon),
-            '>' => tok!(self.consume_gt_lt(Gte, Gt)),
-            '<' => tok!(self.consume_gt_lt(Lte, Lt)),
-            '=' => tok!(self.consume_eq()),
-            '!' => tok!(self.consume_ne()),
-            ' ' | '\n' | '\t' | '\r' => tok!(Whitespace),
-            'a' ... 'z' | 'A' ... 'Z' | '_' => Some(self.consume_identifier()),
-            '0' ... '9' => Some(self.consume_number(false)),
-            '-' => Some(self.consume_negative_number()),
-            '"' => Some(self.consume_quoted_identifier()),
-            '\'' => Some(self.consume_raw_string()),
-            '`' => Some(self.consume_literal()),
-            'ε' => {
+        match self.iter.peek() {
+            Some(&c) => {
+                match c {
+                    '.' => tok!(Dot),
+                    '*' => tok!(Star),
+                    '|' => tok!(self.consume_pipe()),
+                    '@' => tok!(At),
+                    '[' => tok!(self.consume_lbracket()),
+                    ']' => tok!(Rbracket),
+                    '{' => tok!(Lbrace),
+                    '}' => tok!(Rbrace),
+                    '&' => tok!(Ampersand),
+                    '(' => tok!(Lparen),
+                    ')' => tok!(Rparen),
+                    ',' => tok!(Comma),
+                    ':' => tok!(Colon),
+                    '>' => tok!(self.consume_gt_lt(Gte, Gt)),
+                    '<' => tok!(self.consume_gt_lt(Lte, Lt)),
+                    '=' => tok!(self.consume_eq()),
+                    '!' => tok!(self.consume_ne()),
+                    ' ' | '\n' | '\t' | '\r' => tok!(Whitespace),
+                    'a' ... 'z' | 'A' ... 'Z' | '_' => Some(self.consume_identifier()),
+                    '0' ... '9' => Some(self.consume_number(false)),
+                    '-' => Some(self.consume_negative_number()),
+                    '"' => Some(self.consume_quoted_identifier()),
+                    '\'' => Some(self.consume_raw_string()),
+                    '`' => Some(self.consume_literal()),
+                    _ => tok!(Unknown(c.to_string()))
+                }
+            },
+            None => {
                 if self.sent_eof {
                     None
                 } else {
                     self.sent_eof = true;
                     Some(Eof)
                 }
-            },
-            c @ _ => tok!(Unknown(c.to_string()))
+            }
         }
     }
 }
