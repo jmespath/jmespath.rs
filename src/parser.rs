@@ -24,6 +24,48 @@ pub struct ParseError {
     col: usize,
 }
 
+impl ParseError {
+    pub fn new(expr: &str, pos: usize, msg: &str) -> ParseError {
+        // Find each new line and create a formatted error message.
+        let mut line: usize = 0;
+        let mut col: usize = 0;
+        let mut buff = String::new();
+        let mut placed = false;
+        // Determine the line and col, and create an array to the position.
+        for (i, c) in expr.chars().enumerate() {
+            col += 1;
+            buff.push(c);
+            if c == '\n' {
+                if i > pos && !placed {
+                    placed = true;
+                    ParseError::inject_err_pointer(&mut buff, col);
+                }
+                line += 1;
+                col = 0;
+            }
+        }
+
+        if !placed {
+            ParseError::inject_err_pointer(&mut buff, col);
+        }
+
+        ParseError {
+            msg: format!("Parse error at line {}, col {}; {}\n{}", line, col, msg, expr),
+            line: line,
+            col: col
+        }
+    }
+
+    fn inject_err_pointer(buff: &mut String, col: usize) {
+        buff.push('\n');
+        for _ in 0..col {
+            buff.push(' ');
+        }
+        buff.push('^');
+        buff.push('\n');
+    }
+}
+
 /// JMESPath parser. Returns an Ast
 pub struct Parser<'a> {
     /// Peekable token stream
@@ -34,15 +76,6 @@ pub struct Parser<'a> {
     token: Token,
     /// The current character offset in the expression
     pos: usize,
-}
-
-fn inject_err_pointer(expr: &mut String, col: usize) {
-    expr.push('\n');
-    for _ in 0..col {
-        expr.push(' ');
-    }
-    expr.push('^');
-    expr.push('\n');
 }
 
 impl<'a> Parser<'a> {
@@ -109,7 +142,7 @@ impl<'a> Parser<'a> {
             Token::Lbrace           => self.nud_lbrace(),
             Token::Ampersand        => self.nud_ampersand(),
             // Token::Filter           => self.nud_filter(),
-            _ => return Err(self.err(&"Unexpected nud token"))
+            _ => return Err(self.token_err()),
         };
 
         // Parse any led tokens with a higher binding power.
@@ -121,7 +154,7 @@ impl<'a> Parser<'a> {
                 Token::Or       => self.led_or(left.unwrap()),
                 Token::Pipe     => self.led_pipe(left.unwrap()),
                 Token::Lparen   => self.led_lparen(left.unwrap()),
-                _ => return Err(self.err(&"Unexpected led token")),
+                _ => return Err(self.token_err()),
             };
         }
 
@@ -130,35 +163,12 @@ impl<'a> Parser<'a> {
 
     /// Returns a formatted ParseError with the given message.
     fn err(&self, msg: &str) -> ParseError {
-        // Find each new line and create a formatted error message.
-        let mut line: usize = 0;
-        let mut col: usize = 0;
-        let mut placed = false;
-        let mut expr = String::new();
-        // Determine the line and col, and create an array to the position.
-        for (pos, c) in self.expr.chars().enumerate() {
-            col += 1;
-            expr.push(c);
-            if c == '\n' {
-                line += 1;
-                if pos > self.pos && !placed {
-                    placed = true;
-                    inject_err_pointer(&mut expr, col);
-                }
-                col = 0;
-            }
-        }
+        ParseError::new(&self.expr, self.pos, msg)
+    }
 
-        if !placed {
-            inject_err_pointer(&mut expr, col);
-        }
-
-        ParseError {
-            msg: format!("Unexpected \"{}\" at {}:{}, {}\n{}",
-                         self.token.token_to_string(), line, col, msg, expr),
-            col: col,
-            line: line
-        }
+    /// Generates a formatted parse error for an out of place token.
+    fn token_err(&self) -> ParseError {
+        self.err(&format!("Unexpected token: {:?}", self.token))
     }
 
     /// Examples: &foo
@@ -237,7 +247,7 @@ impl<'a> Parser<'a> {
                 Token::Rbrace => { self.advance(); break; },
                 // Skip commas as they are used to delineate kvps
                 Token::Comma => continue,
-                _ => return Err(self.err("Expected Rbrace or Comma"))
+                _ => return Err(self.err("Expected '}' or ','"))
             }
         }
         Ok(Ast::MultiHash(pairs))
@@ -312,7 +322,7 @@ impl<'a> Parser<'a> {
             Token::Dot      => self.parse_dot(lbp),
             Token::Lbracket => self.expr(lbp),
             Token::Filter   => self.expr(lbp),
-            _               => Err(self.err("Syntax error found in projection"))
+            _               => Err(self.token_err())
         }
     }
 
@@ -347,7 +357,7 @@ impl<'a> Parser<'a> {
                     try!(self.expect("Colon|Rbracket"));
                 },
                 Token::Rbracket => { self.advance(); break; },
-                _ => return Err(self.err("Unexpected token")),
+                _ => return Err(self.token_err()),
             }
         }
 
@@ -415,7 +425,7 @@ mod test {
     #[test] fn ensures_nud_token_is_valid_test() {
         let result = parse(",");
         assert!(result.is_err());
-        assert!(result.err().unwrap().msg.contains("Unexpected nud token"));
+        assert!(result.err().unwrap().msg.contains("Unexpected token: Comma"));
     }
 
     #[test] fn multi_list_test() {
@@ -426,13 +436,13 @@ mod test {
     #[test] fn multi_list_unclosed() {
         let result = parse("[a, b");
         assert!(result.is_err());
-        assert!(result.err().unwrap().msg.contains("Unexpected nud"));
+        assert!(result.err().unwrap().msg.contains("Unexpected token"));
     }
 
     #[test] fn multi_list_unclosed_after_comma() {
         let result = parse("[a,");
         assert!(result.is_err());
-        assert!(result.err().unwrap().msg.contains("Unexpected nud"));
+        assert!(result.err().unwrap().msg.contains("Unexpected token"));
     }
 
     #[test] fn multi_list_after_dot_test() {
