@@ -138,7 +138,7 @@ impl<'a> Parser<'a> {
             Token::Flatten          => self.nud_flatten(),
             Token::Literal(v, _)    => self.nud_literal(v),
             Token::Lbrace           => self.nud_lbrace(),
-            // Token::Ampersand        => self.nud_ampersand(),
+            Token::Ampersand        => self.nud_ampersand(),
             // Token::Filter           => self.nud_filter(),
             _ => return Err(self.err(&"Unexpected nud token"))
         };
@@ -190,6 +190,13 @@ impl<'a> Parser<'a> {
             col: col,
             line: line
         }
+    }
+
+    /// Examples: &foo
+    fn nud_ampersand(&mut self) -> Result<Ast, ParseError> {
+        self.advance();
+        let rhs = try!(self.expr(Token::Ampersand.lbp()));
+        Ok(Expref(Box::new(rhs)))
     }
 
     /// Examples: "@"
@@ -521,5 +528,10 @@ mod test {
         assert_eq!(parse("length(a)").unwrap(),
                    Function("length".to_string(),
                             vec![Box::new(Identifier("a".to_string()))]));
+    }
+
+    #[test] fn parses_expref() {
+        assert_eq!(parse("&foo").unwrap(),
+                   Expref(Box::new(Identifier("foo".to_string()))));
     }
 }
