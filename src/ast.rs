@@ -12,11 +12,11 @@ pub enum Ast {
     CurrentNode,
     Expref(Box<Ast>),
     Flatten(Box<Ast>),
-    Function(String, Vec<Box<Ast>>),
+    Function(String, Vec<Ast>),
     Identifier(String),
     Index(i32),
     Literal(Json),
-    MultiList(Vec<Box<Ast>>),
+    MultiList(Vec<Ast>),
     MultiHash(Vec<KeyValuePair>),
     ArrayProjection(Box<Ast>, Box<Ast>),
     ObjectProjection(Box<Ast>, Box<Ast>),
@@ -28,8 +28,8 @@ pub enum Ast {
 /// Represents a key value pair in a multi-hash
 #[derive(Clone, PartialEq, Debug)]
 pub struct KeyValuePair {
-    pub key: Box<Ast>,
-    pub value: Box<Ast>
+    pub key: Ast,
+    pub value: Ast
 }
 
 /// Comparators (i.e., less than, greater than, etc.)

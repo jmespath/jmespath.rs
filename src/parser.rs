@@ -259,8 +259,8 @@ impl<'a> Parser<'a> {
                 try!(self.expect("Colon"));
                 self.advance();
                 Ok(KeyValuePair {
-                    key: Box::new(Ast::Literal(Json::String(name))),
-                    value: Box::new(try!(self.expr(0)))
+                    key: Ast::Literal(Json::String(name)),
+                    value: try!(self.expr(0))
                 })
             },
             _ => Err(self.err("Expected Identifier to start key value pair"))
@@ -379,10 +379,10 @@ impl<'a> Parser<'a> {
 
     /// Parse a comma separated list of expressions until a closing token or
     /// error. This function is used for functions and multi-list parsing.
-    fn parse_list(&mut self, closing: Token) -> Result<Vec<Box<Ast>>, ParseError> {
+    fn parse_list(&mut self, closing: Token) -> Result<Vec<Ast>, ParseError> {
         let mut nodes = vec![];
         loop {
-            nodes.push(Box::new(try!(self.expr(0))));
+            nodes.push(try!(self.expr(0)));
             if self.token == closing {
                 break;
             } else if self.token == Token::Comma {
@@ -419,7 +419,7 @@ mod test {
     #[test] fn dot_test() {
         assert_eq!(parse("@.b").unwrap(),
                   Ast::Subexpr(Box::new(Ast::CurrentNode),
-                               ident(&"b")));
+                               bident(&"b")));
     }
 
     #[test] fn ensures_nud_token_is_valid_test() {
@@ -465,22 +465,22 @@ mod test {
     #[test] fn parses_double_element_slice_test() {
         assert_eq!(parse("[1:-1].a").unwrap(),
                    Ast::ArrayProjection(Box::new(Ast::Slice(Some(1), Some(-1), None)),
-                                        ident(&"a")));
+                                        bident(&"a")));
     }
 
     #[test] fn parses_revese_slice_test() {
         assert_eq!(parse("[::-1].a").unwrap(),
                    Ast::ArrayProjection(Box::new(Ast::Slice(None, None, Some(-1))),
-                                        ident(&"a")));
+                                        bident(&"a")));
     }
 
     #[test] fn parses_or_test() {
-        let result = Ast::Or(ident(&"a"), ident(&"b"));
+        let result = Ast::Or(bident(&"a"), bident(&"b"));
         assert_eq!(parse("a || b").unwrap(), result);
     }
 
     #[test] fn parses_pipe_test() {
-        let result = Ast::Subexpr(ident(&"a"), ident(&"b"));
+        let result = Ast::Subexpr(bident(&"a"), bident(&"b"));
         assert_eq!(parse("a | b").unwrap(), result);
     }
 
@@ -492,11 +492,11 @@ mod test {
     #[test] fn parses_multi_hash() {
         let result = MultiHash(vec![
             KeyValuePair {
-                key: Box::new(Ast::Literal(Json::String("foo".to_string()))),
+                key: Ast::Literal(Json::String("foo".to_string())),
                 value: ident(&"bar")
             },
             KeyValuePair {
-                key: Box::new(Ast::Literal(Json::String("baz".to_string()))),
+                key: Ast::Literal(Json::String("baz".to_string())),
                 value: ident(&"bam")
             }
         ]);
@@ -509,11 +509,15 @@ mod test {
     }
 
     #[test] fn parses_expref() {
-        let result = Ast::Expref(ident(&"foo"));
+        let result = Ast::Expref(bident(&"foo"));
         assert_eq!(parse("&foo").unwrap(), result);
     }
 
-    fn ident(name: &str) -> Box<Ast> {
-        Box::new(Ast::Identifier(name.to_string()))
+    fn bident(name: &str) -> Box<Ast> {
+        Box::new(ident(name))
+    }
+
+    fn ident(name: &str) -> Ast {
+        Ast::Identifier(name.to_string())
     }
 }
