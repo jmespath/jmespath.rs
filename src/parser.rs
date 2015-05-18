@@ -24,6 +24,15 @@ pub struct ParseError {
     col: usize,
 }
 
+fn inject_err_pointer(buff: &mut String, col: usize) {
+    buff.push('\n');
+    for _ in 0..col {
+        buff.push(' ');
+    }
+    buff.push('^');
+    buff.push('\n');
+}
+
 impl ParseError {
     pub fn new(expr: &str, pos: usize, msg: &str) -> ParseError {
         // Find each new line and create a formatted error message.
@@ -38,7 +47,7 @@ impl ParseError {
             if c == '\n' {
                 if i > pos && !placed {
                     placed = true;
-                    ParseError::inject_err_pointer(&mut buff, col);
+                    inject_err_pointer(&mut buff, col);
                 }
                 line += 1;
                 col = 0;
@@ -46,7 +55,7 @@ impl ParseError {
         }
 
         if !placed {
-            ParseError::inject_err_pointer(&mut buff, col);
+            inject_err_pointer(&mut buff, col);
         }
 
         ParseError {
@@ -54,15 +63,6 @@ impl ParseError {
             line: line,
             col: col
         }
-    }
-
-    fn inject_err_pointer(buff: &mut String, col: usize) {
-        buff.push('\n');
-        for _ in 0..col {
-            buff.push(' ');
-        }
-        buff.push('^');
-        buff.push('\n');
     }
 }
 
