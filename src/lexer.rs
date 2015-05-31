@@ -132,15 +132,6 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    // Consumes "|" and "||"
-    fn consume_pipe(&mut self) -> Token {
-        match *self.iter.peek().unwrap_or(&'ε') {
-            // Consume and skip the next pipe character.
-            '|' => { self.iter.next(); Or },
-            _ => Pipe
-        }
-    }
-
     // Consumes from the char iterator while the predicate function returns
     // true and there are peekable tokens. Returns a string buffer of the
     /// consumed characters.
@@ -264,24 +255,13 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn consume_gt_lt(&mut self, a: Token, b: Token) -> Token {
-        match *self.iter.peek().unwrap_or(&'ε') {
-            '=' => { self.iter.next(); a },
-            _   => b
-        }
-    }
-
-    fn consume_eq(&mut self) -> Token {
-        match *self.iter.peek().unwrap_or(&'ε') {
-            '=' => { self.iter.next(); Eq },
-            _   => Unknown('='.to_string())
-        }
-    }
-
-    fn consume_ne(&mut self) -> Token {
-        match *self.iter.peek().unwrap_or(&'ε') {
-            '=' => { self.iter.next(); Ne },
-            _   => Not
+    fn match_or_else(&mut self, expected: &char, match_type: Token, else_type: Token) -> Token {
+        match self.iter.peek() {
+            Some(&c) if c == *expected => {
+                self.iter.next();
+                match_type
+            },
+            _ => else_type
         }
     }
 }
@@ -297,7 +277,7 @@ impl<'a> Iterator for Lexer<'a> {
                 match c {
                     '.' => tok!(Dot),
                     '*' => tok!(Star),
-                    '|' => tok!(self.consume_pipe()),
+                    '|' => tok!(self.match_or_else(&'|', Or, Pipe)),
                     '@' => tok!(At),
                     '[' => tok!(self.consume_lbracket()),
                     ']' => tok!(Rbracket),
@@ -308,10 +288,10 @@ impl<'a> Iterator for Lexer<'a> {
                     ')' => tok!(Rparen),
                     ',' => tok!(Comma),
                     ':' => tok!(Colon),
-                    '>' => tok!(self.consume_gt_lt(Gte, Gt)),
-                    '<' => tok!(self.consume_gt_lt(Lte, Lt)),
-                    '=' => tok!(self.consume_eq()),
-                    '!' => tok!(self.consume_ne()),
+                    '>' => tok!(self.match_or_else(&'=', Gte, Gt)),
+                    '<' => tok!(self.match_or_else(&'=', Lte, Lt)),
+                    '=' => tok!(self.match_or_else(&'=', Eq, Unknown('='.to_string()))),
+                    '!' => tok!(self.match_or_else(&'=', Ne, Not)),
                     ' ' | '\n' | '\t' | '\r' => tok!(Whitespace),
                     'a' ... 'z' | 'A' ... 'Z' | '_' => Some(self.consume_identifier()),
                     '0' ... '9' => Some(self.consume_number(false)),
