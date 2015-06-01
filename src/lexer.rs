@@ -142,13 +142,8 @@ impl<'a> Lexer<'a> {
         loop {
             match self.iter.peek() {
                 None => break,
-                Some(&c) => {
-                    if !predicate(c) {
-                        break;
-                    } else {
-                        buffer.push(self.iter.next().unwrap());
-                    }
-                }
+                Some(&c) if !predicate(c) => break,
+                Some(&c) => { buffer.push(c); self.iter.next(); }
             }
         }
         buffer
@@ -255,7 +250,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn match_or_else(&mut self, expected: &char, match_type: Token, else_type: Token) -> Token {
+    fn alt(&mut self, expected: &char, match_type: Token, else_type: Token) -> Token {
         match self.iter.peek() {
             Some(&c) if c == *expected => {
                 self.iter.next();
@@ -277,7 +272,7 @@ impl<'a> Iterator for Lexer<'a> {
                 match c {
                     '.' => tok!(Dot),
                     '*' => tok!(Star),
-                    '|' => tok!(self.match_or_else(&'|', Or, Pipe)),
+                    '|' => tok!(self.alt(&'|', Or, Pipe)),
                     '@' => tok!(At),
                     '[' => tok!(self.consume_lbracket()),
                     ']' => tok!(Rbracket),
@@ -288,10 +283,10 @@ impl<'a> Iterator for Lexer<'a> {
                     ')' => tok!(Rparen),
                     ',' => tok!(Comma),
                     ':' => tok!(Colon),
-                    '>' => tok!(self.match_or_else(&'=', Gte, Gt)),
-                    '<' => tok!(self.match_or_else(&'=', Lte, Lt)),
-                    '=' => tok!(self.match_or_else(&'=', Eq, Unknown('='.to_string()))),
-                    '!' => tok!(self.match_or_else(&'=', Ne, Not)),
+                    '>' => tok!(self.alt(&'=', Gte, Gt)),
+                    '<' => tok!(self.alt(&'=', Lte, Lt)),
+                    '=' => tok!(self.alt(&'=', Eq, Unknown('='.to_string()))),
+                    '!' => tok!(self.alt(&'=', Ne, Not)),
                     ' ' | '\n' | '\t' | '\r' => tok!(Whitespace),
                     'a' ... 'z' | 'A' ... 'Z' | '_' => Some(self.consume_identifier()),
                     '0' ... '9' => Some(self.consume_number(false)),
@@ -302,14 +297,8 @@ impl<'a> Iterator for Lexer<'a> {
                     _ => tok!(Unknown(c.to_string()))
                 }
             },
-            None => {
-                if self.sent_eof {
-                    None
-                } else {
-                    self.sent_eof = true;
-                    Some(Eof)
-                }
-            }
+            None if self.sent_eof => None,
+            _ => { self.sent_eof = true;  Some(Eof) }
         }
     }
 }
