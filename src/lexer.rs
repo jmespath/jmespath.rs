@@ -125,9 +125,9 @@ impl<'a> Lexer<'a> {
 
     // Consumes "[", "[]", and "[?"
     fn consume_lbracket(&mut self) -> Token {
-        match *self.iter.peek().unwrap_or(&'ε') {
-            ']' => { self.iter.next(); Flatten },
-            '?' => { self.iter.next(); Filter },
+        match self.iter.peek() {
+            Some(&']') => { self.iter.next(); Flatten },
+            Some(&'?') => { self.iter.next(); Filter },
             _ => Lbracket,
         }
     }
