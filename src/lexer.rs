@@ -51,7 +51,6 @@ pub enum Token {
 }
 
 impl Token {
-
     /// Gets the string name of the token.
     pub fn token_to_string(&self) -> String {
         match *self {
@@ -114,7 +113,6 @@ pub struct Lexer<'a> {
 }
 
 impl<'a> Lexer<'a> {
-
     // Constructs a new lexer using the given expression string.
     pub fn new(expr: &'a str) -> Lexer<'a> {
         Lexer {
