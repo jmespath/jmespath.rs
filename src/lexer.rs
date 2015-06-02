@@ -3,7 +3,7 @@ extern crate rustc_serialize;
 
 use std::str::Chars;
 use std::iter::Peekable;
-use self::rustc_serialize::json::{Json};
+use self::rustc_serialize::json::Json;
 
 pub use self::Token::*;
 
@@ -58,7 +58,7 @@ impl Token {
             Number(_, _)     => "Number".to_string(),
             Literal(_, _)    => "Literal".to_string(),
             Unknown(_)       => "Unknown".to_string(),
-            _                 => format!("{:?}", self)
+            _                => format!("{:?}", self)
         }
     }
 
@@ -80,7 +80,7 @@ impl Token {
             Lbrace   => 50,
             Lbracket => 55,
             Lparen   => 60,
-            _         => 0,
+            _        => 0,
         }
     }
 
@@ -96,11 +96,6 @@ impl Token {
             Eof                => 0,
             _                  => 1,
         }
-    }
-
-    /// Returns `true` if the token is a whitespace token.
-    pub fn is_whitespace(&self) -> bool {
-        return *self == Whitespace;
     }
 }
 
@@ -421,11 +416,6 @@ mod test {
         assert!(0 == Rparen.lbp());
         assert!(1 == Pipe.lbp());
         assert!(60 == Lparen.lbp());
-    }
-
-    #[test] fn token_knows_if_is_whitespace_test() {
-        assert!(true == Whitespace.is_whitespace());
-        assert!(false == Rparen.is_whitespace());
     }
 
     #[test] fn returns_token_name_test() {
