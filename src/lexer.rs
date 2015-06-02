@@ -179,62 +179,55 @@ impl<'a> Lexer<'a> {
 
     // Consumes tokens inside of a closing character. The closing character
     // can be escaped using a "\" character.
-    fn consume_inside(&mut self, wrapper: char) -> Result<String, Token> {
+    fn consume_inside<F>(&mut self, wrapper: char, invoke: F) -> Token
+        where F: Fn(String) -> Token {
         let mut buffer = String::new();
         // Skip the opening character.
         self.iter.next();
-        while self.iter.peek().is_some() {
-            let c = self.iter.next().unwrap();
-            // Return when the wrapper is found.
-            if c == wrapper { return Ok(buffer); }
-            buffer.push(c);
-            if c == '\\' {
-                match self.iter.next() {
-                    Some(c) => buffer.push(c),
-                    None    => break
-                }
+        loop {
+            match self.iter.next() {
+                Some(c) if c == wrapper => return invoke(buffer),
+                Some(c) if c == '\\' => {
+                    buffer.push(c);
+                    // Break if an escape is followed by the end of the string.
+                    match self.iter.next() {
+                        Some(c) => buffer.push(c),
+                        None    => break
+                    }
+                },
+                Some(c) => buffer.push(c),
+                None => break
             }
         }
         // The token was not closed, so error with the string, including the
         // wrapper (e.g., '"foo').
-        Err(Unknown(wrapper.to_string() + buffer.as_ref()))
+        Unknown(wrapper.to_string() + buffer.as_ref())
     }
 
     // Consume and parse a quoted identifier token.
     fn consume_quoted_identifier(&mut self) -> Token {
-        match self.consume_inside('"') {
-            Err(t) => t,
-            Ok(s)  => {
-                // JSON decode the string to expand escapes
-                match Json::from_str(format!(r##""{}""##, s).as_ref()) {
-                    // Convert the JSON value into a string literal.
-                    Ok(j)  => Identifier(j.as_string()
-                                            .unwrap()
-                                            .to_string(), s.len() + 2),
-                    Err(_) => Unknown(format!(r#""{}""#, s))
-                }
+        self.consume_inside('"', |s| {
+            // JSON decode the string to expand escapes
+            match Json::from_str(format!(r##""{}""##, s).as_ref()) {
+                // Convert the JSON value into a string literal.
+                Ok(j)  => Identifier(j.as_string().unwrap().to_string(), s.len() + 2),
+                Err(_) => Unknown(format!(r#""{}""#, s))
             }
-        }
+        })
     }
 
     fn consume_raw_string(&mut self) -> Token {
-        match self.consume_inside('\'') {
-            Err(t) => t,
-            Ok(s)  => Literal(Json::String(s.clone()), s.len() + 2)
-        }
+        self.consume_inside('\'', |s| Literal(Json::String(s.clone()), s.len() + 2))
     }
 
     // Consume and parse a literal JSON token.
     fn consume_literal(&mut self) -> Token {
-        match self.consume_inside('`') {
-            Err(t) => t,
-            Ok(s) => {
-                match Json::from_str(s.as_ref()) {
-                    Ok(j)  => Literal(j, s.len() + 2),
-                    Err(_) => Unknown(format!("`{}`", s))
-                }
+        self.consume_inside('`', |s| {
+            match Json::from_str(s.as_ref()) {
+                Ok(j)  => Literal(j, s.len() + 2),
+                Err(_) => Unknown(format!("`{}`", s))
             }
-        }
+        })
     }
 
     fn alt(&mut self, expected: &char, match_type: Token, else_type: Token) -> Token {
