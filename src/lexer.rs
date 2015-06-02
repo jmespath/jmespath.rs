@@ -162,17 +162,10 @@ impl<'a> Lexer<'a> {
 
     // Consumes numbers: *"-" "0" / ( %x31-39 *DIGIT )
     fn consume_number(&mut self, is_negative: bool) -> Token {
-        let lexeme = self.consume_while(|c| {
-            match c { '0' ... '9' => true, _ => false }
-        });
+        let lexeme = self.consume_while(|c| c.is_digit(10));
         match lexeme.parse() {
-            Ok(n) => {
-                if is_negative {
-                    Number(n * -1, lexeme.len() + 1)
-                } else {
-                    Number(n, lexeme.len())
-                }
-            }
+            Ok(n) if is_negative => Number(n * -1, lexeme.len() + 1),
+            Ok(n) => Number(n, lexeme.len()),
             _     => Unknown(lexeme)
         }
     }
@@ -182,9 +175,10 @@ impl<'a> Lexer<'a> {
         // Skip the "-" number token.
         self.iter.next();
         // Ensure that the next value is a number > 0
-        match *self.iter.peek().unwrap_or(&'ε') {
-            '1' ... '9' => self.consume_number(true),
-            c @ _       => { self.iter.next(); Unknown(format!("-{}", c)) },
+        match self.iter.peek() {
+            Some(&c) if c >= '1' && c <= '9' => self.consume_number(true),
+            Some(&c) => { self.iter.next(); Unknown(format!("-{}", c)) },
+            None => Unknown("-".to_string()),
         }
     }
 
@@ -201,7 +195,7 @@ impl<'a> Lexer<'a> {
             buffer.push(c);
             if c == '\\' {
                 match self.iter.next() {
-                    Some(c) => { buffer.push(c); continue },
+                    Some(c) => buffer.push(c),
                     None    => break
                 }
             }
