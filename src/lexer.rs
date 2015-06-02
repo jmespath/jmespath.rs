@@ -284,10 +284,9 @@ impl<'a> Iterator for Lexer<'a> {
 }
 
 #[cfg(test)]
-mod test {
-    extern crate rustc_serialize;
+mod tests {
     use super::*;
-    use self::rustc_serialize::json::{Json};
+    use super::rustc_serialize::json::Json;
 
     #[test] fn tokenize_basic_test() {
         assert!(tokenize(".").next() == Some(Dot));
