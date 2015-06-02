@@ -120,7 +120,7 @@ impl<'a> Parser<'a> {
     #[inline]
     fn advance(&mut self) {
         loop {
-            self.pos += self.token.size();
+            self.pos += self.token.len();
             match self.stream.next() {
                 None => break,
                 Some(Token::Whitespace) => continue,

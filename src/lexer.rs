@@ -85,7 +85,7 @@ impl Token {
     }
 
     /// Provides the lexeme length of a token.
-    pub fn size(&self) -> usize {
+    pub fn len(&self) -> usize {
         match *self {
             Identifier(_, len) => len,
             Number(_, len)     => len,
@@ -409,12 +409,12 @@ mod test {
     }
 
     #[test] fn token_has_size_test() {
-        assert!(1 == Rparen.size());
-        assert!(2 == Flatten.size());
-        assert!(2 == Filter.size());
-        assert!(3 == Identifier("abc".to_string(), 3).size());
-        assert!(2 == Number(11, 2).size());
-        assert!(4 == Unknown("test".to_string()).size());
+        assert!(1 == Rparen.len());
+        assert!(2 == Flatten.len());
+        assert!(2 == Filter.len());
+        assert!(3 == Identifier("abc".to_string(), 3).len());
+        assert!(2 == Number(11, 2).len());
+        assert!(4 == Unknown("test".to_string()).len());
     }
 
     #[test] fn token_has_lbp_test() {
