@@ -52,7 +52,7 @@ pub enum Token {
 
 impl Token {
     /// Gets the string name of the token.
-    pub fn token_to_string(&self) -> String {
+    pub fn token_name(&self) -> String {
         match *self {
             Identifier(_, _) => "Identifier".to_string(),
             Number(_, _)     => "Number".to_string(),
@@ -419,36 +419,36 @@ mod test {
     }
 
     #[test] fn returns_token_name_test() {
-        assert_eq!("Identifier", Identifier("a".to_string(), 1).token_to_string());
-        assert_eq!("Number", Number(0, 1).token_to_string());
-        assert_eq!("Literal", Literal(Json::String("a".to_string()), 5).token_to_string());
-        assert_eq!("Unknown", Unknown("".to_string()).token_to_string());
-        assert_eq!("Dot".to_string(), Dot.token_to_string());
-        assert_eq!("Star".to_string(), Star.token_to_string());
-        assert_eq!("Flatten".to_string(), Flatten.token_to_string());
-        assert_eq!("Or".to_string(), Or.token_to_string());
-        assert_eq!("Pipe".to_string(), Pipe.token_to_string());
-        assert_eq!("Filter".to_string(), Filter.token_to_string());
-        assert_eq!("Lbracket".to_string(), Lbracket.token_to_string());
-        assert_eq!("Rbracket".to_string(), Rbracket.token_to_string());
-        assert_eq!("Comma".to_string(), Comma.token_to_string());
-        assert_eq!("Colon".to_string(), Colon.token_to_string());
-        assert_eq!("Not".to_string(), Not.token_to_string());
-        assert_eq!("Ne".to_string(), Ne.token_to_string());
-        assert_eq!("Eq".to_string(), Eq.token_to_string());
-        assert_eq!("Gt".to_string(), Gt.token_to_string());
-        assert_eq!("Gte".to_string(), Gte.token_to_string());
-        assert_eq!("Lt".to_string(), Lt.token_to_string());
-        assert_eq!("Lte".to_string(), Lte.token_to_string());
-        assert_eq!("At".to_string(), At.token_to_string());
-        assert_eq!("Ampersand".to_string(), Ampersand.token_to_string());
-        assert_eq!("Lparen".to_string(), Lparen.token_to_string());
-        assert_eq!("Rparen".to_string(), Rparen.token_to_string());
-        assert_eq!("Lbrace".to_string(), Lbrace.token_to_string());
-        assert_eq!("Rbrace".to_string(), Rbrace.token_to_string());
-        assert_eq!("Whitespace".to_string(), Whitespace.token_to_string());
-        assert_eq!("Eof".to_string(), Eof.token_to_string());
-        assert_eq!("Rbracket".to_string(), Rbracket.token_to_string());
-        assert_eq!("Lbracket".to_string(), Lbracket.token_to_string());
+        assert_eq!("Identifier", Identifier("a".to_string(), 1).token_name());
+        assert_eq!("Number", Number(0, 1).token_name());
+        assert_eq!("Literal", Literal(Json::String("a".to_string()), 5).token_name());
+        assert_eq!("Unknown", Unknown("".to_string()).token_name());
+        assert_eq!("Dot".to_string(), Dot.token_name());
+        assert_eq!("Star".to_string(), Star.token_name());
+        assert_eq!("Flatten".to_string(), Flatten.token_name());
+        assert_eq!("Or".to_string(), Or.token_name());
+        assert_eq!("Pipe".to_string(), Pipe.token_name());
+        assert_eq!("Filter".to_string(), Filter.token_name());
+        assert_eq!("Lbracket".to_string(), Lbracket.token_name());
+        assert_eq!("Rbracket".to_string(), Rbracket.token_name());
+        assert_eq!("Comma".to_string(), Comma.token_name());
+        assert_eq!("Colon".to_string(), Colon.token_name());
+        assert_eq!("Not".to_string(), Not.token_name());
+        assert_eq!("Ne".to_string(), Ne.token_name());
+        assert_eq!("Eq".to_string(), Eq.token_name());
+        assert_eq!("Gt".to_string(), Gt.token_name());
+        assert_eq!("Gte".to_string(), Gte.token_name());
+        assert_eq!("Lt".to_string(), Lt.token_name());
+        assert_eq!("Lte".to_string(), Lte.token_name());
+        assert_eq!("At".to_string(), At.token_name());
+        assert_eq!("Ampersand".to_string(), Ampersand.token_name());
+        assert_eq!("Lparen".to_string(), Lparen.token_name());
+        assert_eq!("Rparen".to_string(), Rparen.token_name());
+        assert_eq!("Lbrace".to_string(), Lbrace.token_name());
+        assert_eq!("Rbrace".to_string(), Rbrace.token_name());
+        assert_eq!("Whitespace".to_string(), Whitespace.token_name());
+        assert_eq!("Eof".to_string(), Eof.token_name());
+        assert_eq!("Rbracket".to_string(), Rbracket.token_name());
+        assert_eq!("Lbracket".to_string(), Lbracket.token_name());
     }
 }

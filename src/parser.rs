@@ -109,7 +109,7 @@ impl<'a> Parser<'a> {
     fn expect(&mut self, edible: &str) -> Result<Ast, ParseError> {
         self.advance();
         // Get the string name of the token.
-        if edible.contains(&self.token.token_to_string()) {
+        if edible.contains(&self.token.token_name()) {
             Ok(CurrentNode)
         } else {
             Err(self.err(&format!("Expected {:?}", edible)))
