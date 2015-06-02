@@ -125,39 +125,40 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    // Consumes from the char iterator while the predicate function returns
-    // true and there are peekable tokens. Returns a string buffer of the
-    /// consumed characters.
-    #[inline]
-    fn consume_while<F>(&mut self, predicate: F) -> String
-        where F: Fn(char) -> bool {
-        let mut buffer = self.iter.next().unwrap().to_string();
-        loop {
-            match self.iter.peek() {
-                None => break,
-                Some(&c) if !predicate(c) => break,
-                Some(&c) => { buffer.push(c); self.iter.next(); }
-            }
-        }
-        buffer
-    }
-
     // Consume identifiers: ( ALPHA / "_" ) *( DIGIT / ALPHA / "_" )
     #[inline]
     fn consume_identifier(&mut self) -> Token {
-        let lexeme = self.consume_while(|c| {
-            match c {
-                'a' ... 'z' | 'A' ... 'Z' | '_' | '0' ... '9' => true,
-                _ => false
+        let mut lexeme = self.iter.next().unwrap().to_string();
+        loop {
+            match self.iter.peek() {
+                None => break,
+                Some(&c) => {
+                    match c {
+                        'a' ... 'z' | 'A' ... 'Z' | '_' | '0' ... '9' => {
+                            lexeme.push(c);
+                            self.iter.next();
+                        }
+                        _ => break
+                    }
+                }
             }
-        });
+        }
         let len = lexeme.len();
         Identifier(lexeme, len)
     }
 
     // Consumes numbers: *"-" "0" / ( %x31-39 *DIGIT )
     fn consume_number(&mut self, is_negative: bool) -> Token {
-        let lexeme = self.consume_while(|c| c.is_digit(10));
+        let mut lexeme = self.iter.next().unwrap().to_string();
+        loop {
+            match self.iter.peek() {
+                Some(&c) if c.is_digit(10) => {
+                    lexeme.push(c);
+                    self.iter.next();
+                },
+                _ => break
+            }
+        }
         match lexeme.parse() {
             Ok(n) if is_negative => Number(n * -1, lexeme.len() + 1),
             Ok(n) => Number(n, lexeme.len()),
