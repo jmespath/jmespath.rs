@@ -7,22 +7,25 @@ use self::rustc_serialize::json::Json;
 
 pub use self::Token::*;
 
-/// Tokenizes a JMESPath expression into a stream of tokens.
+/// Tokenizes a JMESPath expression
+///
+/// This function returns a Lexer iterator that yields Tokens.
 pub fn tokenize(expr: &str) -> Lexer {
     Lexer::new(expr)
 }
 
 /// Represents a lexical token of a JMESPath expression.
+///
+/// Each token is either a simple token that represents a known
+/// character span (e.g., Token::Dot), or a token that spans multiple
+/// characters. Tokens that span a variable number of characters are
+/// struct-like variants.
 #[derive(Clone, PartialEq, Debug)]
 pub enum Token {
-    // The parsed value followed by the original token length
-    Identifier(String, usize),
-    // The parsed value followed by the original token length
-    Number(i32, usize),
-    // The parsed value followed by the original token length
-    Literal(Json, usize),
-    // Contains the unknown string that was encountered
-    Unknown(String),
+    Identifier { value: String, span: usize, quoted: bool },
+    Number { value: i32, span: usize },
+    Literal { value: Json, span: usize },
+    Unknown { value: String, hint: String },
     Dot,
     Star,
     Flatten,
@@ -54,11 +57,11 @@ impl Token {
     /// Gets the string name of the token.
     pub fn token_name(&self) -> String {
         match *self {
-            Identifier(_, _) => "Identifier".to_string(),
-            Number(_, _)     => "Number".to_string(),
-            Literal(_, _)    => "Literal".to_string(),
-            Unknown(_)       => "Unknown".to_string(),
-            _                => format!("{:?}", self)
+            Identifier { .. } => "Identifier".to_string(),
+            Number { .. } => "Number".to_string(),
+            Literal { .. } => "Literal".to_string(),
+            Unknown {.. } => "Unknown".to_string(),
+            _ => format!("{:?}", self)
         }
     }
 
@@ -84,17 +87,17 @@ impl Token {
         }
     }
 
-    /// Provides the lexeme length of a token.
-    pub fn len(&self) -> usize {
+    /// Provides the number of characters a token lexem spans.
+    pub fn span(&self) -> usize {
         match *self {
-            Identifier(_, len) => len,
-            Number(_, len)     => len,
-            Literal(_, len)    => len,
-            Unknown(ref s)     => s.len(),
-            Filter             => 2,
-            Flatten            => 2,
-            Eof                => 0,
-            _                  => 1,
+            Identifier { span, .. } => span,
+            Number { span, .. }     => span,
+            Literal { span, .. }    => span,
+            Unknown { ref value, .. } => value.len(),
+            Filter => 2,
+            Flatten => 2,
+            Eof => 0,
+            _ => 1,
         }
     }
 }
@@ -144,7 +147,7 @@ impl<'a> Lexer<'a> {
             }
         }
         let len = lexeme.len();
-        Identifier(lexeme, len)
+        Identifier { value: lexeme, span: len, quoted: false }
     }
 
     // Consumes numbers: *"-" "0" / ( %x31-39 *DIGIT )
@@ -159,10 +162,11 @@ impl<'a> Lexer<'a> {
                 _ => break
             }
         }
-        match lexeme.parse() {
-            Ok(n) if is_negative => Number(n * -1, lexeme.len() + 1),
-            Ok(n) => Number(n, lexeme.len()),
-            _     => Unknown(lexeme)
+        let numeric_value: i32 = lexeme.parse().unwrap();
+        if is_negative {
+            Number { value: numeric_value * -1, span: lexeme.len() + 1 }
+        } else {
+            Number { value: numeric_value, span: lexeme.len() }
         }
     }
 
@@ -173,8 +177,10 @@ impl<'a> Lexer<'a> {
         // Ensure that the next value is a number > 0
         match self.iter.peek() {
             Some(&c) if c >= '1' && c <= '9' => self.consume_number(true),
-            Some(&c) => { self.iter.next(); Unknown(format!("-{}", c)) },
-            None => Unknown("-".to_string()),
+            _ => Unknown {
+                value: "-".to_string(),
+                hint: "Negative sign must be followed by numbers 1-9".to_string()
+            }
         }
     }
 
@@ -202,7 +208,10 @@ impl<'a> Lexer<'a> {
         }
         // The token was not closed, so error with the string, including the
         // wrapper (e.g., '"foo').
-        Unknown(wrapper.to_string() + buffer.as_ref())
+        Unknown {
+            value: wrapper.to_string() + buffer.as_ref(),
+            hint: format!("Unclosed {} delimiter", wrapper)
+        }
     }
 
     // Consume and parse a quoted identifier token.
@@ -211,22 +220,35 @@ impl<'a> Lexer<'a> {
             // JSON decode the string to expand escapes
             match Json::from_str(format!(r##""{}""##, s).as_ref()) {
                 // Convert the JSON value into a string literal.
-                Ok(j)  => Identifier(j.as_string().unwrap().to_string(), s.len() + 2),
-                Err(_) => Unknown(format!(r#""{}""#, s))
+                Ok(j) => Identifier {
+                    value: j.as_string().unwrap().to_string(),
+                    span: s.len() + 2,
+                    quoted: true
+                },
+                Err(e) => Unknown {
+                    value: format!(r#""{}""#, s),
+                    hint: format!("Unable to parse JSON value in quoted identifier: {}", e)
+                }
             }
         })
     }
 
     fn consume_raw_string(&mut self) -> Token {
-        self.consume_inside('\'', |s| Literal(Json::String(s.clone()), s.len() + 2))
+        self.consume_inside('\'', |s| Literal {
+            value: Json::String(s.clone()),
+            span: s.len() + 2
+        })
     }
 
     // Consume and parse a literal JSON token.
     fn consume_literal(&mut self) -> Token {
         self.consume_inside('`', |s| {
             match Json::from_str(s.as_ref()) {
-                Ok(j)  => Literal(j, s.len() + 2),
-                Err(_) => Unknown(format!("`{}`", s))
+                Ok(j)  => Literal { value: j, span: s.len() + 2 },
+                Err(err) => Unknown {
+                    value: format!("`{}`", s),
+                    hint: format!("Unable to parse literal JSON: {}", err)
+                }
             }
         })
     }
@@ -266,7 +288,9 @@ impl<'a> Iterator for Lexer<'a> {
                     ':' => tok!(Colon),
                     '>' => tok!(self.alt(&'=', Gte, Gt)),
                     '<' => tok!(self.alt(&'=', Lte, Lt)),
-                    '=' => tok!(self.alt(&'=', Eq, Unknown('='.to_string()))),
+                    '=' => tok!(self.alt(&'=', Eq, Unknown {
+                        value: '='.to_string(),
+                        hint: "Did you mean \"==\"?".to_string() })),
                     '!' => tok!(self.alt(&'=', Ne, Not)),
                     ' ' | '\n' | '\t' | '\r' => tok!(Whitespace),
                     'a' ... 'z' | 'A' ... 'Z' | '_' => Some(self.consume_identifier()),
@@ -275,7 +299,9 @@ impl<'a> Iterator for Lexer<'a> {
                     '"' => Some(self.consume_quoted_identifier()),
                     '\'' => Some(self.consume_raw_string()),
                     '`' => Some(self.consume_literal()),
-                    _ => tok!(Unknown(c.to_string()))
+                    _ => tok!(Unknown {
+                        value: c.to_string(),
+                        hint: "Unknown character".to_string() })
                 }
             },
             None if self.sent_eof => None,
@@ -320,8 +346,11 @@ mod tests {
     }
 
     #[test] fn tokenize_eq_ne_test() {
+        assert_eq!(tokenize("=").next(),
+                   Some(Unknown {
+                       value: "=".to_string(),
+                       hint: "Did you mean \"==\"?".to_string() }));
         assert!(tokenize("==").next() == Some(Eq));
-        assert!(tokenize("=").next() == Some(Unknown("=".to_string())));
         assert!(tokenize("!").next() == Some(Not));
         assert!(tokenize("!=").next() == Some(Ne));
     }
@@ -334,75 +363,108 @@ mod tests {
     }
 
     #[test] fn tokenize_single_unknown_test() {
-        assert!(tokenize("~").next() == Some(Unknown("~".to_string())));
-        assert!(tokenize("\"foo").next() == Some(Unknown("\"foo".to_string())));
+        assert_eq!(tokenize("~").next(),
+                   Some(Unknown {
+                       value: "~".to_string(),
+                       hint: "Unknown character".to_string() }));
     }
 
     #[test] fn tokenize_unclosed_unknowns_test() {
-        assert!(tokenize("\"foo").next() == Some(Unknown("\"foo".to_string())));
-        assert!(tokenize("`foo").next() == Some(Unknown("`foo".to_string())));
+        assert_eq!(tokenize("\"foo").next(),
+                   Some(Unknown {
+                       value: "\"foo".to_string(),
+                       hint: "Unclosed \" delimiter".to_string() }));
+        assert_eq!(tokenize("`foo").next(),
+                   Some(Unknown {
+                       value: "`foo".to_string(),
+                       hint: "Unclosed ` delimiter".to_string() }));
     }
 
     #[test] fn tokenize_identifier_test() {
-        assert!(tokenize("foo_bar").next() == Some(Identifier("foo_bar".to_string(), 7)));
-        assert!(tokenize("a").next() == Some(Identifier("a".to_string(), 1)));
-        assert!(tokenize("_a").next() == Some(Identifier("_a".to_string(), 2)));
+        assert_eq!(tokenize("foo_bar").next(),
+                   Some(Identifier { value: "foo_bar".to_string(), span: 7, quoted: false }));
+        assert_eq!(tokenize("a").next(),
+                   Some(Identifier { value: "a".to_string(), span: 1, quoted: false }));
+        assert_eq!(tokenize("_a").next(),
+                   Some(Identifier { value: "_a".to_string(), span: 2, quoted: false }));
     }
 
     #[test] fn tokenize_quoted_identifier_test() {
-        assert!(tokenize("\"foo\"").next() == Some(Identifier("foo".to_string(), 5)));
-        assert!(tokenize("\"\"").next() == Some(Identifier("".to_string(), 2)));
-        assert!(tokenize("\"a_b\"").next() == Some(Identifier("a_b".to_string(), 5)));
-        assert!(tokenize("\"a\\nb\"").next() == Some(Identifier("a\nb".to_string(), 6)));
-        assert!(tokenize("\"a\\\\nb\"").next() == Some(Identifier("a\\nb".to_string(), 7)));
+        assert_eq!(tokenize("\"foo\"").next(),
+                   Some(Identifier { value: "foo".to_string(), span: 5, quoted: true }));
+        assert_eq!(tokenize("\"\"").next(),
+                   Some(Identifier { value: "".to_string(), span: 2, quoted: true }));
+        assert_eq!(tokenize("\"a_b\"").next(),
+                   Some(Identifier { value: "a_b".to_string(), span: 5, quoted: true }));
+        assert_eq!(tokenize("\"a\\nb\"").next(),
+                   Some(Identifier { value: "a\nb".to_string(), span: 6, quoted: true }));
+        assert_eq!(tokenize("\"a\\\\nb\"").next(),
+                   Some(Identifier { value: "a\\nb".to_string(), span: 7, quoted: true }));
     }
 
     #[test] fn tokenize_raw_string_test() {
-        assert!(tokenize("'foo'").next() == Some(Literal(Json::String("foo".to_string()), 5)));
-        assert!(tokenize("''").next() == Some(Literal(Json::String("".to_string()), 2)));
-        assert!(tokenize("'a\\nb'").next() == Some(Literal(Json::String("a\\nb".to_string()), 6)));
+        assert_eq!(tokenize("'foo'").next(),
+                   Some(Literal { value: Json::String("foo".to_string()), span: 5 }));
+        assert_eq!(tokenize("''").next(),
+                   Some(Literal { value: Json::String("".to_string()), span: 2 }));
+        assert_eq!(tokenize("'a\\nb'").next(),
+                   Some(Literal { value: Json::String("a\\nb".to_string()), span: 6 }));
     }
 
     #[test] fn tokenize_literal_test() {
         // Must enclose in quotes. See JEP 12.
-        assert!(tokenize("`a`").next() == Some(Unknown("`a`".to_string())));
-        assert!(tokenize("`\"a\"`").next() == Some(Literal(Json::String("a".to_string()), 5)));
-        assert!(tokenize("`\"a b\"`").next() == Some(Literal(Json::String("a b".to_string()), 7)));
+        assert_eq!(tokenize("`a`").next(),
+                   Some(Unknown {
+                       value: "`a`".to_string(),
+                       hint: "Unable to parse literal JSON: SyntaxError(\"invalid syntax\", 1, 1)"
+                             .to_string() }));
+        assert_eq!(tokenize("`\"a\"`").next(),
+                   Some(Literal { value: Json::String("a".to_string()), span: 5 }));
+        assert_eq!(tokenize("`\"a b\"`").next(),
+                   Some(Literal { value: Json::String("a b".to_string()), span: 7 }));
     }
 
     #[test] fn tokenize_number_test() {
-        assert!(tokenize("0").next() == Some(Number(0, 1)));
-        assert!(tokenize("1").next() == Some(Number(1, 1)));
-        assert!(tokenize("123").next() == Some(Number(123, 3)));
-        assert!(tokenize("-10").next() == Some(Number(-10, 3)));
-        assert!(tokenize("-01").next() == Some(Unknown("-0".to_string())));
+        assert_eq!(tokenize("0").next(), Some(Number { value: 0, span: 1 }));
+        assert_eq!(tokenize("1").next(), Some(Number { value: 1, span: 1 }));
+        assert_eq!(tokenize("123").next(), Some(Number { value: 123, span: 3 }));
+        assert_eq!(tokenize("-10").next(), Some(Number { value: -10, span: 3 }));
+        assert_eq!(tokenize("-01").next(), Some(Unknown {
+            value: "-".to_string(),
+            hint: "Negative sign must be followed by numbers 1-9".to_string() }));
     }
 
     #[test] fn tokenize_successive_test() {
         let expr = "foo.bar || `\"a\"` | 10";
         let mut tokens = tokenize(expr);
-        assert!(tokens.next() == Some(Identifier("foo".to_string(), 3)));
+        assert!(tokens.next() == Some(Identifier {
+            value: "foo".to_string(),
+            span: 3,
+            quoted: false }));
         assert!(tokens.next() == Some(Dot));
-        assert!(tokens.next() == Some(Identifier("bar".to_string(), 3)));
+        assert!(tokens.next() == Some(Identifier {
+            value: "bar".to_string(),
+            span: 3,
+            quoted: false }));
         assert!(tokens.next() == Some(Whitespace));
         assert!(tokens.next() == Some(Or));
         assert!(tokens.next() == Some(Whitespace));
-        assert!(tokens.next() == Some(Literal(Json::String("a".to_string()), 5)));
+        assert!(tokens.next() == Some(Literal { value: Json::String("a".to_string()), span: 5 }));
         assert!(tokens.next() == Some(Whitespace));
         assert!(tokens.next() == Some(Pipe));
         assert!(tokens.next() == Some(Whitespace));
-        assert!(tokens.next() == Some(Number(10, 2)));
+        assert!(tokens.next() == Some(Number { value: 10, span: 2 }));
         assert!(tokens.next() == Some(Eof));
         assert!(tokens.next() == None);
     }
 
     #[test] fn token_has_size_test() {
-        assert!(1 == Rparen.len());
-        assert!(2 == Flatten.len());
-        assert!(2 == Filter.len());
-        assert!(3 == Identifier("abc".to_string(), 3).len());
-        assert!(2 == Number(11, 2).len());
-        assert!(4 == Unknown("test".to_string()).len());
+        assert!(1 == Rparen.span());
+        assert!(2 == Flatten.span());
+        assert!(2 == Filter.span());
+        assert!(3 == Identifier { value: "abc".to_string(), span: 3, quoted: false }.span());
+        assert!(2 == Number { value: 11, span: 2 }.span());
+        assert!(4 == Unknown { value: "test".to_string(), hint: "".to_string() }.span());
     }
 
     #[test] fn token_has_lbp_test() {
@@ -412,10 +474,13 @@ mod tests {
     }
 
     #[test] fn returns_token_name_test() {
-        assert_eq!("Identifier", Identifier("a".to_string(), 1).token_name());
-        assert_eq!("Number", Number(0, 1).token_name());
-        assert_eq!("Literal", Literal(Json::String("a".to_string()), 5).token_name());
-        assert_eq!("Unknown", Unknown("".to_string()).token_name());
+        assert_eq!("Identifier",
+                   Identifier { value: "a".to_string(), span: 1, quoted: false }.token_name());
+        assert_eq!("Number", Number { value: 0, span: 1 }.token_name());
+        assert_eq!("Literal",
+                   Literal { value: Json::String("a".to_string()), span: 5 }.token_name());
+        assert_eq!("Unknown",
+                   Unknown { value: "".to_string(), hint: "".to_string() }.token_name());
         assert_eq!("Dot".to_string(), Dot.token_name());
         assert_eq!("Star".to_string(), Star.token_name());
         assert_eq!("Flatten".to_string(), Flatten.token_name());
