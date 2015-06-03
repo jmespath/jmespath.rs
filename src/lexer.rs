@@ -91,8 +91,8 @@ impl Token {
     pub fn span(&self) -> usize {
         match *self {
             Identifier { span, .. } => span,
-            Number { span, .. }     => span,
-            Literal { span, .. }    => span,
+            Number { span, .. } => span,
+            Literal { span, .. } => span,
             Unknown { ref value, .. } => value.len(),
             Filter => 2,
             Flatten => 2,
