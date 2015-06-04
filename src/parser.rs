@@ -97,10 +97,9 @@ impl<'a> Parser<'a> {
         self.expr(0)
             .and_then(|result| {
                 // After parsing the expr, we should reach the end of the stream.
-                if self.stream.next().unwrap_or(Token::Eof) == Token::Eof {
-                    Ok(result)
-                } else {
-                    Err(self.err(&"Did not reach token stream EOF"))
+                match self.stream.next() {
+                    None | Some(Token::Eof) => Ok(result),
+                    _ => Err(self.err(&"Did not reach token stream EOF"))
                 }
             })
     }
