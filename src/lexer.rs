@@ -100,6 +100,11 @@ impl Token {
             _ => 1,
         }
     }
+
+    /// Returns `true` if the token is a whitespace token.
+    pub fn is_whitespace(&self) -> bool {
+        return *self == Whitespace;
+    }
 }
 
 /// The lexer is used to tokenize JMESPath expressions.
@@ -299,9 +304,7 @@ impl<'a> Iterator for Lexer<'a> {
                     '"' => Some(self.consume_quoted_identifier()),
                     '\'' => Some(self.consume_raw_string()),
                     '`' => Some(self.consume_literal()),
-                    _ => tok!(Unknown {
-                        value: c.to_string(),
-                        hint: "Unknown character".to_string() })
+                    _ => tok!(Unknown { value: c.to_string(), hint: "".to_string() })
                 }
             },
             None if self.sent_eof => None,
@@ -366,7 +369,7 @@ mod tests {
         assert_eq!(tokenize("~").next(),
                    Some(Unknown {
                        value: "~".to_string(),
-                       hint: "Unknown character".to_string() }));
+                       hint: "".to_string() }));
     }
 
     #[test] fn tokenize_unclosed_unknowns_test() {
@@ -508,5 +511,10 @@ mod tests {
         assert_eq!("Eof".to_string(), Eof.token_name());
         assert_eq!("Rbracket".to_string(), Rbracket.token_name());
         assert_eq!("Lbracket".to_string(), Lbracket.token_name());
+    }
+
+    #[test] fn token_knows_if_is_whitespace_test() {
+        assert!(true == Whitespace.is_whitespace());
+        assert!(false == Rparen.is_whitespace());
     }
 }

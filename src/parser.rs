@@ -26,45 +26,40 @@ pub struct ParseError {
     col: usize,
 }
 
-fn inject_err_pointer(buff: &mut String, col: usize) {
-    buff.push('\n');
-    for _ in 0..col {
-        buff.push(' ');
-    }
-    buff.push('^');
-    buff.push('\n');
-}
-
 impl ParseError {
-    pub fn new(expr: &str, pos: usize, msg: &str) -> ParseError {
+    pub fn new(expr: &str, pos: usize, msg: &str, hint: &str) -> ParseError {
         // Find each new line and create a formatted error message.
         let mut line: usize = 0;
         let mut col: usize = 0;
         let mut buff = String::new();
         let mut placed = false;
-        // Determine the line and col, and create an array to the position.
-        for (i, c) in expr.chars().enumerate() {
-            col += 1;
-            buff.push(c);
-            if c == '\n' {
-                if i > pos && !placed {
-                    placed = true;
-                    inject_err_pointer(&mut buff, col);
-                }
+        for l in expr.lines().collect::<Vec<&str>>() {
+            buff.push_str(l);
+            buff.push('\n');
+            if placed { continue; }
+            if buff.len() > pos {
+                placed = true;
+                col = match line {
+                    0 => pos,
+                    _ => buff.len().checked_sub(2 + pos).unwrap_or(0)
+                };
+                ParseError::inject_err_pointer(&mut buff, col);
+            } else {
                 line += 1;
-                col = 0;
             }
         }
-
-        if !placed {
-            inject_err_pointer(&mut buff, col);
-        }
-
+        if hint.len() > 0 { buff.push_str(&format!("Hint: {}", hint)); }
         ParseError {
-            msg: format!("Parse error at line {}, col {}; {}\n{}", line, col, msg, expr),
+            msg: format!("Parse error at line {}, col {}; {}\n{}", line, col, msg, buff),
             line: line,
             col: col
         }
+    }
+
+    fn inject_err_pointer(string_buffer: &mut String, col: usize) {
+        let span = (0..col).map(|_| ' ').collect::<String>();
+        string_buffer.push_str(&span);
+        string_buffer.push_str(&"^\n");
     }
 }
 
@@ -83,10 +78,10 @@ pub struct Parser<'a> {
 impl<'a> Parser<'a> {
     // Constructs a new lexer using the given expression string.
     pub fn new(expr: &'a str) -> Parser<'a> {
-        let mut stream = Lexer::new(expr).peekable();
-        let tok0 = stream.next().unwrap();
+        let mut lexer = Lexer::new(expr);
+        let tok0 = lexer.next().unwrap_or(Token::Eof);
         Parser {
-            stream: stream,
+            stream: lexer.peekable(),
             expr: expr.to_string(),
             token: tok0,
             pos: 0,
@@ -95,14 +90,19 @@ impl<'a> Parser<'a> {
 
     /// Parses the expression into result containing an AST or ParseError.
     pub fn parse(&mut self) -> ParseResult {
-        let result = self.expr(0);
-        let token = self.stream.next();
-        // After parsing the expr, we should reach the end of the stream.
-        if result.is_err() || token.is_none() || token.unwrap() == Token::Eof {
-            result
-        } else {
-            Err(self.err(&"Did not reach token stream EOF"))
+        // Skip leading whitespace
+        if self.token.is_whitespace() {
+            self.advance();
         }
+        self.expr(0)
+            .and_then(|result| {
+                // After parsing the expr, we should reach the end of the stream.
+                if self.stream.next().unwrap_or(Token::Eof) == Token::Eof {
+                    Ok(result)
+                } else {
+                    Err(self.err(&"Did not reach token stream EOF"))
+                }
+            })
     }
 
     /// Ensures that the next token in the token stream is one of the pipe
@@ -119,14 +119,12 @@ impl<'a> Parser<'a> {
     }
 
     /// Advances the cursor position, skipping any whitespace encountered.
-    #[inline]
     fn advance(&mut self) {
         loop {
             self.pos += self.token.span();
-            match self.stream.next() {
-                None => break,
-                Some(Token::Whitespace) => continue,
-                tok @ _ => { self.token = tok.unwrap(); break }
+            self.token = self.stream.next().unwrap_or(Token::Eof);
+            if !self.token.is_whitespace() {
+                break;
             }
         }
     }
@@ -150,12 +148,12 @@ impl<'a> Parser<'a> {
         // Parse any led tokens with a higher binding power.
         while rbp < self.token.lbp() {
             left = match self.token {
-                Token::Dot => self.led_dot(left.unwrap()),
-                Token::Lbracket => self.led_lbracket(left.unwrap()),
-                Token::Flatten => self.led_flatten(left.unwrap()),
-                Token::Or => self.led_or(left.unwrap()),
-                Token::Pipe => self.led_pipe(left.unwrap()),
-                Token::Lparen => self.led_lparen(left.unwrap()),
+                Token::Dot => self.led_dot(try!(left)),
+                Token::Lbracket => self.led_lbracket(try!(left)),
+                Token::Flatten => self.led_flatten(try!(left)),
+                Token::Or => self.led_or(try!(left)),
+                Token::Pipe => self.led_pipe(try!(left)),
+                Token::Lparen => self.led_lparen(try!(left)),
                 _ => return Err(self.token_err()),
             };
         }
@@ -165,12 +163,16 @@ impl<'a> Parser<'a> {
 
     /// Returns a formatted ParseError with the given message.
     fn err(&self, msg: &str) -> ParseError {
-        ParseError::new(&self.expr, self.pos, msg)
+        let hint_msg = match self.token.clone() {
+            Token::Unknown { hint, .. } => hint,
+            _ => "".to_string()
+        };
+        ParseError::new(&self.expr, self.pos, msg, &hint_msg)
     }
 
     /// Generates a formatted parse error for an out of place token.
     fn token_err(&self) -> ParseError {
-        self.err(&format!("Unexpected token: {:?}", self.token))
+        self.err(&format!("Unexpected token: {}", self.token.token_name()))
     }
 
     /// Examples: &foo
@@ -445,6 +447,35 @@ mod test {
         let result = parse("[a,");
         assert!(result.is_err());
         assert!(result.err().unwrap().msg.contains("Unexpected token"));
+    }
+
+    #[test] fn parse_error_includes_lexer_hints_test() {
+        let result = parse(" \"foo");
+        assert!(result.is_err());
+        assert_eq!(result.err().unwrap().msg,
+                   "Parse error at line 0, col 1; Unexpected token: Unknown\n \"foo\n ^\n\
+                   Hint: Unclosed \" delimiter".to_string())
+    }
+
+    #[test] fn parse_error_on_column_zero_test() {
+        let result = parse("]");
+        assert!(result.is_err());
+        assert_eq!(result.err().unwrap().msg,
+                   "Parse error at line 0, col 0; Unexpected token: Rbracket\n\
+                   ]\n^\n".to_string());
+    }
+
+    #[test] fn parse_error_injected_before_eof_test() {
+        let result = parse("`\"foo\"` ||\n\n ]\n....]\n.");
+        assert!(result.is_err());
+        assert_eq!(result.err().unwrap().msg,
+                   "Parse error at line 2, col 1; Unexpected token: Rbracket\n\
+                   `\"foo\"` ||\n\n ]\n ^\n....]\n.\n".to_string());
+    }
+
+    #[test] fn can_parse_with_leading_whitespace_tokens_test() {
+        assert_eq!(parse("\n\n`\"foo\"`").unwrap(),
+                   Ast::Literal(Json::String("foo".to_string())))
     }
 
     #[test] fn multi_list_after_dot_test() {
