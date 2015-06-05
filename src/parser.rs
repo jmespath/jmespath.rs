@@ -100,13 +100,12 @@ impl<'a> Parser<'a> {
     }
 
     /// Ensures that the next token in the token stream is one of the pipe
-    /// separated token named provided as the edible argument (e.g.,
+    /// separated token names provided as the edible argument (e.g.,
     /// "Identifier|Eof").
-    fn expect(&mut self, edible: &str) -> ParseResult {
+    fn expect(&mut self, edible: &str) -> Result<(), ParseError> {
         self.advance();
-        // Get the string name of the token.
         if edible.contains(&self.token.token_name()) {
-            Ok(CurrentNode)
+            Ok(())
         } else {
             Err(self.err(&format!("Expected {:?}", edible)))
         }
@@ -129,6 +128,7 @@ impl<'a> Parser<'a> {
         let mut left = match self.token.clone() {
             Token::At => self.nud_at(),
             Token::Identifier { value, .. } => self.nud_identifier(value),
+            Token::QuotedIdentifier { value, .. } => self.nud_quoted_identifier(value),
             Token::Star => self.nud_star(),
             Token::Lbracket => self.nud_lbracket(),
             Token::Flatten => self.nud_flatten(),
@@ -182,10 +182,20 @@ impl<'a> Parser<'a> {
         Ok(Ast::CurrentNode)
     }
 
-    /// Examples: "Foo"
+    /// Examples: Foo
     fn nud_identifier(&mut self, s: String) -> ParseResult {
         self.advance();
         Ok(Ast::Identifier(s))
+    }
+
+    /// Examples: "Foo". Note that this is a special case in that
+    /// QuotedIdentifier must not be used as a function name.
+    fn nud_quoted_identifier(&mut self, s: String) -> ParseResult {
+        self.advance();
+        match self.token {
+            Token::Lparen => Err(self.err(&"Quoted strings cannot act as a function name")),
+            _ => Ok(Ast::Identifier(s))
+        }
     }
 
     /// Examples: "[0]", "[*]", "[a, b]", "[0:1]", etc...
@@ -542,6 +552,15 @@ mod test {
     #[test] fn parses_functions_with_no_args() {
         let r = Ast::Function("length".to_string(), vec![]);
         assert_eq!(parse("length()").unwrap(), r);
+    }
+
+    #[test] fn ensures_functions_cannot_start_with_quoted_identifier() {
+        let result = parse("\"foo\"(baz, bar)");
+        assert!(result.is_err());
+        assert_eq!(result.err().unwrap().msg,
+                   "Parse error at line 0, col 5; Quoted strings cannot \
+                   act as a function name\n\
+                   \"foo\"(baz, bar)\n     ^\n".to_string());
     }
 
     #[test] fn parses_expref() {

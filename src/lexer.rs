@@ -22,7 +22,8 @@ pub fn tokenize(expr: &str) -> Lexer {
 /// struct-like variants.
 #[derive(Clone, PartialEq, Debug)]
 pub enum Token {
-    Identifier { value: String, span: usize, quoted: bool },
+    Identifier { value: String },
+    QuotedIdentifier { value: String, span: usize },
     Number { value: i32, span: usize },
     Literal { value: Json, span: usize },
     Unknown { value: String, hint: String },
@@ -90,7 +91,8 @@ impl Token {
     /// Provides the number of characters a token lexem spans.
     pub fn span(&self) -> usize {
         match *self {
-            Identifier { span, .. } => span,
+            Identifier { ref value, .. } => value.len(),
+            QuotedIdentifier { span, .. } => span,
             Number { span, .. } => span,
             Literal { span, .. } => span,
             Unknown { ref value, .. } => value.len(),
@@ -151,8 +153,7 @@ impl<'a> Lexer<'a> {
                 }
             }
         }
-        let len = lexeme.len();
-        Identifier { value: lexeme, span: len, quoted: false }
+        Identifier { value: lexeme }
     }
 
     // Consumes numbers: *"-" "0" / ( %x31-39 *DIGIT )
@@ -225,10 +226,9 @@ impl<'a> Lexer<'a> {
             // JSON decode the string to expand escapes
             match Json::from_str(format!(r##""{}""##, s).as_ref()) {
                 // Convert the JSON value into a string literal.
-                Ok(j) => Identifier {
+                Ok(j) => QuotedIdentifier {
                     value: j.as_string().unwrap().to_string(),
-                    span: s.len() + 2,
-                    quoted: true
+                    span: s.len() + 2
                 },
                 Err(e) => Unknown {
                     value: format!(r#""{}""#, s),
@@ -385,24 +385,24 @@ mod tests {
 
     #[test] fn tokenize_identifier_test() {
         assert_eq!(tokenize("foo_bar").next(),
-                   Some(Identifier { value: "foo_bar".to_string(), span: 7, quoted: false }));
+                   Some(Identifier { value: "foo_bar".to_string() }));
         assert_eq!(tokenize("a").next(),
-                   Some(Identifier { value: "a".to_string(), span: 1, quoted: false }));
+                   Some(Identifier { value: "a".to_string() }));
         assert_eq!(tokenize("_a").next(),
-                   Some(Identifier { value: "_a".to_string(), span: 2, quoted: false }));
+                   Some(Identifier { value: "_a".to_string() }));
     }
 
     #[test] fn tokenize_quoted_identifier_test() {
         assert_eq!(tokenize("\"foo\"").next(),
-                   Some(Identifier { value: "foo".to_string(), span: 5, quoted: true }));
+                   Some(QuotedIdentifier { value: "foo".to_string(), span: 5 }));
         assert_eq!(tokenize("\"\"").next(),
-                   Some(Identifier { value: "".to_string(), span: 2, quoted: true }));
+                   Some(QuotedIdentifier { value: "".to_string(), span: 2 }));
         assert_eq!(tokenize("\"a_b\"").next(),
-                   Some(Identifier { value: "a_b".to_string(), span: 5, quoted: true }));
+                   Some(QuotedIdentifier { value: "a_b".to_string(), span: 5 }));
         assert_eq!(tokenize("\"a\\nb\"").next(),
-                   Some(Identifier { value: "a\nb".to_string(), span: 6, quoted: true }));
+                   Some(QuotedIdentifier { value: "a\nb".to_string(), span: 6 }));
         assert_eq!(tokenize("\"a\\\\nb\"").next(),
-                   Some(Identifier { value: "a\\nb".to_string(), span: 7, quoted: true }));
+                   Some(QuotedIdentifier { value: "a\\nb".to_string(), span: 7 }));
     }
 
     #[test] fn tokenize_raw_string_test() {
@@ -440,15 +440,9 @@ mod tests {
     #[test] fn tokenize_successive_test() {
         let expr = "foo.bar || `\"a\"` | 10";
         let mut tokens = tokenize(expr);
-        assert!(tokens.next() == Some(Identifier {
-            value: "foo".to_string(),
-            span: 3,
-            quoted: false }));
+        assert!(tokens.next() == Some(Identifier { value: "foo".to_string() }));
         assert!(tokens.next() == Some(Dot));
-        assert!(tokens.next() == Some(Identifier {
-            value: "bar".to_string(),
-            span: 3,
-            quoted: false }));
+        assert!(tokens.next() == Some(Identifier { value: "bar".to_string() }));
         assert!(tokens.next() == Some(Whitespace));
         assert!(tokens.next() == Some(Or));
         assert!(tokens.next() == Some(Whitespace));
@@ -465,7 +459,7 @@ mod tests {
         assert!(1 == Rparen.span());
         assert!(2 == Flatten.span());
         assert!(2 == Filter.span());
-        assert!(3 == Identifier { value: "abc".to_string(), span: 3, quoted: false }.span());
+        assert!(3 == Identifier { value: "abc".to_string() }.span());
         assert!(2 == Number { value: 11, span: 2 }.span());
         assert!(4 == Unknown { value: "test".to_string(), hint: "".to_string() }.span());
     }
@@ -478,7 +472,7 @@ mod tests {
 
     #[test] fn returns_token_name_test() {
         assert_eq!("Identifier",
-                   Identifier { value: "a".to_string(), span: 1, quoted: false }.token_name());
+                   Identifier { value: "a".to_string() }.token_name());
         assert_eq!("Number", Number { value: 0, span: 1 }.token_name());
         assert_eq!("Literal",
                    Literal { value: Json::String("a".to_string()), span: 5 }.token_name());
