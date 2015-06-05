@@ -88,9 +88,7 @@ impl<'a> Parser<'a> {
     /// Parses the expression into result containing an AST or ParseError.
     pub fn parse(&mut self) -> ParseResult {
         // Skip leading whitespace
-        if self.token.is_whitespace() {
-            self.advance();
-        }
+        if self.token.is_whitespace() { self.advance(); }
         self.expr(0)
             .and_then(|result| {
                 // After parsing the expr, we should reach the end of the stream.
@@ -197,10 +195,11 @@ impl<'a> Parser<'a> {
             Token::Number { .. } | Token::Colon => self.parse_array_index(),
             Token::Star => {
                 if self.stream.peek() != Some(&Token::Rbracket) {
-                    return self.parse_multi_list();
+                    self.parse_multi_list()
+                } else {
+                    try!(self.expect("Star"));
+                    self.parse_wildcard_index(CurrentNode)
                 }
-                try!(self.expect("Star"));
-                self.parse_wildcard_index(CurrentNode)
             },
             _ => self.parse_multi_list()
         }
@@ -288,13 +287,13 @@ impl<'a> Parser<'a> {
     }
 
     fn led_lparen(&mut self, lhs: Ast) -> ParseResult {
-        let fname: String;
         match lhs {
-            Ast::Identifier(v) => fname = v,
-            _ => return Err(self.err("Functions must be preceded by an identifier"))
+            Ast::Identifier(v) => {
+                self.advance();
+                Ok(Ast::Function(v, try!(self.parse_list(Token::Rparen))))
+            },
+            _ => Err(self.err("Functions must be preceded by an identifier"))
         }
-        self.advance();
-        Ok(Ast::Function(fname, try!(self.parse_list(Token::Rparen))))
     }
 
     fn led_pipe(&mut self, left: Ast) -> ParseResult {
@@ -345,11 +344,11 @@ impl<'a> Parser<'a> {
         let mut pos = 0;
         loop {
             match self.token {
+                Token::Colon if pos >= 2 => {
+                    return Err(self.err("Too many colons in slice expr"));
+                },
                 Token::Colon => {
                     pos += 1;
-                    if pos > 2 {
-                        return Err(self.err("Too many colons in slice expr"));
-                    }
                     try!(self.expect("Number|Colon|Rbracket"));
                 },
                 Token::Number { value, .. } => {
@@ -377,15 +376,18 @@ impl<'a> Parser<'a> {
         Ok(Ast::MultiList(try!(self.parse_list(Token::Rbracket))))
     }
 
-    /// Parse a comma separated list of expressions until a closing token or
-    /// error. This function is used for functions and multi-list parsing.
+    /// Parse a comma separated list of expressions until a closing token.
+    ///
+    /// This function is used for functions and multi-list parsing. Note
+    /// that this function allows empty lists. This is fine when parsing
+    /// multi-list expressions because "[]" is tokenized as Token::Flatten.
+    ///
+    /// Examples: [foo, bar], foo(bar), foo(), foo(baz, bar)
     fn parse_list(&mut self, closing: Token) -> Result<Vec<Ast>, ParseError> {
         let mut nodes = vec![];
-        loop {
+        while self.token != closing {
             nodes.push(try!(self.expr(0)));
-            if self.token == closing {
-                break;
-            } else if self.token == Token::Comma {
+            if self.token == Token::Comma {
                 self.advance();
             }
         }
@@ -535,6 +537,11 @@ mod test {
     #[test] fn parses_functions() {
         let r = Ast::Function("length".to_string(), vec![ident(&"a")]);
         assert_eq!(parse("length(a)").unwrap(), r);
+    }
+
+    #[test] fn parses_functions_with_no_args() {
+        let r = Ast::Function("length".to_string(), vec![]);
+        assert_eq!(parse("length()").unwrap(), r);
     }
 
     #[test] fn parses_expref() {
