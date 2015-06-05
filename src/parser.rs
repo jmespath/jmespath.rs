@@ -32,21 +32,18 @@ impl ParseError {
         let mut line: usize = 0;
         let mut col: usize = 0;
         let mut buff = String::new();
-        let mut placed = false;
         for l in expr.lines().collect::<Vec<&str>>() {
             buff.push_str(l);
             buff.push('\n');
-            if placed { continue; }
             if buff.len() > pos {
-                placed = true;
                 col = match line {
                     0 => pos,
                     _ => buff.len().checked_sub(2 + pos).unwrap_or(0)
                 };
                 ParseError::inject_err_pointer(&mut buff, col);
-            } else {
-                line += 1;
+                break;
             }
+            line += 1;
         }
         if hint.len() > 0 { buff.push_str(&format!("Hint: {}", hint)); }
         ParseError {
@@ -469,7 +466,7 @@ mod test {
         assert!(result.is_err());
         assert_eq!(result.err().unwrap().msg,
                    "Parse error at line 2, col 1; Unexpected token: Rbracket\n\
-                   `\"foo\"` ||\n\n ]\n ^\n....]\n.\n".to_string());
+                   `\"foo\"` ||\n\n ]\n ^\n".to_string());
     }
 
     #[test] fn can_parse_with_leading_whitespace_tokens_test() {
