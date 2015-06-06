@@ -6,12 +6,15 @@
 //! # Examples
 //!
 //! The following example tokenizes a JMESPath expression and iterates over
-//! each token. As you can see, tokens have a `token_name()` and `span()`
-//! method.
+//! each token. Tokens have a `token_name()`, `lbp()`, `is_whitespace()`
+//! and `span()` method.
 //!
-//! ```no_run
-//! for token in tokenize("foo.bar") {
-//!     println!("{} ({})", token.token_name(), token.span());
+//! ```
+//! use jmespath::lexer::tokenize;
+//!
+//! let lexer = tokenize("foo.bar");
+//! for token in lexer {
+//!     println!("{}, {}", token.token_name(), token.span());
 //! }
 //! ```
 
@@ -134,15 +137,6 @@ impl Token {
 /// The lexer is used to tokenize JMESPath expressions.
 ///
 /// A lexer implements Iterator and yields Tokens.
-///
-/// ```no_run
-/// let mut lexer = Lexer::new(expr);
-/// let first_token = lexer.next();
-/// match first_token {
-///     Token::Pipe => println!("Pipe!"),
-///     _ => println!("Not Pipe!");
-/// }
-/// ```
 pub struct Lexer<'a> {
     // Iterator over the characters in the string.
     iter: Peekable<Chars<'a>>,
