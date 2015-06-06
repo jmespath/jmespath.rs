@@ -1,4 +1,5 @@
-//! JMESPath parser and AST
+//! Module for parsing JMESPath expressions into an AST.
+
 extern crate rustc_serialize;
 
 use std::iter::Peekable;

@@ -1,22 +1,4 @@
-//! Creates JMESPath token streams.
-//!
-//! Use the `tokenize()` function to tokenize JMESPath expressions into a
-//! stream of `jmespath::lexer::Token` variants.
-//!
-//! # Examples
-//!
-//! The following example tokenizes a JMESPath expression and iterates over
-//! each token. Tokens have a `token_name()`, `lbp()`, `is_whitespace()`
-//! and `span()` method.
-//!
-//! ```
-//! use jmespath::lexer::tokenize;
-//!
-//! let lexer = tokenize("foo.bar");
-//! for token in lexer {
-//!     println!("{}, {}", token.token_name(), token.span());
-//! }
-//! ```
+//! Module for tokenizing JMESPath expression.
 
 extern crate rustc_serialize;
 
