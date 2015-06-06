@@ -1,4 +1,20 @@
-//! Lexer is an iterator that yields Token enums.
+//! Creates JMESPath token streams.
+//!
+//! Use the `tokenize()` function to tokenize JMESPath expressions into a
+//! stream of `jmespath::lexer::Token` variants.
+//!
+//! # Examples
+//!
+//! The following example tokenizes a JMESPath expression and iterates over
+//! each token. As you can see, tokens have a `token_name()` and `span()`
+//! method.
+//!
+//! ```no_run
+//! for token in tokenize("foo.bar") {
+//!     println!("{} ({})", token.token_name(), token.span());
+//! }
+//! ```
+
 extern crate rustc_serialize;
 
 use std::str::Chars;
@@ -18,8 +34,14 @@ pub fn tokenize(expr: &str) -> Lexer {
 ///
 /// Each token is either a simple token that represents a known
 /// character span (e.g., Token::Dot), or a token that spans multiple
-/// characters. Tokens that span a variable number of characters are
-/// struct-like variants.
+/// characters. Tokens that span multiple characters are struct-like
+/// variants. Tokens that contain a variable number of characters
+/// that are not always equal to the token value contain a `span`
+/// attribute. This attribute represents the actual length of the
+/// matched lexeme.
+///
+/// The Identifier token does not need a lexme because the lexeme is
+/// exactly the same as the token value.
 #[derive(Clone, PartialEq, Debug)]
 pub enum Token {
     Identifier { value: String },
@@ -110,6 +132,17 @@ impl Token {
 }
 
 /// The lexer is used to tokenize JMESPath expressions.
+///
+/// A lexer implements Iterator and yields Tokens.
+///
+/// ```no_run
+/// let mut lexer = Lexer::new(expr);
+/// let first_token = lexer.next();
+/// match first_token {
+///     Token::Pipe => println!("Pipe!"),
+///     _ => println!("Not Pipe!");
+/// }
+/// ```
 pub struct Lexer<'a> {
     // Iterator over the characters in the string.
     iter: Peekable<Chars<'a>>,
