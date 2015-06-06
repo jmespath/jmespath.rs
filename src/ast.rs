@@ -9,6 +9,7 @@ pub use self::Ast::*;
 #[derive(Clone, PartialEq, Debug)]
 pub enum Ast {
     Comparison(Comparator, Box<Ast>, Box<Ast>),
+    Condition(Box<Ast>, Box<Ast>),
     CurrentNode,
     Expref(Box<Ast>),
     Flatten(Box<Ast>),
@@ -34,4 +35,4 @@ pub struct KeyValuePair {
 
 /// Comparators (i.e., less than, greater than, etc.)
 #[derive(Clone, PartialEq, Debug)]
-pub enum Comparator { Eq, Lt, Le, Ne, Ge, Gt }
+pub enum Comparator { Eq, Lt, Lte, Ne, Gte, Gt }

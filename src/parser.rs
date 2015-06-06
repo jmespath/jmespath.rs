@@ -2,12 +2,12 @@
 extern crate rustc_serialize;
 
 use std::iter::Peekable;
-use self::rustc_serialize::json::{Json};
+use self::rustc_serialize::json::Json;
 
-use ast::*;
-use lexer::Lexer;
-use lexer::Token;
+use ast::{Ast, Comparator, KeyValuePair};
+use lexer::{Lexer, Token};
 
+/// An alias for computations that can return an `Ast` or `ParseError`.
 pub type ParseResult = Result<Ast, ParseError>;
 
 /// Parses a JMESPath expression into an AST
@@ -99,31 +99,8 @@ impl<'a> Parser<'a> {
             })
     }
 
-    /// Ensures that the next token in the token stream is one of the pipe
-    /// separated token names provided as the edible argument (e.g.,
-    /// "Identifier|Eof").
-    fn expect(&mut self, edible: &str) -> Result<(), ParseError> {
-        self.advance();
-        if edible.contains(&self.token.token_name()) {
-            Ok(())
-        } else {
-            Err(self.err(&format!("Expected {:?}", edible)))
-        }
-    }
-
-    /// Advances the cursor position, skipping any whitespace encountered.
-    fn advance(&mut self) {
-        loop {
-            self.pos += self.token.span();
-            self.token = self.stream.next().unwrap_or(Token::Eof);
-            if !self.token.is_whitespace() {
-                break;
-            }
-        }
-    }
-
     /// Main parse function of the Pratt parser that parses while RBP < LBP
-    pub fn expr(&mut self, rbp: usize) -> ParseResult {
+    fn expr(&mut self, rbp: usize) -> ParseResult {
         // Parse the nud token.
         let mut left = match self.token.clone() {
             Token::At => self.nud_at(),
@@ -135,10 +112,10 @@ impl<'a> Parser<'a> {
             Token::Literal { value, ..} => self.nud_literal(value),
             Token::Lbrace => self.nud_lbrace(),
             Token::Ampersand => self.nud_ampersand(),
-            // Token::Filter => self.nud_filter(),
-            _ => return Err(self.token_err()),
+            Token::Filter => self.nud_filter(),
+            _ => return Err(self.err(&format!("Unexpected nud token: {}",
+                                              self.token.token_name()))),
         };
-
         // Parse any led tokens with a higher binding power.
         while rbp < self.token.lbp() {
             left = match self.token {
@@ -148,11 +125,48 @@ impl<'a> Parser<'a> {
                 Token::Or => self.led_or(try!(left)),
                 Token::Pipe => self.led_pipe(try!(left)),
                 Token::Lparen => self.led_lparen(try!(left)),
-                _ => return Err(self.token_err()),
+                Token::Filter => self.led_filter(try!(left)),
+                Token::Eq => self.parse_comparator(Comparator::Eq, try!(left)),
+                Token::Ne => self.parse_comparator(Comparator::Ne, try!(left)),
+                Token::Gt => self.parse_comparator(Comparator::Gt, try!(left)),
+                Token::Gte => self.parse_comparator(Comparator::Gte, try!(left)),
+                Token::Lt => self.parse_comparator(Comparator::Lt, try!(left)),
+                Token::Lte => self.parse_comparator(Comparator::Lte, try!(left)),
+                _ => return Err(self.err(&format!("Unexpected led token: {}",
+                                                  self.token.token_name()))),
             };
         }
-
         left
+    }
+
+    /// Ensures that a Token is one of the pipe separated token names
+    /// provided as the edible argument (e.g., "Identifier|Eof").
+    fn validate(&self, token: &Token, edible: &str) -> Result<(), ParseError> {
+        let token_name = token.token_name();
+        if edible.contains(&token_name) {
+            Ok(())
+        } else {
+            Err(self.err(&format!("Expected {}, found {}", edible, token_name)))
+        }
+    }
+
+    /// Ensures that the next token in the token stream is one of the pipe
+    /// separated token names provided as the edible argument (e.g.,
+    /// "Identifier|Eof").
+    fn expect(&mut self, edible: &str) -> Result<(), ParseError> {
+        self.advance();
+        self.validate(&self.token, edible)
+    }
+
+    /// Advances the cursor position, skipping any whitespace encountered.
+    fn advance(&mut self) {
+        loop {
+            self.pos += self.token.span();
+            self.token = self.stream.next().unwrap_or(Token::Eof);
+            if !self.token.is_whitespace() {
+                break;
+            }
+        }
     }
 
     /// Returns a formatted ParseError with the given message.
@@ -173,7 +187,7 @@ impl<'a> Parser<'a> {
     fn nud_ampersand(&mut self) -> ParseResult {
         self.advance();
         let rhs = try!(self.expr(Token::Ampersand.lbp()));
-        Ok(Expref(Box::new(rhs)))
+        Ok(Ast::Expref(Box::new(rhs)))
     }
 
     /// Examples: "@"
@@ -208,7 +222,7 @@ impl<'a> Parser<'a> {
                     self.parse_multi_list()
                 } else {
                     try!(self.expect("Star"));
-                    self.parse_wildcard_index(CurrentNode)
+                    self.parse_wildcard_index(Ast::CurrentNode)
                 }
             },
             _ => self.parse_multi_list()
@@ -285,17 +299,21 @@ impl<'a> Parser<'a> {
         ))
     }
 
+    /// Parses a dot into a subexpression (e.g., foo.bar)
     fn led_dot(&mut self, left: Ast) -> ParseResult {
         let rhs = try!(self.parse_dot(Token::Dot.lbp()));
         Ok(Ast::Subexpr(Box::new(left), Box::new(rhs)))
     }
 
+    /// Parses an or expression (e.g., foo || bar)
     fn led_or(&mut self, left: Ast) -> ParseResult {
         self.advance();
         let rhs = try!(self.expr(Token::Or.lbp()));
         Ok(Ast::Or(Box::new(left), Box::new(rhs)))
     }
 
+    /// Creates a Function node, ensuring that the function name is not
+    /// quoted.
     fn led_lparen(&mut self, lhs: Ast) -> ParseResult {
         match lhs {
             Ast::Identifier(v) => {
@@ -306,10 +324,50 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Parses a pipe expression (e.g., foo | bar)
     fn led_pipe(&mut self, left: Ast) -> ParseResult {
         self.advance();
         let rhs = try!(self.expr(Token::Pipe.lbp()));
         Ok(Ast::Subexpr(Box::new(left), Box::new(rhs)))
+    }
+
+    /// Parses a nud filter, treating it as a led filter CurrentNode.
+    fn nud_filter(&mut self) -> ParseResult {
+        self.led_filter(Ast::CurrentNode)
+    }
+
+    /// Parses a filter token into an ArrayProjection that filters the right
+    /// side of the projection using a Condition node. If the Condition node
+    /// returns a truthy value, then the value is yielded by the projection.
+    fn led_filter(&mut self, lhs: Ast) -> ParseResult {
+        self.advance();
+        // Parse the LHS of the condition node.
+        let condition_lhs = try!(self.expr(0));
+        // Eat the closing bracket.
+        try!(self.validate(&self.token, "Rbracket"));
+        self.advance();
+        let condition_rhs = try!(self.projection_rhs(Token::Filter.lbp()));
+        Ok(Ast::ArrayProjection(
+            Box::new(lhs),
+            Box::new(Ast::Condition(
+                Box::new(condition_lhs),
+                Box::new(condition_rhs)
+            ))
+        ))
+    }
+
+    /// Parses a comparator token into a Comparison (e.g., foo == bar)
+    fn parse_comparator(&mut self, cmp: Comparator, lhs: Ast) -> ParseResult {
+        // Determine the precedence of the current token.
+        let lbp = self.token.lbp();
+        self.advance();
+        // Parse the right side of the comparision after the comparator.
+        let rhs = try!(self.expr(lbp));
+        Ok(Ast::Comparison(
+            cmp,
+            Box::new(lhs),
+            Box::new(rhs)
+        ))
     }
 
     /// Parses the right hand side of a dot expression.
@@ -325,7 +383,7 @@ impl<'a> Parser<'a> {
     /// determine when to stop consuming tokens.
     fn projection_rhs(&mut self, lbp: usize) -> ParseResult {
         if self.token.lbp() < 10 {
-            return Ok(CurrentNode);
+            return Ok(Ast::CurrentNode);
         }
         match self.token {
             Token::Dot      => self.parse_dot(lbp),
@@ -410,8 +468,8 @@ impl<'a> Parser<'a> {
 mod test {
     extern crate rustc_serialize;
     use super::*;
-    use ast::*;
-    use self::rustc_serialize::json::{Json};
+    use ast::{Ast, Comparator, KeyValuePair};
+    use self::rustc_serialize::json::Json;
 
     #[test] fn indentifier_test() {
         assert_eq!(parse("foo").unwrap(),
@@ -437,31 +495,31 @@ mod test {
     #[test] fn ensures_nud_token_is_valid_test() {
         let result = parse(",");
         assert!(result.is_err());
-        assert!(result.err().unwrap().msg.contains("Unexpected token: Comma"));
+        assert!(result.err().unwrap().msg.contains("Unexpected nud token: Comma"));
     }
 
     #[test] fn multi_list_test() {
-        let l = MultiList(vec![ident(&"a"), ident(&"b")]);
+        let l = Ast::MultiList(vec![ident(&"a"), ident(&"b")]);
         assert_eq!(parse("[a, b]").unwrap(), l);
     }
 
     #[test] fn multi_list_unclosed() {
         let result = parse("[a, b");
         assert!(result.is_err());
-        assert!(result.err().unwrap().msg.contains("Unexpected token"));
+        assert!(result.err().unwrap().msg.contains("Unexpected nud token"));
     }
 
     #[test] fn multi_list_unclosed_after_comma() {
         let result = parse("[a,");
         assert!(result.is_err());
-        assert!(result.err().unwrap().msg.contains("Unexpected token"));
+        assert!(result.err().unwrap().msg.contains("Unexpected nud token"));
     }
 
     #[test] fn parse_error_includes_lexer_hints_test() {
         let result = parse(" \"foo");
         assert!(result.is_err());
         assert_eq!(result.err().unwrap().msg,
-                   "Parse error at line 0, col 1; Unexpected token: Unknown\n \"foo\n ^\n\
+                   "Parse error at line 0, col 1; Unexpected nud token: Unknown\n \"foo\n ^\n\
                    Hint: Unclosed \" delimiter".to_string())
     }
 
@@ -469,7 +527,7 @@ mod test {
         let result = parse("]");
         assert!(result.is_err());
         assert_eq!(result.err().unwrap().msg,
-                   "Parse error at line 0, col 0; Unexpected token: Rbracket\n\
+                   "Parse error at line 0, col 0; Unexpected nud token: Rbracket\n\
                    ]\n^\n".to_string());
     }
 
@@ -477,7 +535,7 @@ mod test {
         let result = parse("`\"foo\"` ||\n\n ]\n....]\n.");
         assert!(result.is_err());
         assert_eq!(result.err().unwrap().msg,
-                   "Parse error at line 2, col 1; Unexpected token: Rbracket\n\
+                   "Parse error at line 2, col 1; Unexpected nud token: Rbracket\n\
                    `\"foo\"` ||\n\n ]\n ^\n".to_string());
     }
 
@@ -531,7 +589,7 @@ mod test {
     }
 
     #[test] fn parses_multi_hash() {
-        let result = MultiHash(vec![
+        let result = Ast::MultiHash(vec![
             KeyValuePair {
                 key: Ast::Literal(Json::String("foo".to_string())),
                 value: ident(&"bar")
@@ -566,6 +624,31 @@ mod test {
     #[test] fn parses_expref() {
         let result = Ast::Expref(bident(&"foo"));
         assert_eq!(parse("&foo").unwrap(), result);
+    }
+
+    #[test] fn parses_comparisons() {
+        let result = Ast::Comparison(Comparator::Eq, bident(&"foo"), bident(&"bar"));
+        assert_eq!(parse("foo == bar").unwrap(), result);
+    }
+
+    #[test] fn parses_filters() {
+        let comp = Ast::Comparison(Comparator::Eq, bident(&"foo"), bident(&"bar"));
+        let proj = Ast::ArrayProjection(
+            Box::new(Ast::CurrentNode),
+            Box::new(Ast::Condition(
+                Box::new(comp),
+                bident(&"bar")
+            ))
+        );
+        assert_eq!(parse("[?foo == bar].bar").unwrap(), proj);
+    }
+
+    #[test] fn ensures_filter_has_closing_rbracket() {
+        let result = parse("[?foo == bar | baz");
+        assert!(result.is_err());
+        assert_eq!(result.err().unwrap().msg,
+                   "Parse error at line 0, col 17; Expected Rbracket, found Eof\n\
+                   [?foo == bar | baz\n                 ^\n".to_string());
     }
 
     fn bident(name: &str) -> Box<Ast> {
