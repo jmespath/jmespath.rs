@@ -6,7 +6,7 @@ use std::str::Chars;
 use std::iter::Peekable;
 use self::rustc_serialize::json::Json;
 
-pub use self::Token::*;
+use self::Token::*;
 
 /// Tokenizes a JMESPath expression
 ///
@@ -325,6 +325,7 @@ impl<'a> Iterator for Lexer<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::Token::*;
     use super::rustc_serialize::json::Json;
 
     #[test] fn tokenize_basic_test() {

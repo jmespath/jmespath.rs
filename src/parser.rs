@@ -28,7 +28,7 @@ pub struct ParseError {
 }
 
 impl ParseError {
-    pub fn new(expr: &str, pos: usize, msg: &str, hint: &str) -> ParseError {
+    fn new(expr: &str, pos: usize, msg: &str, hint: &str) -> ParseError {
         // Find each new line and create a formatted error message.
         let mut line: usize = 0;
         let mut col: usize = 0;

@@ -2,9 +2,7 @@
 
 extern crate rustc_serialize;
 
-use self::rustc_serialize::json::{Json};
-
-pub use self::Ast::*;
+use self::rustc_serialize::json::Json;
 
 /// Represents the abstract syntax tree of a JMESPath expression.
 #[derive(Clone, PartialEq, Debug)]
