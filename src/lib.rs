@@ -35,12 +35,9 @@
 //! let ast = jmespath::parse("foo.bar | baz");
 //! ```
 
-pub use parser::parse;
-pub use lexer::tokenize;
-
+pub use parser::{parse, Parser, ParseResult, ParseError};
+pub use lexer::{tokenize, Token, Lexer};
 pub use ast::{Ast, KeyValuePair, Comparator};
-pub use parser::{Parser, ParseResult, ParseError};
-pub use lexer::{Token, Lexer};
 
 mod ast;
 mod lexer;
