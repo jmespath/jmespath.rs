@@ -131,12 +131,36 @@ impl<'a> Vm<'a> {
                     self.stack.push(match tos {
                         Json::Boolean(_) => Json::String("boolean".to_string()),
                         Json::String(_) => Json::String("string".to_string()),
-                        Json::I64(_) | Json::U64(_) | Json::F64(_) => Json::String("number".to_string()),
+                        Json::I64(_) | Json::U64(_) | Json::F64(_) => {
+                            Json::String("number".to_string())
+                        },
                         Json::Array(_) => Json::String("array".to_string()),
                         Json::Object(_) => Json::String("object".to_string()),
                         Json::Null => Json::String("null".to_string()),
                     });
-                }
+                },
+                &Opcode::Jump(address) => {
+                    if self.opcodes.get(address).is_none() {
+                        return Err(format!("Invalid jump address {}", address));
+
+                    }
+                    self.index = address;
+                    continue;
+                },
+                &Opcode::Jumpz(address) => {
+                    if self.opcodes.get(address).is_none() {
+                        return Err(format!("Invalid jump address {}", address));
+                    }
+                    let tos = tos!();
+                    self.index = match tos {
+                        Json::Boolean(b) if b == false => address,
+                        Json::I64(d) if d == 0 => address,
+                        Json::F64(f) if f == 0f64 => address,
+                        Json::U64(u) if u == 0 => address,
+                        _ => self.index + 1
+                    };
+                    continue;
+                },
                 _ => panic!("Not implemented yet!")
             }
             self.index += 1;
@@ -240,5 +264,42 @@ mod test {
             let mut vm = Vm::new(&opcodes, js);
             assert_eq!(result, vm.run().unwrap());
         }
+    }
+
+    #[test] fn can_jump() {
+        let opcodes = vec![Opcode::Jump(2),
+                           Opcode::Jump(3),
+                           Opcode::Jump(1),
+                           Opcode::Push(Json::Boolean(true))];
+        let mut vm = Vm::new(&opcodes, Json::Null);
+        assert_eq!(Json::Boolean(true), vm.run().unwrap());
+    }
+
+    #[test] fn checks_if_jump_is_valid() {
+        let opcodes = vec![Opcode::Jump(2)];
+        let mut vm = Vm::new(&opcodes, Json::Null);
+        assert_eq!(Err("Invalid jump address 2".to_string()), vm.run());
+    }
+
+    #[test] fn checks_if_jumpz_is_valid() {
+        let opcodes = vec![Opcode::Jumpz(2)];
+        let mut vm = Vm::new(&opcodes, Json::Null);
+        assert_eq!(Err("Invalid jump address 2".to_string()), vm.run());
+    }
+
+    #[test] fn can_jump_conditionally() {
+        let opcodes = vec![Opcode::Jumpz(2),
+                           Opcode::Index(0),
+                           Opcode::Push(Json::Boolean(true))];
+        let mut vm = Vm::new(&opcodes, Json::Boolean(false));
+        assert_eq!(Json::Boolean(true), vm.run().unwrap());
+    }
+
+    #[test] fn can_not_jump_conditionally() {
+        let opcodes = vec![Opcode::Jumpz(2),
+                           Opcode::Jump(100),
+                           Opcode::Push(Json::Boolean(true))];
+        let mut vm = Vm::new(&opcodes, Json::Boolean(true));
+        assert_eq!(Err("Invalid jump address 100".to_string()), vm.run());
     }
 }
