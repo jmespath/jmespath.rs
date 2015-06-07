@@ -2,7 +2,7 @@
 
 extern crate rustc_serialize;
 
-use std::any::Any;
+use self::rustc_serialize::json::Json;
 
 use ast::{Ast, Comparator, KeyValuePair};
 
@@ -44,18 +44,18 @@ pub enum Opcode {
 }
 
 /// JMESPath VM
-pub struct Vm<'a> {
+pub struct Vm<'a, 'b> {
     /// The compiled program.
     opcodes: &'a Vec<Opcode>,
-    /// The VM stack
-    stack: Vec<Box<Any>>,
     /// The opcode index.
-    index: usize
+    index: usize,
+    /// The VM stack consisting of JSON typed values.
+    stack: Vec<&'b Json>
 }
 
-impl<'a> Vm<'a> {
+impl<'a, 'b> Vm<'a, 'b> {
     /// Creates a new VM using the given program and data.
-    pub fn new(opcodes: &'a Vec<Opcode>, data: Box<Any>) -> Vm<'a> {
+    pub fn new(opcodes: &'a Vec<Opcode>, data: &'b Json) -> Vm<'a, 'b> {
         Vm {
             opcodes: opcodes,
             stack: vec![data],
