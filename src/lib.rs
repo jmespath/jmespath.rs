@@ -42,3 +42,4 @@ pub use ast::{Ast, KeyValuePair, Comparator};
 mod ast;
 mod lexer;
 mod parser;
+mod vm;
