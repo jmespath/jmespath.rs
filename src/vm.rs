@@ -22,7 +22,11 @@ pub enum Opcode {
     Field(String),
     // Pops TOS and pushes the <operand> index value of TOS onto the stack.
     // If TOS is not an "array", null is pushed onto the stack.
-    Index(i64),
+    Index(usize),
+    // Pops TOS and pushes the <operand> index from the end of the length of
+    // of TOS onto the stack. If TOS is not an "array", null is pushed onto
+    /// the stack.
+    NegativeIndex(usize),
     // Pops two elements, T1 and T2 where T1 is a value and T2 is an
     // "array". Pushes T1 onto T2 and pushes T2 back onto the stack.
     InjectIdx(usize),
@@ -68,7 +72,7 @@ impl<'a> Vm<'a> {
         }
     }
 
-    pub fn run(&mut self) -> Json {
+    pub fn run(&mut self) -> Result<Json, String> {
         macro_rules! tos {
             () => {{
                 self.stack.pop().unwrap_or(Json::Null)
@@ -98,11 +102,18 @@ impl<'a> Vm<'a> {
                     };
                 },
                 &Opcode::Index(i) => {
-                    let idx = if i < 0 { 0 } else { i as usize };
-                    match tos!() {
-                        a @ Json::Array(_) => self.stack.push(a[idx].clone()),
-                        _ => self.stack.push(Json::Null)
-                    };
+                    let tos = tos!();
+                    self.stack.push(tos.as_array()
+                        .and_then(|a| a.len().checked_sub(i + 1))
+                        .and_then(|_| Some(tos[i].clone()))
+                        .unwrap_or(Json::Null));
+                },
+                &Opcode::NegativeIndex(i) => {
+                    let tos = tos!();
+                    self.stack.push(tos.as_array()
+                        .and_then(|a| a.len().checked_sub(i + 1))
+                        .and_then(|i| Some(tos[i].clone()))
+                        .unwrap_or(Json::Null));
                 },
                 &Opcode::Truthy => {
                     let tos = tos!();
@@ -114,13 +125,24 @@ impl<'a> Vm<'a> {
                         Json::Null => false,
                         _ => true
                     }));
+                },
+                &Opcode::Type => {
+                    let tos = tos!();
+                    self.stack.push(match tos {
+                        Json::Boolean(_) => Json::String("boolean".to_string()),
+                        Json::String(_) => Json::String("string".to_string()),
+                        Json::I64(_) | Json::U64(_) | Json::F64(_) => Json::String("number".to_string()),
+                        Json::Array(_) => Json::String("array".to_string()),
+                        Json::Object(_) => Json::String("object".to_string()),
+                        Json::Null => Json::String("null".to_string()),
+                    });
                 }
                 _ => panic!("Not implemented yet!")
             }
             self.index += 1;
         }
 
-        self.stack.pop().unwrap_or(Json::Null)
+        Ok(self.stack.pop().unwrap_or(Json::Null))
     }
 }
 
@@ -139,7 +161,84 @@ mod test {
                          ("null", false), ("1", true)];
         for (js, result) in tests {
             let mut vm = Vm::new(&opcodes, Json::from_str(js).unwrap());
-            assert_eq!(Json::Boolean(result), vm.run());
+            assert_eq!(Json::Boolean(result), vm.run().unwrap());
+        }
+    }
+
+    #[test] fn pushes_and_pops() {
+        let opcodes = vec![Opcode::Pop, Opcode::Push(Json::String("foo".to_string()))];
+        let mut vm = Vm::new(&opcodes, Json::Null);
+        assert_eq!(Json::String("foo".to_string()), vm.run().unwrap());
+    }
+
+    #[test] fn dups_tos() {
+        let opcodes = vec![Opcode::Dup, Opcode::Pop];
+        let mut vm = Vm::new(&opcodes, Json::I64(1));
+        assert_eq!(Json::I64(1), vm.run().unwrap());
+    }
+
+    #[test] fn dups_null() {
+        let opcodes = vec![Opcode::Pop, Opcode::Dup];
+        let mut vm = Vm::new(&opcodes, Json::I64(1));
+        assert_eq!(Json::Null, vm.run().unwrap());
+    }
+
+    #[test] fn extracts_fields() {
+        let opcodes = vec![Opcode::Field("a".to_string())];
+        let mut vm = Vm::new(&opcodes, Json::from_str("{\"a\": 1}").unwrap());
+        assert_eq!(Json::U64(1), vm.run().unwrap());
+    }
+
+    #[test] fn pushes_null_when_extracting_missing_field() {
+        let opcodes = vec![Opcode::Field("a".to_string())];
+        let mut vm = Vm::new(&opcodes, Json::from_str("{\"b\": 1}").unwrap());
+        assert_eq!(Json::Null, vm.run().unwrap());
+    }
+
+    #[test] fn pushes_null_when_extracting_field_from_non_object() {
+        let opcodes = vec![Opcode::Field("a".to_string())];
+        let mut vm = Vm::new(&opcodes, Json::I64(1));
+        assert_eq!(Json::Null, vm.run().unwrap());
+    }
+
+    #[test] fn extracts_indices() {
+        let js = Json::from_str("[0, 1]").unwrap();
+        let tests = vec![(Opcode::Index(0), Json::U64(0)),
+                         (Opcode::Index(1), Json::U64(1)),
+                         (Opcode::Index(2), Json::Null),
+                         (Opcode::Index(3), Json::Null)];
+        for (op, result) in tests {
+            let opcodes = vec![op];
+            let mut vm = Vm::new(&opcodes, js.clone());
+            assert_eq!(result, vm.run().unwrap());
+        }
+    }
+
+    #[test] fn extracts_negative_indices() {
+        let js = Json::from_str("[0, 1]").unwrap();
+        let tests = vec![(Opcode::NegativeIndex(0), Json::U64(1)),
+                         (Opcode::NegativeIndex(1), Json::U64(0)),
+                         (Opcode::NegativeIndex(2), Json::Null),
+                         (Opcode::NegativeIndex(3), Json::Null)];
+        for (op, result) in tests {
+            let opcodes = vec![op];
+            let mut vm = Vm::new(&opcodes, js.clone());
+            assert_eq!(result, vm.run().unwrap());
+        }
+    }
+
+    #[test] fn pushes_type_on_stack() {
+        let js = Json::from_str("[0, 1]").unwrap();
+        let opcodes = vec![Opcode::Type];
+        let tests = vec![(Json::String("a".to_string()), Json::String("string".to_string())),
+                         (Json::Array(vec![]), Json::String("array".to_string())),
+                         (Json::from_str("{}").unwrap(), Json::String("object".to_string())),
+                         (Json::I64(1), Json::String("number".to_string())),
+                         (Json::Null, Json::String("null".to_string())),
+                         (Json::Boolean(true), Json::String("boolean".to_string()))];
+        for (js, result) in tests {
+            let mut vm = Vm::new(&opcodes, js);
+            assert_eq!(result, vm.run().unwrap());
         }
     }
 }
