@@ -29,7 +29,7 @@ pub enum Opcode {
     NegativeIndex(usize),
     // Pops two elements, T1 and T2 where T1 is a value and T2 is an
     // "array". Pushes T1 onto T2 and pushes T2 back onto the stack.
-    InjectIdx(usize),
+    Insert,
     // Pops two elements, T1 and T2 where T1 is a value and T2 is an
     // "object". Adds T1 at the given operand key onto T2 and pushes T2
     // back onto the stack.
@@ -170,6 +170,20 @@ impl<'a> Vm<'a> {
                         &Comparator::Eq => a == b,
                         &Comparator::Ne => a != b,
                     }));
+                },
+                &Opcode::InjectKey(ref k) => {
+                    let (new_val, mut coll) = (tos!(), tos!());
+                    self.stack.push(coll.as_object_mut()
+                        .map(|obj| obj.insert(k.clone(), new_val))
+                        .map(|_| coll)
+                        .unwrap_or(Json::Null));
+                },
+                &Opcode::Insert => {
+                    let (new_val, mut coll) = (tos!(), tos!());
+                    self.stack.push(coll.as_array_mut()
+                        .map(|arr| arr.push(new_val))
+                        .map(|_| coll)
+                        .unwrap_or(Json::Null));
                 },
                 _ => panic!("Not implemented yet!")
             }
@@ -352,5 +366,37 @@ mod test {
             let mut vm = Vm::new(&opcodes, Json::Null);
             assert_eq!(Json::Boolean(result), vm.run().unwrap());
         }
+    }
+
+    #[test] fn injects_key_into_valid_object() {
+        let opcodes = vec![Opcode::Push(Json::String("bar".to_string())),
+                           Opcode::InjectKey("foo".to_string())];
+        let mut vm = Vm::new(&opcodes, Json::from_str("{}").unwrap());
+        let result = vm.run().unwrap();
+        assert_eq!("{\"foo\":\"bar\"}", format!("{}", result));
+    }
+
+    #[test] fn pushes_false_when_injecting_key_onto_non_object() {
+        let opcodes = vec![Opcode::Push(Json::String("bar".to_string())),
+                           Opcode::InjectKey("foo".to_string())];
+        let mut vm = Vm::new(&opcodes, Json::from_str("[]").unwrap());
+        assert_eq!(Json::Null, vm.run().unwrap());
+    }
+
+    #[test] fn inserts_into_valid_array() {
+        let opcodes = vec![Opcode::Push(Json::String("bar".to_string())),
+                           Opcode::Insert,
+                           Opcode::Push(Json::String("baz".to_string())),
+                           Opcode::Insert];
+        let mut vm = Vm::new(&opcodes, Json::from_str("[]").unwrap());
+        let result = vm.run().unwrap();
+        assert_eq!("[\"bar\",\"baz\"]", format!("{}", result));
+    }
+
+    #[test] fn pushes_false_when_inserting_onto_non_array() {
+        let opcodes = vec![Opcode::Push(Json::String("bar".to_string())),
+                           Opcode::Insert];
+        let mut vm = Vm::new(&opcodes, Json::from_str("{}").unwrap());
+        assert_eq!(Json::Null, vm.run().unwrap());
     }
 }
