@@ -20,8 +20,14 @@ pub enum Opcode {
     Dup,
     // Pushes a value onto the stack
     Push(Json),
+    // Loads a value from the call stack by index.
+    Load(usize),
+    // Pops TOS and stores it in a call stack index.
+    Store(usize),
     // Pops the TOS
     Pop,
+    // Halts execution
+    Halt,
     // Pops two elements from the stack and pushes true/false if a == b
     Eq,
     // Pops two elements from the stack and pushes true/false if a != b
@@ -172,17 +178,14 @@ impl<'a> Vm<'a> {
                     });
                 },
                 &Opcode::Br(address) => {
-                    try!(self.validate_br_address(address));
                     self.index = address;
                     continue;
                 },
                 &Opcode::Brt(address) => {
-                    try!(self.validate_br_address(address));
                     self.index = try!(self.cond_branch(true, address));
                     continue;
                 },
                 &Opcode::Brf(address) => {
-                    try!(self.validate_br_address(address));
                     self.index = try!(self.cond_branch(false, address));
                     continue;
                 },
@@ -200,6 +203,7 @@ impl<'a> Vm<'a> {
                         .map(|_| coll)
                         .unwrap_or(Json::Null));
                 },
+                &Opcode::Halt => break,
                 _ => panic!("Not implemented yet!")
             }
             self.index += 1;
@@ -208,18 +212,8 @@ impl<'a> Vm<'a> {
         Ok(self.stack.pop().unwrap_or(Json::Null))
     }
 
-    /// Ensures that the address is valid.
-    fn validate_br_address(&self, address: usize) -> Result<(), String> {
-        if self.opcodes.get(address).is_none() {
-            Err(format!("Invalid branch address {}", address))
-        } else {
-            Ok(())
-        }
-    }
-
     /// Conditionally branch to the given address if TOS == check.
     fn cond_branch(&mut self, check: bool, address: usize) -> Result<usize, String> {
-        try!(self.validate_br_address(address));
         let tos = self.stack.pop().unwrap_or(Json::Null);
         match tos {
             Json::Boolean(b) if b == check => Ok(address),
@@ -343,24 +337,6 @@ mod test {
         assert_eq!(Json::Boolean(true), vm.run().unwrap());
     }
 
-    #[test] fn checks_if_branch_is_valid() {
-        let opcodes = vec![Opcode::Br(2)];
-        let mut vm = Vm::new(&opcodes, Json::Null);
-        assert_eq!(Err("Invalid branch address 2".to_string()), vm.run());
-    }
-
-    #[test] fn checks_if_brf_is_valid() {
-        let opcodes = vec![Opcode::Brf(2)];
-        let mut vm = Vm::new(&opcodes, Json::Null);
-        assert_eq!(Err("Invalid branch address 2".to_string()), vm.run());
-    }
-
-    #[test] fn checks_if_brt_is_valid() {
-        let opcodes = vec![Opcode::Brt(2)];
-        let mut vm = Vm::new(&opcodes, Json::Null);
-        assert_eq!(Err("Invalid branch address 2".to_string()), vm.run());
-    }
-
     #[test] fn can_branch_on_false() {
         let opcodes = vec![Opcode::Brf(2),
                            Opcode::Index(0),
@@ -379,18 +355,18 @@ mod test {
 
     #[test] fn can_not_branch_on_false_conditionally() {
         let opcodes = vec![Opcode::Brf(2),
-                           Opcode::Br(100),
+                           Opcode::Halt,
                            Opcode::Push(Json::Boolean(true))];
         let mut vm = Vm::new(&opcodes, Json::Boolean(true));
-        assert_eq!(Err("Invalid branch address 100".to_string()), vm.run());
+        assert_eq!(Json::Null, vm.run().unwrap());
     }
 
     #[test] fn can_not_branch_on_true_conditionally() {
         let opcodes = vec![Opcode::Brt(2),
-                           Opcode::Br(100),
-                           Opcode::Push(Json::Boolean(true))];
+                           Opcode::Halt,
+                           Opcode::Push(Json::Boolean(false))];
         let mut vm = Vm::new(&opcodes, Json::Boolean(false));
-        assert_eq!(Err("Invalid branch address 100".to_string()), vm.run());
+        assert_eq!(Json::Null, vm.run().unwrap());
     }
 
     #[test] fn injects_key_into_valid_object() {
