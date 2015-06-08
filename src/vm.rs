@@ -142,7 +142,6 @@ impl<'a> Vm<'a> {
                 &Opcode::Jump(address) => {
                     if self.opcodes.get(address).is_none() {
                         return Err(format!("Invalid jump address {}", address));
-
                     }
                     self.index = address;
                     continue;
@@ -161,6 +160,17 @@ impl<'a> Vm<'a> {
                     };
                     continue;
                 },
+                &Opcode::Cmp(ref cmp) => {
+                    let (a, b) = (tos!(), tos!());
+                    self.stack.push(Json::Boolean(match cmp {
+                        &Comparator::Lt
+                        | &Comparator::Lte
+                        | &Comparator::Gt
+                        | &Comparator::Gte => Vm::cmp_numbers(cmp, a, b),
+                        &Comparator::Eq => a == b,
+                        &Comparator::Ne => a != b,
+                    }));
+                },
                 _ => panic!("Not implemented yet!")
             }
             self.index += 1;
@@ -168,12 +178,32 @@ impl<'a> Vm<'a> {
 
         Ok(self.stack.pop().unwrap_or(Json::Null))
     }
+
+    /// Compares two JSON values, ensuring that each is a number.
+    ///
+    /// If the provided values are not numbers, then false is returned.
+    /// Otherwise, a comparison is made between the two values.
+    fn cmp_numbers(cmp: &Comparator, a: Json, b: Json) -> bool {
+        if !a.is_number() || !b.is_number() {
+            false
+        } else {
+            let (af, bf) = (a.as_f64().unwrap(), b.as_f64().unwrap());
+            match cmp {
+                &Comparator::Lt => af < bf,
+                &Comparator::Lte => af <= bf,
+                &Comparator::Gt => af > bf,
+                &Comparator::Gte => af >= bf,
+                _ => false
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod test {
     extern crate rustc_serialize;
     use super::{Opcode, Vm};
+    use ast::{Comparator};
     use self::rustc_serialize::json::Json;
 
     #[test] fn truthy_test() {
@@ -301,5 +331,26 @@ mod test {
                            Opcode::Push(Json::Boolean(true))];
         let mut vm = Vm::new(&opcodes, Json::Boolean(true));
         assert_eq!(Err("Invalid jump address 100".to_string()), vm.run());
+    }
+
+    #[test] fn compares_conditionally() {
+        let tests = vec![("[0, 1]", Comparator::Lt, false),
+                         ("[0, 1]", Comparator::Lte, false),
+                         ("[0, 1]", Comparator::Gt, true),
+                         ("[0, 1]", Comparator::Gte, true),
+                         ("[0, 1]", Comparator::Eq, false),
+                         ("[0, \"a\"]", Comparator::Ne, true),
+                         ("[0, \"a\"]", Comparator::Eq, false),
+                         ("[\"a\", \"a\"]", Comparator::Eq, true),
+                         ("[\"a\", \"b\"]", Comparator::Eq, false),
+                         ("[\"a\", \"b\"]", Comparator::Ne, true)];
+        for (js, cmp, result) in tests {
+            let parsed = Json::from_str(js).unwrap();
+            let opcodes = vec![Opcode::Push(parsed[0].clone()),
+                               Opcode::Push(parsed[1].clone()),
+                               Opcode::Cmp(cmp)];
+            let mut vm = Vm::new(&opcodes, Json::Null);
+            assert_eq!(Json::Boolean(result), vm.run().unwrap());
+        }
     }
 }
