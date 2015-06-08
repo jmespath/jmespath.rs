@@ -8,12 +8,34 @@ use ast::{Ast, Comparator, KeyValuePair};
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum Opcode {
-    // Pops N operands from stack and calls a built-in function by name.
-    Call(u8, String),
-    // Pops two elements from the stack and pushes true/false.
-    Cmp(Comparator),
+    // Unconditional branch to an address.
+    Br(usize),
+    // Pops the TOS and branches is false
+    Brf(usize),
+    // Pops the TOS and branches if true
+    Brt(usize),
+    // Pops the call stack and jumps to the return position.
+    Ret(usize),
     // Duplicates the top of the stack
     Dup,
+    // Pushes a value onto the stack
+    Push(Json),
+    // Pops the TOS
+    Pop,
+    // Pops two elements from the stack and pushes true/false if a == b
+    Eq,
+    // Pops two elements from the stack and pushes true/false if a != b
+    Ne,
+    // Pops two elements from the stack and pushes true/false if a < b
+    Lt,
+    // Pops two elements from the stack and pushes true/false if a <= b
+    Lte,
+    // Pops two elements from the stack and pushes true/false if a > b
+    Gt,
+    // Pops two elements from the stack and pushes true/false if a >= b
+    Gte,
+    // Pops N operands from stack and calls a built-in function by name.
+    Call(u8, String),
     // Pops TOS and iterates over each element if it is an array. If it
     // is not an array, then jumps to the given address.
     Each(usize),
@@ -34,16 +56,6 @@ pub enum Opcode {
     // "object". Adds T1 at the given operand key onto T2 and pushes T2
     // back onto the stack.
     InjectKey(String),
-    // Unconditional jump to an address.
-    Jump(usize),
-    // Pops the TOS and jumps if 0 or false
-    Jumpz(usize),
-    // Pops the call stack
-    Ret(usize),
-    // Pops the TOS
-    Pop,
-    // Pushes a value onto the stack
-    Push(Json),
     // Pops TOS and pushes true/false if the value is truthy.
     Truthy,
     // Pops TOS and pushes the type of the popped value.
@@ -78,8 +90,28 @@ impl<'a> Vm<'a> {
                 self.stack.pop().unwrap_or(Json::Null)
             }};
         }
+        macro_rules! stack_cmp {
+            ($cmp:ident) => {{
+                let (a, b) = (tos!(), tos!());
+                self.stack.push(Vm::ensure_both_numbers(a, b)
+                    .map(|(a, b)| Json::Boolean(a.$cmp(&b)))
+                    .unwrap_or(Json::Boolean(false)));
+            }};
+        }
         while self.index < self.opcodes.len() {
             match &self.opcodes[self.index] {
+                &Opcode::Lt => { stack_cmp!(lt); },
+                &Opcode::Lte => { stack_cmp!(le); },
+                &Opcode::Gt => { stack_cmp!(gt); },
+                &Opcode::Gte => { stack_cmp!(ge); },
+                &Opcode::Eq => {
+                    let (a, b) = (tos!(), tos!());
+                    self.stack.push(Json::Boolean(a == b));
+                },
+                &Opcode::Ne => {
+                    let (a, b) = (tos!(), tos!());
+                    self.stack.push(Json::Boolean(a != b));
+                },
                 &Opcode::Push(ref j) => {
                     self.stack.push(j.clone());
                 },
@@ -139,37 +171,20 @@ impl<'a> Vm<'a> {
                         Json::Null => Json::String("null".to_string()),
                     });
                 },
-                &Opcode::Jump(address) => {
-                    if self.opcodes.get(address).is_none() {
-                        return Err(format!("Invalid jump address {}", address));
-                    }
+                &Opcode::Br(address) => {
+                    try!(self.validate_br_address(address));
                     self.index = address;
                     continue;
                 },
-                &Opcode::Jumpz(address) => {
-                    if self.opcodes.get(address).is_none() {
-                        return Err(format!("Invalid jump address {}", address));
-                    }
-                    let tos = tos!();
-                    self.index = match tos {
-                        Json::Boolean(b) if b == false => address,
-                        Json::I64(d) if d == 0 => address,
-                        Json::F64(f) if f == 0f64 => address,
-                        Json::U64(u) if u == 0 => address,
-                        _ => self.index + 1
-                    };
+                &Opcode::Brt(address) => {
+                    try!(self.validate_br_address(address));
+                    self.index = try!(self.cond_branch(true, address));
                     continue;
                 },
-                &Opcode::Cmp(ref cmp) => {
-                    let (a, b) = (tos!(), tos!());
-                    self.stack.push(Json::Boolean(match cmp {
-                        &Comparator::Lt
-                        | &Comparator::Lte
-                        | &Comparator::Gt
-                        | &Comparator::Gte => Vm::cmp_numbers(cmp, a, b),
-                        &Comparator::Eq => a == b,
-                        &Comparator::Ne => a != b,
-                    }));
+                &Opcode::Brf(address) => {
+                    try!(self.validate_br_address(address));
+                    self.index = try!(self.cond_branch(false, address));
+                    continue;
                 },
                 &Opcode::InjectKey(ref k) => {
                     let (new_val, mut coll) = (tos!(), tos!());
@@ -193,22 +208,31 @@ impl<'a> Vm<'a> {
         Ok(self.stack.pop().unwrap_or(Json::Null))
     }
 
-    /// Compares two JSON values, ensuring that each is a number.
-    ///
-    /// If the provided values are not numbers, then false is returned.
-    /// Otherwise, a comparison is made between the two values.
-    fn cmp_numbers(cmp: &Comparator, a: Json, b: Json) -> bool {
-        if !a.is_number() || !b.is_number() {
-            false
+    /// Ensures that the address is valid.
+    fn validate_br_address(&self, address: usize) -> Result<(), String> {
+        if self.opcodes.get(address).is_none() {
+            Err(format!("Invalid branch address {}", address))
         } else {
-            let (af, bf) = (a.as_f64().unwrap(), b.as_f64().unwrap());
-            match cmp {
-                &Comparator::Lt => af < bf,
-                &Comparator::Lte => af <= bf,
-                &Comparator::Gt => af > bf,
-                &Comparator::Gte => af >= bf,
-                _ => false
-            }
+            Ok(())
+        }
+    }
+
+    /// Conditionally branch to the given address if TOS == check.
+    fn cond_branch(&mut self, check: bool, address: usize) -> Result<usize, String> {
+        try!(self.validate_br_address(address));
+        let tos = self.stack.pop().unwrap_or(Json::Null);
+        match tos {
+            Json::Boolean(b) if b == check => Ok(address),
+            _ => Ok(self.index + 1)
+        }
+    }
+
+    /// Ensures that both values are numbers and returns their values.
+    fn ensure_both_numbers(a: Json, b: Json) -> Option<(f64, f64)> {
+        if !a.is_number() || !b.is_number() {
+            None
+        } else {
+            Some((a.as_f64().unwrap(), b.as_f64().unwrap()))
         }
     }
 }
@@ -310,62 +334,63 @@ mod test {
         }
     }
 
-    #[test] fn can_jump() {
-        let opcodes = vec![Opcode::Jump(2),
-                           Opcode::Jump(3),
-                           Opcode::Jump(1),
+    #[test] fn can_branch() {
+        let opcodes = vec![Opcode::Br(2),
+                           Opcode::Br(3),
+                           Opcode::Br(1),
                            Opcode::Push(Json::Boolean(true))];
         let mut vm = Vm::new(&opcodes, Json::Null);
         assert_eq!(Json::Boolean(true), vm.run().unwrap());
     }
 
-    #[test] fn checks_if_jump_is_valid() {
-        let opcodes = vec![Opcode::Jump(2)];
+    #[test] fn checks_if_branch_is_valid() {
+        let opcodes = vec![Opcode::Br(2)];
         let mut vm = Vm::new(&opcodes, Json::Null);
-        assert_eq!(Err("Invalid jump address 2".to_string()), vm.run());
+        assert_eq!(Err("Invalid branch address 2".to_string()), vm.run());
     }
 
-    #[test] fn checks_if_jumpz_is_valid() {
-        let opcodes = vec![Opcode::Jumpz(2)];
+    #[test] fn checks_if_brf_is_valid() {
+        let opcodes = vec![Opcode::Brf(2)];
         let mut vm = Vm::new(&opcodes, Json::Null);
-        assert_eq!(Err("Invalid jump address 2".to_string()), vm.run());
+        assert_eq!(Err("Invalid branch address 2".to_string()), vm.run());
     }
 
-    #[test] fn can_jump_conditionally() {
-        let opcodes = vec![Opcode::Jumpz(2),
+    #[test] fn checks_if_brt_is_valid() {
+        let opcodes = vec![Opcode::Brt(2)];
+        let mut vm = Vm::new(&opcodes, Json::Null);
+        assert_eq!(Err("Invalid branch address 2".to_string()), vm.run());
+    }
+
+    #[test] fn can_branch_on_false() {
+        let opcodes = vec![Opcode::Brf(2),
                            Opcode::Index(0),
                            Opcode::Push(Json::Boolean(true))];
         let mut vm = Vm::new(&opcodes, Json::Boolean(false));
         assert_eq!(Json::Boolean(true), vm.run().unwrap());
     }
 
-    #[test] fn can_not_jump_conditionally() {
-        let opcodes = vec![Opcode::Jumpz(2),
-                           Opcode::Jump(100),
+    #[test] fn can_branch_on_true() {
+        let opcodes = vec![Opcode::Brt(2),
+                           Opcode::Index(0),
                            Opcode::Push(Json::Boolean(true))];
         let mut vm = Vm::new(&opcodes, Json::Boolean(true));
-        assert_eq!(Err("Invalid jump address 100".to_string()), vm.run());
+        assert_eq!(Json::Boolean(true), vm.run().unwrap());
     }
 
-    #[test] fn compares_conditionally() {
-        let tests = vec![("[0, 1]", Comparator::Lt, false),
-                         ("[0, 1]", Comparator::Lte, false),
-                         ("[0, 1]", Comparator::Gt, true),
-                         ("[0, 1]", Comparator::Gte, true),
-                         ("[0, 1]", Comparator::Eq, false),
-                         ("[0, \"a\"]", Comparator::Ne, true),
-                         ("[0, \"a\"]", Comparator::Eq, false),
-                         ("[\"a\", \"a\"]", Comparator::Eq, true),
-                         ("[\"a\", \"b\"]", Comparator::Eq, false),
-                         ("[\"a\", \"b\"]", Comparator::Ne, true)];
-        for (js, cmp, result) in tests {
-            let parsed = Json::from_str(js).unwrap();
-            let opcodes = vec![Opcode::Push(parsed[0].clone()),
-                               Opcode::Push(parsed[1].clone()),
-                               Opcode::Cmp(cmp)];
-            let mut vm = Vm::new(&opcodes, Json::Null);
-            assert_eq!(Json::Boolean(result), vm.run().unwrap());
-        }
+    #[test] fn can_not_branch_on_false_conditionally() {
+        let opcodes = vec![Opcode::Brf(2),
+                           Opcode::Br(100),
+                           Opcode::Push(Json::Boolean(true))];
+        let mut vm = Vm::new(&opcodes, Json::Boolean(true));
+        assert_eq!(Err("Invalid branch address 100".to_string()), vm.run());
+    }
+
+    #[test] fn can_not_branch_on_true_conditionally() {
+        let opcodes = vec![Opcode::Brt(2),
+                           Opcode::Br(100),
+                           Opcode::Push(Json::Boolean(true))];
+        let mut vm = Vm::new(&opcodes, Json::Boolean(false));
+        assert_eq!(Err("Invalid branch address 100".to_string()), vm.run());
     }
 
     #[test] fn injects_key_into_valid_object() {
@@ -398,5 +423,26 @@ mod test {
                            Opcode::Insert];
         let mut vm = Vm::new(&opcodes, Json::from_str("{}").unwrap());
         assert_eq!(Json::Null, vm.run().unwrap());
+    }
+
+    #[test] fn compares_conditionally() {
+        let tests = vec![("[0, 1]", Opcode::Lt, false),
+                         ("[0, 1]", Opcode::Lt, false),
+                         ("[0, 1]", Opcode::Gt, true),
+                         ("[0, 1]", Opcode::Gte, true),
+                         ("[0, 1]", Opcode::Eq, false),
+                         ("[0, \"a\"]", Opcode::Ne, true),
+                         ("[0, \"a\"]", Opcode::Eq, false),
+                         ("[\"a\", \"a\"]", Opcode::Eq, true),
+                         ("[\"a\", \"b\"]", Opcode::Eq, false),
+                         ("[\"a\", \"b\"]", Opcode::Ne, true)];
+        for (js, cmp, result) in tests {
+            let parsed = Json::from_str(js).unwrap();
+            let opcodes = vec![Opcode::Push(parsed[0].clone()),
+                               Opcode::Push(parsed[1].clone()),
+                               cmp];
+            let mut vm = Vm::new(&opcodes, Json::Null);
+            assert_eq!(Json::Boolean(result), vm.run().unwrap());
+        }
     }
 }
