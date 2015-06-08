@@ -6,6 +6,8 @@ use self::rustc_serialize::json::Json;
 
 use ast::{Ast, Comparator, KeyValuePair};
 
+pub type Program = Vec<Opcode>;
+
 #[derive(Clone, PartialEq, Debug)]
 pub enum Opcode {
     // Unconditional branch to an address.
@@ -15,7 +17,7 @@ pub enum Opcode {
     // Pops the TOS and branches if true
     Brt(usize),
     // Pops the call stack and jumps to the return position.
-    Ret(usize),
+    Ret,
     // Duplicates the top of the stack
     Dup,
     // Pushes a value onto the stack
@@ -41,7 +43,9 @@ pub enum Opcode {
     // Pops two elements from the stack and pushes true/false if a >= b
     Gte,
     // Pops N operands from stack and calls a built-in function by name.
-    Call(u8, String),
+    Builtin(u8, String),
+    // Pushes a stack frame and branches to the given address.
+    Call(u8),
     // Pops TOS and iterates over each element if it is an array. If it
     // is not an array, then jumps to the given address.
     Each(usize),
@@ -68,7 +72,23 @@ pub enum Opcode {
     Type
 }
 
-pub type Program = Vec<Opcode>;
+/// Represents a stack frame consisting of a return address and locals.
+struct StackFrame {
+    /// The operand position to jump to when Ret is encountered.
+    return_address: usize,
+    /// A vector of local frame variables.
+    locals: Vec<Json>
+}
+
+impl StackFrame {
+    /// Creates a new empty stack frame with a return address.
+    pub fn new(return_address: usize) -> StackFrame {
+        StackFrame {
+            return_address: return_address,
+            locals: vec![]
+        }
+    }
+}
 
 /// JMESPath VM
 pub struct Vm<'a> {
@@ -77,7 +97,9 @@ pub struct Vm<'a> {
     /// The opcode index.
     index: usize,
     /// The VM stack consisting of JSON typed values.
-    stack: Vec<Json>
+    stack: Vec<Json>,
+    /// Vector of stack frames.
+    frames: Vec<StackFrame>
 }
 
 impl<'a> Vm<'a> {
@@ -86,7 +108,8 @@ impl<'a> Vm<'a> {
         Vm {
             opcodes: opcodes,
             stack: vec![data],
-            index: 0
+            index: 0,
+            frames: vec![StackFrame::new(0)]
         }
     }
 
