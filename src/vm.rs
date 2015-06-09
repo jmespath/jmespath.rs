@@ -18,8 +18,6 @@ pub enum Opcode {
     Brt(usize),
     // Pops the call stack and jumps to the return position.
     Ret,
-    // Duplicates the top of the stack
-    Dup,
     // Pushes a value onto the stack
     Push(Json),
     // Loads a value from the call stack by index.
@@ -147,15 +145,6 @@ impl<'a> Vm<'a> {
                 &Opcode::Pop => {
                     self.stack.pop();
                 },
-                &Opcode::Dup => {
-                    if self.stack.is_empty() {
-                        self.stack.push(Json::Null);
-                    } else {
-                        let tos = self.stack.pop().unwrap();
-                        self.stack.push(tos.clone());
-                        self.stack.push(tos);
-                    }
-                },
                 &Opcode::Field(ref f) => {
                     match tos!().find(f) {
                         Some(j) => self.stack.push(j.clone()),
@@ -278,18 +267,6 @@ mod test {
         let opcodes = vec![Opcode::Pop, Opcode::Push(Json::String("foo".to_string()))];
         let mut vm = Vm::new(&opcodes, Json::Null);
         assert_eq!(Json::String("foo".to_string()), vm.run().unwrap());
-    }
-
-    #[test] fn dups_tos() {
-        let opcodes = vec![Opcode::Dup, Opcode::Pop];
-        let mut vm = Vm::new(&opcodes, Json::I64(1));
-        assert_eq!(Json::I64(1), vm.run().unwrap());
-    }
-
-    #[test] fn dups_null() {
-        let opcodes = vec![Opcode::Pop, Opcode::Dup];
-        let mut vm = Vm::new(&opcodes, Json::I64(1));
-        assert_eq!(Json::Null, vm.run().unwrap());
     }
 
     #[test] fn extracts_fields() {
