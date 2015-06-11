@@ -40,6 +40,7 @@ pub use lexer::{tokenize, Token, Lexer};
 pub use ast::{Ast, KeyValuePair, Comparator};
 
 mod ast;
+mod compiler;
 mod lexer;
 mod parser;
 mod vm;
