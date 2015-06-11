@@ -347,13 +347,12 @@ impl<'a> Parser<'a> {
         // Eat the closing bracket.
         try!(self.validate(&self.token, "Rbracket"));
         self.advance();
-        let condition_rhs = try!(self.projection_rhs(Token::Filter.lbp()));
         Ok(Ast::ArrayProjection(
-            Box::new(lhs),
             Box::new(Ast::Condition(
                 Box::new(condition_lhs),
-                Box::new(condition_rhs)
-            ))
+                Box::new(lhs)
+            )),
+            Box::new(try!(self.projection_rhs(Token::Filter.lbp())))
         ))
     }
 
@@ -635,11 +634,11 @@ mod test {
     #[test] fn parses_filters() {
         let comp = Ast::Comparison(Comparator::Eq, bident(&"foo"), bident(&"bar"));
         let proj = Ast::ArrayProjection(
-            Box::new(Ast::CurrentNode),
             Box::new(Ast::Condition(
                 Box::new(comp),
-                bident(&"bar")
-            ))
+                Box::new(Ast::CurrentNode)
+            )),
+            bident(&"bar")
         );
         assert_eq!(parse("[?foo == bar].bar").unwrap(), proj);
     }

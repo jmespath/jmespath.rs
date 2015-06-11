@@ -67,7 +67,10 @@ pub enum Opcode {
     // Pops TOS and pushes true/false if the value is truthy.
     Truthy,
     // Pops TOS and pushes the type of the popped value.
-    Type
+    Type,
+    // Pops TOS and slices into it using start:stop:step. Pushes null
+    // if TOS is not an array.
+    Slice(i32, i32, i32)
 }
 
 /// Represents a stack frame consisting of a return address and locals.

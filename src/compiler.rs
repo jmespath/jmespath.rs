@@ -10,31 +10,46 @@ use ast::{Ast, Comparator, KeyValuePair};
 use vm::Opcode;
 
 pub fn compile_opcodes(ast: &Ast) -> Vec<Opcode> {
-    let mut opcodes = compile_opcodes_with_offset(&ast, 0);
+    let mut opcodes = compile_with_offset(&ast, 0);
     opcodes.push(Opcode::Halt);
     opcodes
 }
 
-fn compile_opcodes_with_offset(ast: &Ast, offset: usize) -> Vec<Opcode> {
+fn compile_with_offset(ast: &Ast, offset: usize) -> Vec<Opcode> {
     let mut opcodes: Vec<Opcode> = Vec::new();
     match *ast {
-        Ast::Identifier(ref j) => {
-            opcodes.push(Opcode::Field(j.clone()))
-        },
+        Ast::CurrentNode => opcodes.push(Opcode::Load(0)),
+        Ast::Identifier(ref j) => opcodes.push(Opcode::Field(j.clone())),
         Ast::Index(i) => {
             if i < 0 {
-                opcodes.push(Opcode::NegativeIndex((i.abs() - 1) as usize))
+                opcodes.push(Opcode::NegativeIndex((i.abs() - 1) as usize));
             } else {
-                opcodes.push(Opcode::Index(i as usize))
+                opcodes.push(Opcode::Index(i as usize));
             }
         },
         Ast::Or(ref lhs, ref rhs) => {
-            opcodes = merge_opcodes(opcodes, compile_opcodes_with_offset(&*lhs, offset));
+            opcodes = merge_opcodes(opcodes, compile_with_offset(&*lhs, offset));
             opcodes.push(Opcode::Truthy);
             let next_offset = opcodes.len() + 1;
-            let right = compile_opcodes_with_offset(&*rhs, next_offset);
+            let right = compile_with_offset(&*rhs, next_offset);
             opcodes.push(Opcode::Brt(next_offset + right.len()));
-            opcodes = merge_opcodes(opcodes, right)
+            opcodes = merge_opcodes(opcodes, right);
+        },
+        Ast::Subexpr(ref lhs, ref rhs) => {
+            opcodes = merge_opcodes(opcodes, compile_with_offset(&*lhs, offset));
+            opcodes = merge_opcodes(opcodes, compile_with_offset(&*rhs, offset));
+        },
+        Ast::Comparison(ref cmp, ref lhs, ref rhs) => {
+            opcodes = merge_opcodes(opcodes, compile_with_offset(&*lhs, offset));
+            opcodes = merge_opcodes(opcodes, compile_with_offset(&*rhs, offset));
+            opcodes.push(match cmp {
+                &Comparator::Lt => Opcode::Lt,
+                &Comparator::Lte => Opcode::Lte,
+                &Comparator::Gt => Opcode::Gt,
+                &Comparator::Gte => Opcode::Gte,
+                &Comparator::Eq => Opcode::Eq,
+                &Comparator::Ne => Opcode::Ne,
+            });
         },
         _ => panic!("not implemented yet!")
     };
@@ -53,7 +68,7 @@ mod test {
     extern crate rustc_serialize;
     use self::rustc_serialize::json::Json;
     use super::*;
-    use ast::Ast;
+    use ast::{Ast, Comparator};
     use vm::Opcode;
 
     #[test] fn assembles_identifiers() {
@@ -85,5 +100,31 @@ mod test {
                         Opcode::Field("bar".to_owned()),
                         Opcode::Halt],
                    opcodes);
+    }
+
+    #[test] fn assembles_current_node() {
+        let ast = Ast::CurrentNode;
+        let opcodes = compile_opcodes(&ast);
+        assert_eq!(vec![Opcode::Load(0), Opcode::Halt], opcodes);
+    }
+
+    #[test] fn assembles_eq_comparison() {
+        let tests = vec![(Comparator::Lt, Opcode::Lt),
+                         (Comparator::Lte, Opcode::Lte),
+                         (Comparator::Gt, Opcode::Gt),
+                         (Comparator::Gte, Opcode::Gte),
+                         (Comparator::Eq, Opcode::Eq),
+                         (Comparator::Ne, Opcode::Ne)];
+        for (cmp, op) in tests {
+            let ast = Ast::Comparison(
+                cmp,
+                Box::new(Ast::Identifier("foo".to_string())),
+                Box::new(Ast::Identifier("bar".to_string())));
+            let opcodes = compile_opcodes(&ast);
+            assert_eq!(vec![Opcode::Field("foo".to_string()),
+                            Opcode::Field("bar".to_string()),
+                            op,
+                            Opcode::Halt], opcodes);
+        }
     }
 }
