@@ -248,9 +248,9 @@ impl<'a> Lexer<'a> {
     }
 
     fn consume_raw_string(&mut self) -> Token {
-        self.consume_inside('\'', |s| Literal {
-            value: Json::String(s.clone()),
-            span: s.len() + 2
+        self.consume_inside('\'', |s| {
+            let string_len = s.len() + 2;
+            Literal { value: Json::String(s), span: string_len }
         })
     }
 
