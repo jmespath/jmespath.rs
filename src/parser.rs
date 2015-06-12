@@ -110,7 +110,7 @@ impl<'a> Parser<'a> {
             Token::Star => self.nud_star(),
             Token::Lbracket => self.nud_lbracket(),
             Token::Flatten => self.nud_flatten(),
-            Token::Literal { value, ..} => self.nud_literal(value),
+            Token::Literal { value, .. } => self.nud_literal(value),
             Token::Lbrace => self.nud_lbrace(),
             Token::Ampersand => self.nud_ampersand(),
             Token::Filter => self.nud_filter(),
