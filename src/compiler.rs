@@ -51,6 +51,19 @@ fn compile_with_offset(ast: &Ast, offset: usize) -> Vec<Opcode> {
                 &Comparator::Ne => Opcode::Ne,
             });
         },
+        Ast::Condition(ref lhs, ref rhs) => {
+            opcodes = merge_opcodes(opcodes, compile_with_offset(&*lhs, offset));
+            opcodes.push(Opcode::Push(Json::Boolean(true)));
+            opcodes.push(Opcode::Eq);
+            let next_offset = opcodes.len() + 1;
+            let right = compile_with_offset(&*rhs, next_offset);
+            opcodes.push(Opcode::Brf(next_offset + right.len() + 1));
+            opcodes = merge_opcodes(opcodes, right);
+            let next_offset = opcodes.len() + 2;
+            opcodes.push(Opcode::Br(next_offset));
+            opcodes.push(Opcode::Push(Json::Null));
+        },
+        Ast::Literal(ref json) => opcodes.push(Opcode::Push(json.clone())),
         _ => panic!("not implemented yet!")
     };
     opcodes
@@ -126,5 +139,21 @@ mod test {
                             op,
                             Opcode::Halt], opcodes);
         }
+    }
+
+    #[test] fn assembles_conditions() {
+        let ast = Ast::Condition(
+            Box::new(Ast::Literal(Json::Boolean(true))),
+            Box::new(Ast::Identifier("bar".to_owned())));
+        let opcodes = compile_opcodes(&ast);
+        assert_eq!(vec![Opcode::Push(Json::Boolean(true)),
+                        Opcode::Push(Json::Boolean(true)),
+                        Opcode::Eq,
+                        Opcode::Brf(6),
+                        Opcode::Field("bar".to_owned()),
+                        Opcode::Br(7),
+                        Opcode::Push(Json::Null),
+                        Opcode::Halt],
+                   opcodes);
     }
 }
