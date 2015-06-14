@@ -1,5 +1,10 @@
 //! Rust implementation of JMESPath.
 //!
+//! # Compiling JMESPath expressions
+//!
+//! Use the `jmespath::Expression` struct to compile and execute JMESPath
+//! expressions. The `Expression` struct can be used multiple times.
+//!
 //! # Lexer
 //!
 //! Use the `tokenize()` function to tokenize JMESPath expressions into a
@@ -35,12 +40,93 @@
 //! let ast = jmespath::parse("foo.bar | baz");
 //! ```
 
+extern crate rustc_serialize;
+
 pub use parser::{parse, Parser, ParseResult, ParseError};
 pub use lexer::{tokenize, Token, Lexer};
 pub use ast::{Ast, KeyValuePair, Comparator};
+
+use std::fmt;
+
+use vm::{Opcode, Vm};
+use rustc_serialize::json::Json;
+use compiler::compile_opcodes;
 
 mod ast;
 mod compiler;
 mod lexer;
 mod parser;
 mod vm;
+
+/// A compiled JMESPath expression.
+#[derive(Clone)]
+pub struct Expression {
+    opcodes: Vec<Opcode>,
+    original: String,
+}
+
+impl Expression {
+    /// Creates a new JMESPath expression from an expression string.
+    pub fn new(expression: &str) -> Result<Expression, ParseError> {
+        let ast = try!(parse(expression));
+        Ok(Expression {
+            original: expression.to_string(),
+            opcodes: compile_opcodes(&ast)
+        })
+    }
+
+    /// Returns the result of searching data with the compiled expression.
+    pub fn search(&self, data: Json) -> Result<Json, String> {
+        Vm::new(&self.opcodes, data).run()
+    }
+
+    /// Returns the original string of this JMESPath expression.
+    pub fn as_str<'a>(&'a self) -> &'a str {
+        &self.original
+    }
+}
+
+impl fmt::Display for Expression {
+    /// Shows the original jmespath expression.
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+impl fmt::Debug for Expression {
+    /// Shows the original regular expression.
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Display::fmt(self, f)
+    }
+}
+
+/// Equality comparison is based on the original string.
+impl PartialEq for Expression {
+    fn eq(&self, other: &Expression) -> bool {
+        self.as_str() == other.as_str()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    extern crate rustc_serialize;
+    use self::rustc_serialize::json::Json;
+    use super::*;
+
+    #[test] fn can_evaluate_jmespath_expression() {
+        let expr = Expression::new("foo.bar").unwrap();
+        let json = Json::from_str("{\"foo\":{\"bar\":true}}").unwrap();
+        assert_eq!(Json::Boolean(true), expr.search(json).unwrap());
+    }
+
+    #[test] fn formats_expression_as_string() {
+        let expr = Expression::new("foo | baz").unwrap();
+        assert_eq!("foo | baz/foo | baz", format!("{}/{:?}", expr, expr));
+    }
+
+    #[test] fn implements_partial_eq() {
+        let a = Expression::new("@").unwrap();
+        let b = Expression::new("@").unwrap();
+        assert!(a == b);
+    }
+}
