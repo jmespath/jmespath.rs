@@ -2,12 +2,48 @@
 
 extern crate rustc_serialize;
 
+use std::ops::Index;
 use std::io::Cursor;
 use std::collections::BTreeMap;
 use self::rustc_serialize::json::Json;
 
 use ast::{Ast, Comparator, KeyValuePair};
 use vm::Opcode;
+
+#[derive(Clone, PartialEq, Debug)]
+pub struct ConstantPool<'a> {
+    constants: Vec<&'a Json>
+}
+
+impl<'a> ConstantPool<'a> {
+    pub fn new() -> ConstantPool<'a> {
+        ConstantPool {
+            constants: vec!()
+        }
+    }
+
+    /// Get a constant from the pool and return the index.
+    ///
+    /// This will insert a new constant if it is not in the pool.
+    pub fn get(&mut self, json: &'a Json) -> usize {
+        for (k, v) in self.constants.iter().enumerate() {
+            if *v == json {
+                return k;
+            }
+        }
+        self.constants.push(json);
+        self.constants.len() - 1
+    }
+}
+
+/// Retrieve a constant from the pool by index
+impl<'c> Index<usize> for ConstantPool<'c> {
+    type Output = Json;
+
+    fn index<'d>(&'d self, index: usize) -> &'d Json {
+        self.constants[index]
+    }
+}
 
 pub fn compile_opcodes(ast: &Ast) -> Vec<Opcode> {
     let mut opcodes = compile_with_offset(&ast, 0);
@@ -83,6 +119,17 @@ mod test {
     use super::*;
     use ast::{Ast, Comparator};
     use vm::Opcode;
+
+    #[test] fn add_to_constant_pool() {
+        let b1 = Json::Boolean(true);
+        let b2 = Json::Boolean(false);
+        let mut pool = ConstantPool::new();
+        assert_eq!(0, pool.get(&b1));
+        assert_eq!(0, pool.get(&b1));
+        assert_eq!(1, pool.get(&b2));
+        assert_eq!(1, pool.get(&b2));
+        assert_eq!(b1, pool[0]);
+    }
 
     #[test] fn assembles_identifiers() {
         let ast = Ast::Identifier("foo".to_owned());
