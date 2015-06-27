@@ -20,6 +20,12 @@ pub enum Opcode {
     Ret,
     // Pushes a value onto the stack
     Push(Json),
+    // Push a null value onto the stack
+    PushNull,
+    // Push a true value onto the stack
+    PushTrue,
+    // Push a false value onto the stack
+    PushFalse,
     // Loads a value from the call stack by index.
     Load(usize),
     // Pops TOS and stores it in a call stack index.

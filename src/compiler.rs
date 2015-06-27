@@ -89,7 +89,7 @@ fn compile_with_offset(ast: &Ast, offset: usize) -> Vec<Opcode> {
         },
         Ast::Condition(ref lhs, ref rhs) => {
             opcodes = merge_opcodes(opcodes, compile_with_offset(&*lhs, offset));
-            opcodes.push(Opcode::Push(Json::Boolean(true)));
+            opcodes.push(Opcode::PushTrue);
             opcodes.push(Opcode::Eq);
             let next_offset = opcodes.len() + 1;
             let right = compile_with_offset(&*rhs, next_offset);
@@ -97,9 +97,17 @@ fn compile_with_offset(ast: &Ast, offset: usize) -> Vec<Opcode> {
             opcodes = merge_opcodes(opcodes, right);
             let next_offset = opcodes.len() + 2;
             opcodes.push(Opcode::Br(next_offset));
-            opcodes.push(Opcode::Push(Json::Null));
+            opcodes.push(Opcode::PushNull);
         },
-        Ast::Literal(ref json) => opcodes.push(Opcode::Push(json.clone())),
+        Ast::Literal(ref json) => {
+            // Perform optimizations for pushing true, false, and null
+            match json {
+                &Json::Boolean(true) => opcodes.push(Opcode::PushTrue),
+                &Json::Boolean(false) => opcodes.push(Opcode::PushFalse),
+                &Json::Null => opcodes.push(Opcode::PushNull),
+                _ => opcodes.push(Opcode::Push(json.clone()))
+            }
+        },
         _ => panic!("not implemented yet!")
     };
     opcodes
@@ -193,13 +201,13 @@ mod test {
             Box::new(Ast::Literal(Json::Boolean(true))),
             Box::new(Ast::Identifier("bar".to_owned())));
         let opcodes = compile_opcodes(&ast);
-        assert_eq!(vec![Opcode::Push(Json::Boolean(true)),
-                        Opcode::Push(Json::Boolean(true)),
+        assert_eq!(vec![Opcode::PushTrue,
+                        Opcode::PushTrue,
                         Opcode::Eq,
                         Opcode::Brf(6),
                         Opcode::Field("bar".to_owned()),
                         Opcode::Br(7),
-                        Opcode::Push(Json::Null),
+                        Opcode::PushNull,
                         Opcode::Halt],
                    opcodes);
     }
