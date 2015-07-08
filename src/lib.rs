@@ -129,4 +129,10 @@ mod test {
         let b = Expression::new("@").unwrap();
         assert!(a == b);
     }
+
+    #[test] fn can_evaluate_wildcards() {
+        let expr = Expression::new("foo[*].bar").unwrap();
+        let json = Json::from_str("{\"foo\":[{\"bar\":true}]}").unwrap();
+        assert_eq!(Json::Array(vec![Json::Boolean(true)]), expr.search(json).unwrap());
+    }
 }

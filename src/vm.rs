@@ -2,6 +2,8 @@
 
 extern crate rustc_serialize;
 
+use std::collections::BTreeMap;
+use std::iter::Iterator;
 use self::rustc_serialize::json::Json;
 
 use ast::{Ast, Comparator, KeyValuePair};
@@ -26,6 +28,10 @@ pub enum Opcode {
     PushTrue,
     // Push a false value onto the stack
     PushFalse,
+    // Push an empty array onto the stack
+    PushArray,
+    // Push an empty object onto the stack
+    PushObject,
     // Loads a value from the call stack by index.
     Load(usize),
     // Pops TOS and stores it in a call stack index.
@@ -47,12 +53,17 @@ pub enum Opcode {
     // Pops two elements from the stack and pushes true/false if a >= b
     Gte,
     // Pops N operands from stack and calls a built-in function by name.
-    Builtin(u8, String),
+    Builtin(usize, String),
     // Pushes a stack frame and branches to the given address.
-    Call(u8),
-    // Pops TOS and iterates over each element if it is an array. If it
-    // is not an array, then jumps to the given address.
-    Each(usize),
+    Call(usize),
+    // Pops TOS and pushes the values of an object as an array or pushes
+    // null if TOS is not an array.
+    ObjectValues,
+    // Registers a projection with POS + 1 with a jump index of usize
+    Projection(usize),
+    // Iterates over the next value in the projection or jumps to the
+    // jump position of the current projection.
+    Next,
     // Pops TOS and pushes the <operand> key value of TOS onto the stack.
     // If TOS is not an "object", null is pushed onto the stack.
     Field(String),
@@ -79,12 +90,43 @@ pub enum Opcode {
     Slice(i32, i32, i32)
 }
 
+/// Projection state in a stack frame.
+struct Projection {
+    /// Values to iterate.
+    values: Vec<Json>,
+    /// Jump position after the projection.
+    jmp: usize,
+    /// Values collected
+    result: Vec<Json>
+}
+
+impl Projection {
+    /// Create a new projection.
+    pub fn new(values: Vec<Json>, jmp: usize) -> Projection {
+        Projection {
+            values: values,
+            jmp: jmp,
+            result: vec![]
+        }
+    }
+}
+
+impl Iterator for Projection {
+    type Item = Json;
+
+    fn next(&mut self) -> Option<Json> {
+        self.values.pop()
+    }
+}
+
 /// Represents a stack frame consisting of a return address and locals.
 struct StackFrame {
     /// The operand position to jump to when Ret is encountered.
     return_address: usize,
     /// A vector of local frame variables.
-    locals: Vec<Json>
+    locals: Vec<Json>,
+    /// A hash of projections where bytecode position is the index.
+    projections: BTreeMap<usize, Projection>
 }
 
 impl StackFrame {
@@ -92,7 +134,8 @@ impl StackFrame {
     pub fn new(return_address: usize) -> StackFrame {
         StackFrame {
             return_address: return_address,
-            locals: vec![]
+            locals: vec![],
+            projections: BTreeMap::new()
         }
     }
 }
@@ -106,7 +149,9 @@ pub struct Vm<'a> {
     /// The VM stack consisting of JSON typed values.
     stack: Vec<Json>,
     /// Vector of stack frames.
-    frames: Vec<StackFrame>
+    frames: Vec<StackFrame>,
+    /// The current stack frame index.
+    fp: usize
 }
 
 impl<'a> Vm<'a> {
@@ -116,16 +161,20 @@ impl<'a> Vm<'a> {
             opcodes: opcodes,
             stack: vec![data],
             index: 0,
-            frames: vec![StackFrame::new(0)]
+            frames: vec![StackFrame::new(0)],
+            fp: 0
         }
     }
 
     pub fn run(&mut self) -> Result<Json, String> {
+        // Simplification for popping TOS
         macro_rules! tos {
             () => {{
                 self.stack.pop().unwrap_or(Json::Null)
             }};
         }
+
+        // Makes it easier to compare TOs1 and TOS2
         macro_rules! stack_cmp {
             ($cmp:ident) => {{
                 let (a, b) = (tos!(), tos!());
@@ -134,6 +183,7 @@ impl<'a> Vm<'a> {
                     .unwrap_or(Json::Boolean(false)));
             }};
         }
+
         while self.index < self.opcodes.len() {
             match &self.opcodes[self.index] {
                 &Opcode::Lt => { stack_cmp!(lt); },
@@ -203,11 +253,11 @@ impl<'a> Vm<'a> {
                     continue;
                 },
                 &Opcode::Brt(address) => {
-                    self.index = try!(self.cond_branch(true, address));
+                    self.index = self.cond_branch(true, address);
                     continue;
                 },
                 &Opcode::Brf(address) => {
-                    self.index = try!(self.cond_branch(false, address));
+                    self.index = self.cond_branch(false, address);
                     continue;
                 },
                 &Opcode::InjectKey(ref k) => {
@@ -224,8 +274,42 @@ impl<'a> Vm<'a> {
                         .map(|_| coll)
                         .unwrap_or(Json::Null));
                 },
+                &Opcode::Projection(jmp) => {
+                    let tos = tos!();
+                    match tos.as_array() {
+                        Some(arr) => {
+                            let projection = Projection::new(arr.clone(), jmp);
+                            self.frames[self.fp].projections.insert(self.index + 1, projection);
+                        },
+                        _ => {
+                            self.stack.push(Json::Null);
+                            self.index = jmp;
+                            continue;
+                        }
+                    };
+                },
+                &Opcode::Next => {
+                    let projection = self.frames[self.fp].projections
+                        .get_mut(&self.index)
+                        .unwrap();
+                    match projection.next() {
+                        Some(json) => {
+                            if projection.result.len() > 0 {
+                                projection.result.push(tos!());
+                            }
+                            self.stack.push(json);
+                            self.index += 1;
+                        },
+                        None => {
+                            projection.result.push(tos!());
+                            self.index = projection.jmp;
+                            self.stack.push(Json::Array(projection.result.clone()));
+                        }
+                    }
+                    continue;
+                },
                 &Opcode::Halt => break,
-                _ => panic!("Not implemented yet!")
+                ref o @ _ => panic!(format!("not implemented yet: {:?}", o))
             }
             self.index += 1;
         }
@@ -234,11 +318,11 @@ impl<'a> Vm<'a> {
     }
 
     /// Conditionally branch to the given address if TOS == check.
-    fn cond_branch(&mut self, check: bool, address: usize) -> Result<usize, String> {
+    fn cond_branch(&mut self, check: bool, address: usize) -> usize {
         let tos = self.stack.pop().unwrap_or(Json::Null);
         match tos {
-            Json::Boolean(b) if b == check => Ok(address),
-            _ => Ok(self.index + 1)
+            Json::Boolean(b) if b == check => address,
+            _ => self.index + 1
         }
     }
 
