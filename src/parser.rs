@@ -302,8 +302,14 @@ impl<'a> Parser<'a> {
 
     /// Parses a dot into a subexpression (e.g., foo.bar)
     fn led_dot(&mut self, left: Ast) -> ParseResult {
-        let rhs = try!(self.parse_dot(Token::Dot.lbp()));
-        Ok(Ast::Subexpr(Box::new(left), Box::new(rhs)))
+        if self.stream.peek() == Some(&Token::Star) {
+            self.advance();
+            self.advance();
+            self.parse_wildcard_values(left)
+        } else {
+            let rhs = try!(self.parse_dot(Token::Dot.lbp()));
+            Ok(Ast::Subexpr(Box::new(left), Box::new(rhs)))
+        }
     }
 
     /// Parses an or expression (e.g., foo || bar)
@@ -396,6 +402,7 @@ impl<'a> Parser<'a> {
     /// Creates a projection for "[*]"
     fn parse_wildcard_index(&mut self, lhs: Ast) -> ParseResult {
         try!(self.expect("Rbracket"));
+        self.advance();
         let rhs = try!(self.projection_rhs(Token::Star.lbp()));
         Ok(Ast::ArrayProjection(Box::new(lhs), Box::new(rhs)))
     }
@@ -649,6 +656,20 @@ mod test {
         assert_eq!(result.err().unwrap().msg,
                    "Parse error at line 0, col 17; Expected Rbracket, found Eof\n\
                    [?foo == bar | baz\n                 ^\n".to_string());
+    }
+
+    #[test] fn parses_wildcard_array() {
+        let ast = Ast::ArrayProjection(
+            Box::new(Ast::Identifier("foo".to_string())),
+            Box::new(Ast::Identifier("bar".to_string())));
+        assert_eq!(ast, parse("foo[*].bar").unwrap());
+    }
+
+    #[test] fn parses_wildcard_object() {
+        let ast = Ast::ObjectProjection(
+            Box::new(Ast::Identifier("foo".to_string())),
+            Box::new(Ast::Identifier("bar".to_string())));
+        assert_eq!(ast, parse("foo.*.bar").unwrap());
     }
 
     fn bident(name: &str) -> Box<Ast> {
