@@ -102,42 +102,134 @@ impl<'a> Parser<'a> {
 
     /// Main parse function of the Pratt parser that parses while RBP < LBP
     fn expr(&mut self, rbp: usize) -> ParseResult {
-        // Parse the nud token.
-        let mut left = match self.token.clone() {
-            Token::At => self.nud_at(),
-            Token::Identifier { value, .. } => self.nud_identifier(value),
-            Token::QuotedIdentifier { value, .. } => self.nud_quoted_identifier(value),
-            Token::Star => self.nud_star(),
-            Token::Lbracket => self.nud_lbracket(),
-            Token::Flatten => self.nud_flatten(),
-            Token::Literal { value, .. } => self.nud_literal(value),
-            Token::Lbrace => self.nud_lbrace(),
-            Token::Ampersand => self.nud_ampersand(),
-            Token::Filter => self.nud_filter(),
-            _ => return Err(self.err(&format!("Unexpected nud token: {}",
-                                              self.token.token_name()))),
-        };
-        // Parse any led tokens with a higher binding power.
+        let mut left = self.nud();
         while rbp < self.token.lbp() {
-            left = match self.token {
-                Token::Dot => self.led_dot(try!(left)),
-                Token::Lbracket => self.led_lbracket(try!(left)),
-                Token::Flatten => self.led_flatten(try!(left)),
-                Token::Or => self.led_or(try!(left)),
-                Token::Pipe => self.led_pipe(try!(left)),
-                Token::Lparen => self.led_lparen(try!(left)),
-                Token::Filter => self.led_filter(try!(left)),
-                Token::Eq => self.parse_comparator(Comparator::Eq, try!(left)),
-                Token::Ne => self.parse_comparator(Comparator::Ne, try!(left)),
-                Token::Gt => self.parse_comparator(Comparator::Gt, try!(left)),
-                Token::Gte => self.parse_comparator(Comparator::Gte, try!(left)),
-                Token::Lt => self.parse_comparator(Comparator::Lt, try!(left)),
-                Token::Lte => self.parse_comparator(Comparator::Lte, try!(left)),
-                _ => return Err(self.err(&format!("Unexpected led token: {}",
-                                                  self.token.token_name()))),
-            };
+            left = self.led(try!(left), &rbp);
         }
         left
+    }
+
+    fn nud(&mut self) -> ParseResult {
+        match self.token.clone() {
+            Token::At => {
+                self.advance();
+                Ok(Ast::CurrentNode)
+            },
+            Token::Identifier { value, .. } => {
+                self.advance();
+                Ok(Ast::Identifier(value))
+            },
+            Token::QuotedIdentifier { value, .. } => {
+                self.advance();
+                match self.token {
+                    Token::Lparen => Err(self.err(&"Quoted strings can't be a function name")),
+                    _ => Ok(Ast::Identifier(value))
+                }
+            },
+            Token::Star => {
+                self.advance();
+                self.parse_wildcard_values(Ast::CurrentNode)
+            },
+            Token::Lbracket => {
+                self.advance();
+                match self.token {
+                    Token::Number { .. } | Token::Colon => self.parse_array_index(),
+                    Token::Star => {
+                        if self.stream.peek() != Some(&Token::Rbracket) {
+                            self.parse_multi_list()
+                        } else {
+                            try!(self.expect("Star"));
+                            self.parse_wildcard_index(Ast::CurrentNode)
+                        }
+                    },
+                    _ => self.parse_multi_list()
+                }
+            },
+            Token::Flatten => self.parse_flatten(Ast::CurrentNode),
+            Token::Literal { value, .. } => {
+                self.advance();
+                Ok(Ast::Literal(value))
+            },
+            Token::Lbrace => {
+                let mut pairs = vec![];
+                loop {
+                    // Skip the opening brace and any encountered commas.
+                    self.advance();
+                    // Requires at least on key value pair.
+                    pairs.push(try!(self.parse_kvp()));
+                    match self.token {
+                        // Terminal condition is the Rbrace token "}".
+                        Token::Rbrace => { self.advance(); break; },
+                        // Skip commas as they are used to delineate kvps
+                        Token::Comma => continue,
+                        _ => return Err(self.err("Expected '}' or ','"))
+                    }
+                }
+                Ok(Ast::MultiHash(pairs))
+            },
+            Token::Ampersand => {
+                self.advance();
+                let rhs = try!(self.expr(Token::Ampersand.lbp()));
+                Ok(Ast::Expref(Box::new(rhs)))
+            },
+            Token::Filter => self.parse_filter(Ast::CurrentNode),
+            ref tok @ _ => return Err(self.err(&format!("Unexpected nud token: {}",
+                                                        tok.token_name()))),
+        }
+    }
+
+    fn led(&mut self, left: Ast, rbp: &usize) -> ParseResult {
+        match self.token {
+            Token::Dot => {
+                if self.stream.peek() == Some(&Token::Star) {
+                    self.advance();
+                    self.advance();
+                    self.parse_wildcard_values(left)
+                } else {
+                    let rhs = try!(self.parse_dot(Token::Dot.lbp()));
+                    Ok(Ast::Subexpr(Box::new(left), Box::new(rhs)))
+                }
+            },
+            Token::Lbracket => {
+                try!(self.expect("Number|Colon|Star"));
+                match self.token {
+                    Token::Number {.. } | Token::Colon => {
+                        Ok(Ast::Subexpr(Box::new(left),
+                                        Box::new(try!(self.parse_array_index()))))
+                    },
+                    _ => self.parse_wildcard_index(left)
+                }
+            },
+            Token::Flatten => self.parse_flatten(left),
+            Token::Or => {
+                self.advance();
+                let rhs = try!(self.expr(Token::Or.lbp()));
+                Ok(Ast::Or(Box::new(left), Box::new(rhs)))
+            },
+            Token::Pipe => {
+                self.advance();
+                let rhs = try!(self.expr(Token::Pipe.lbp()));
+                Ok(Ast::Subexpr(Box::new(left), Box::new(rhs)))
+            },
+            Token::Lparen => {
+                match left {
+                    Ast::Identifier(v) => {
+                        self.advance();
+                        Ok(Ast::Function(v, try!(self.parse_list(Token::Rparen))))
+                    },
+                    _ => Err(self.err("Functions must be preceded by an identifier"))
+                }
+            },
+            Token::Filter => self.parse_filter(left),
+            Token::Eq => self.parse_comparator(Comparator::Eq, left),
+            Token::Ne => self.parse_comparator(Comparator::Ne, left),
+            Token::Gt => self.parse_comparator(Comparator::Gt, left),
+            Token::Gte => self.parse_comparator(Comparator::Gte, left),
+            Token::Lt => self.parse_comparator(Comparator::Lt, left),
+            Token::Lte => self.parse_comparator(Comparator::Lte, left),
+            _ => Err(self.err(&format!("Unexpected led token: {}",
+                                       self.token.token_name()))),
+        }
     }
 
     /// Ensures that a Token is one of the pipe separated token names
@@ -184,99 +276,6 @@ impl<'a> Parser<'a> {
         self.err(&format!("Unexpected token: {}", self.token.token_name()))
     }
 
-    /// Examples: &foo
-    fn nud_ampersand(&mut self) -> ParseResult {
-        self.advance();
-        let rhs = try!(self.expr(Token::Ampersand.lbp()));
-        Ok(Ast::Expref(Box::new(rhs)))
-    }
-
-    /// Examples: "@"
-    fn nud_at(&mut self) -> ParseResult {
-        self.advance();
-        Ok(Ast::CurrentNode)
-    }
-
-    /// Examples: Foo
-    fn nud_identifier(&mut self, s: String) -> ParseResult {
-        self.advance();
-        Ok(Ast::Identifier(s))
-    }
-
-    /// Examples: "Foo". Note that this is a special case in that
-    /// QuotedIdentifier must not be used as a function name.
-    fn nud_quoted_identifier(&mut self, s: String) -> ParseResult {
-        self.advance();
-        match self.token {
-            Token::Lparen => Err(self.err(&"Quoted strings cannot act as a function name")),
-            _ => Ok(Ast::Identifier(s))
-        }
-    }
-
-    /// Examples: "[0]", "[*]", "[a, b]", "[0:1]", etc...
-    fn nud_lbracket(&mut self) -> ParseResult {
-        self.advance();
-        match self.token {
-            Token::Number { .. } | Token::Colon => self.parse_array_index(),
-            Token::Star => {
-                if self.stream.peek() != Some(&Token::Rbracket) {
-                    self.parse_multi_list()
-                } else {
-                    try!(self.expect("Star"));
-                    self.parse_wildcard_index(Ast::CurrentNode)
-                }
-            },
-            _ => self.parse_multi_list()
-        }
-    }
-
-    /// Examples: foo[*], foo[0], foo[:-1], etc.
-    fn led_lbracket(&mut self, lhs: Ast) -> ParseResult {
-        try!(self.expect("Number|Colon|Star"));
-        match self.token {
-            Token::Number {.. } | Token::Colon => {
-                Ok(Ast::Subexpr(Box::new(lhs),
-                                Box::new(try!(self.parse_array_index()))))
-            },
-            _ => self.parse_wildcard_index(lhs)
-        }
-    }
-
-    fn nud_literal(&mut self, value: Json) -> ParseResult {
-        self.advance();
-        Ok(Ast::Literal(value))
-    }
-
-    /// Examples: "*" (e.g., "* | *" would be a pipe containing two nud stars)
-    fn nud_star(&mut self) -> ParseResult {
-        self.advance();
-        self.parse_wildcard_values(Ast::CurrentNode)
-    }
-
-    /// Examples: "[]". Turns it into a led flatten (i.e., "@[]").
-    fn nud_flatten(&mut self) -> ParseResult {
-        self.led_flatten(Ast::CurrentNode)
-    }
-
-    /// Example "{foo: bar, baz: `12`}"
-    fn nud_lbrace(&mut self) -> Result<Ast, ParseError> {
-        let mut pairs = vec![];
-        loop {
-            // Skip the opening brace and any encountered commas.
-            self.advance();
-            // Requires at least on key value pair.
-            pairs.push(try!(self.parse_kvp()));
-            match self.token {
-                // Terminal condition is the Rbrace token "}".
-                Token::Rbrace => { self.advance(); break; },
-                // Skip commas as they are used to delineate kvps
-                Token::Comma => continue,
-                _ => return Err(self.err("Expected '}' or ','"))
-            }
-        }
-        Ok(Ast::MultiHash(pairs))
-    }
-
     fn parse_kvp(&mut self) -> Result<KeyValuePair, ParseError> {
         match self.token.clone() {
             Token::Identifier { value, .. } => {
@@ -291,62 +290,10 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Creates a Projection AST node for a flatten token.
-    fn led_flatten(&mut self, lhs: Ast) -> ParseResult {
-        let rhs = try!(self.projection_rhs(Token::Flatten.lbp()));
-        Ok(Ast::ArrayProjection(
-            Box::new(Ast::Flatten(Box::new(lhs))),
-            Box::new(rhs)
-        ))
-    }
-
-    /// Parses a dot into a subexpression (e.g., foo.bar)
-    fn led_dot(&mut self, left: Ast) -> ParseResult {
-        if self.stream.peek() == Some(&Token::Star) {
-            self.advance();
-            self.advance();
-            self.parse_wildcard_values(left)
-        } else {
-            let rhs = try!(self.parse_dot(Token::Dot.lbp()));
-            Ok(Ast::Subexpr(Box::new(left), Box::new(rhs)))
-        }
-    }
-
-    /// Parses an or expression (e.g., foo || bar)
-    fn led_or(&mut self, left: Ast) -> ParseResult {
-        self.advance();
-        let rhs = try!(self.expr(Token::Or.lbp()));
-        Ok(Ast::Or(Box::new(left), Box::new(rhs)))
-    }
-
-    /// Creates a Function node, ensuring that the function name is not
-    /// quoted.
-    fn led_lparen(&mut self, lhs: Ast) -> ParseResult {
-        match lhs {
-            Ast::Identifier(v) => {
-                self.advance();
-                Ok(Ast::Function(v, try!(self.parse_list(Token::Rparen))))
-            },
-            _ => Err(self.err("Functions must be preceded by an identifier"))
-        }
-    }
-
-    /// Parses a pipe expression (e.g., foo | bar)
-    fn led_pipe(&mut self, left: Ast) -> ParseResult {
-        self.advance();
-        let rhs = try!(self.expr(Token::Pipe.lbp()));
-        Ok(Ast::Subexpr(Box::new(left), Box::new(rhs)))
-    }
-
-    /// Parses a nud filter, treating it as a led filter CurrentNode.
-    fn nud_filter(&mut self) -> ParseResult {
-        self.led_filter(Ast::CurrentNode)
-    }
-
     /// Parses a filter token into an ArrayProjection that filters the right
     /// side of the projection using a Condition node. If the Condition node
     /// returns a truthy value, then the value is yielded by the projection.
-    fn led_filter(&mut self, lhs: Ast) -> ParseResult {
+    fn parse_filter(&mut self, lhs: Ast) -> ParseResult {
         self.advance();
         // Parse the LHS of the condition node.
         let condition_lhs = try!(self.expr(0));
@@ -354,26 +301,25 @@ impl<'a> Parser<'a> {
         try!(self.validate(&self.token, "Rbracket"));
         self.advance();
         Ok(Ast::ArrayProjection(
-            Box::new(Ast::Condition(
-                Box::new(condition_lhs),
-                Box::new(lhs)
-            )),
+            Box::new(Ast::Condition(Box::new(condition_lhs), Box::new(lhs))),
             Box::new(try!(self.projection_rhs(Token::Filter.lbp())))
+        ))
+    }
+
+    fn parse_flatten(&mut self, lhs: Ast) -> ParseResult {
+        let rhs = try!(self.projection_rhs(Token::Flatten.lbp()));
+        Ok(Ast::ArrayProjection(
+            Box::new(Ast::Flatten(Box::new(lhs))),
+            Box::new(rhs)
         ))
     }
 
     /// Parses a comparator token into a Comparison (e.g., foo == bar)
     fn parse_comparator(&mut self, cmp: Comparator, lhs: Ast) -> ParseResult {
-        // Determine the precedence of the current token.
         let lbp = self.token.lbp();
         self.advance();
-        // Parse the right side of the comparision after the comparator.
         let rhs = try!(self.expr(lbp));
-        Ok(Ast::Comparison(
-            cmp,
-            Box::new(lhs),
-            Box::new(rhs)
-        ))
+        Ok(Ast::Comparison(cmp, Box::new(lhs), Box::new(rhs)))
     }
 
     /// Parses the right hand side of a dot expression.
@@ -623,8 +569,8 @@ mod test {
         let result = parse("\"foo\"(baz, bar)");
         assert!(result.is_err());
         assert_eq!(result.err().unwrap().msg,
-                   "Parse error at line 0, col 5; Quoted strings cannot \
-                   act as a function name\n\
+                   "Parse error at line 0, col 5; Quoted strings can't \
+                   be a function name\n\
                    \"foo\"(baz, bar)\n     ^\n".to_string());
     }
 
