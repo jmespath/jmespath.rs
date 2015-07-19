@@ -32,6 +32,8 @@ pub enum Opcode {
     PushArray,
     // Push an empty object onto the stack
     PushObject,
+    PushCurrent,
+    PopCurrent,
     // Loads a value from the call stack by index.
     Load(usize),
     // Pops TOS and stores it in a call stack index.
@@ -126,16 +128,19 @@ struct StackFrame {
     /// A vector of local frame variables.
     locals: Vec<Json>,
     /// A hash of projections where bytecode position is the index.
-    projections: BTreeMap<usize, Projection>
+    projections: BTreeMap<usize, Projection>,
+    /// Stack of current nodes.
+    current_stack: Vec<Json>
 }
 
 impl StackFrame {
     /// Creates a new empty stack frame with a return address.
-    pub fn new(return_address: usize) -> StackFrame {
+    pub fn new(return_address: usize, data: Json) -> StackFrame {
         StackFrame {
             return_address: return_address,
             locals: vec![],
-            projections: BTreeMap::new()
+            projections: BTreeMap::new(),
+            current_stack: vec![data]
         }
     }
 }
@@ -157,11 +162,12 @@ pub struct Vm<'a> {
 impl<'a> Vm<'a> {
     /// Creates a new VM using the given program and data.
     pub fn new(opcodes: &'a Vec<Opcode>, data: Json) -> Vm<'a> {
+        let frame = StackFrame::new(0, data.clone());
         Vm {
             opcodes: opcodes,
             stack: vec![data],
             index: 0,
-            frames: vec![StackFrame::new(0)],
+            frames: vec![frame],
             fp: 0
         }
     }
@@ -197,6 +203,19 @@ impl<'a> Vm<'a> {
                 &Opcode::Ne => {
                     let (a, b) = (tos!(), tos!());
                     self.stack.push(Json::Boolean(a != b));
+                },
+                &Opcode::PushCurrent => {
+                    match self.frames[self.fp].current_stack.last() {
+                        None => self.stack.push(Json::Null),
+                        Some(json) => self.stack.push(json.clone())
+                    };
+                },
+                &Opcode::PopCurrent => {
+                    self.frames[self.fp].current_stack.pop();
+                    match self.stack.last() {
+                        None => self.frames[self.fp].current_stack.push(Json::Null),
+                        Some(json) => self.frames[self.fp].current_stack.push(json.clone())
+                    };
                 },
                 &Opcode::Push(ref j) => {
                     self.stack.push(j.clone());
@@ -513,5 +532,16 @@ mod test {
             let mut vm = Vm::new(&opcodes, Json::Null);
             assert_eq!(Json::Boolean(result), vm.run().unwrap());
         }
+    }
+
+    #[test] fn tracks_current_node() {
+        let opcodes = vec![Opcode::Field("foo".to_owned()),
+                           Opcode::Truthy,
+                           Opcode::Brt(5),
+                           Opcode::PushCurrent,
+                           Opcode::Field("bar".to_owned()),
+                           Opcode::Halt];
+        let mut vm = Vm::new(&opcodes, Json::from_str("{\"bar\": true}").unwrap());
+        assert_eq!(Json::Boolean(true), vm.run().unwrap());
     }
 }
