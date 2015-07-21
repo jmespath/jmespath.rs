@@ -48,36 +48,33 @@ pub use ast::{Ast, KeyValuePair, Comparator};
 
 use std::fmt;
 
-use vm::{Opcode, Vm};
 use rustc_serialize::json::Json;
-use compiler::compile_opcodes;
+use interpreter::interpret;
 
 mod ast;
-mod compiler;
+mod interpreter;
 mod lexer;
 mod parser;
-mod vm;
 
 /// A compiled JMESPath expression.
 #[derive(Clone)]
 pub struct Expression {
-    opcodes: Vec<Opcode>,
+    ast: Ast,
     original: String,
 }
 
 impl Expression {
     /// Creates a new JMESPath expression from an expression string.
     pub fn new(expression: &str) -> Result<Expression, ParseError> {
-        let ast = try!(parse(expression));
         Ok(Expression {
             original: expression.to_string(),
-            opcodes: compile_opcodes(&ast)
+            ast: try!(parse(expression))
         })
     }
 
     /// Returns the result of searching data with the compiled expression.
     pub fn search(&self, data: Json) -> Result<Json, String> {
-        Vm::new(&self.opcodes, data).run()
+        interpret(&data, &self.ast)
     }
 
     /// Returns the original string of this JMESPath expression.
@@ -140,5 +137,12 @@ mod test {
         let expr = Expression::new("a || @").unwrap();
         let json = Json::from_str("true").unwrap();
         assert_eq!(Json::Boolean(true), expr.search(json).unwrap());
+    }
+
+    #[test] fn can_evaluate_flatten_projection() {
+        let expr = Expression::new("@[].b").unwrap();
+        let json = Json::from_str("[{\"b\": 1}, [{\"b\":2}]]").unwrap();
+        assert_eq!(Json::Array(vec!(Json::U64(1), Json::U64(2))),
+                   expr.search(json).unwrap());
     }
 }

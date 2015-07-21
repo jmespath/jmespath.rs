@@ -290,7 +290,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Parses a filter token into an ArrayProjection that filters the right
+    /// Parses a filter token into a Projection that filters the right
     /// side of the projection using a Condition node. If the Condition node
     /// returns a truthy value, then the value is yielded by the projection.
     fn parse_filter(&mut self, lhs: Ast) -> ParseResult {
@@ -300,15 +300,16 @@ impl<'a> Parser<'a> {
         // Eat the closing bracket.
         try!(self.validate(&self.token, "Rbracket"));
         self.advance();
-        Ok(Ast::ArrayProjection(
+        Ok(Ast::Projection(
             Box::new(Ast::Condition(Box::new(condition_lhs), Box::new(lhs))),
             Box::new(try!(self.projection_rhs(Token::Filter.lbp())))
         ))
     }
 
     fn parse_flatten(&mut self, lhs: Ast) -> ParseResult {
+        self.advance();
         let rhs = try!(self.projection_rhs(Token::Flatten.lbp()));
-        Ok(Ast::ArrayProjection(
+        Ok(Ast::Projection(
             Box::new(Ast::Flatten(Box::new(lhs))),
             Box::new(rhs)
         ))
@@ -350,13 +351,15 @@ impl<'a> Parser<'a> {
         try!(self.expect("Rbracket"));
         self.advance();
         let rhs = try!(self.projection_rhs(Token::Star.lbp()));
-        Ok(Ast::ArrayProjection(Box::new(lhs), Box::new(rhs)))
+        Ok(Ast::Projection(Box::new(lhs), Box::new(rhs)))
     }
 
     /// Creates a projection for "*"
     fn parse_wildcard_values(&mut self, lhs: Ast) -> ParseResult {
         let rhs = try!(self.projection_rhs(Token::Star.lbp()));
-        Ok(Ast::ObjectProjection(Box::new(lhs), Box::new(rhs)))
+        Ok(Ast::Projection(
+            Box::new(Ast::ObjectValues(Box::new(lhs))),
+            Box::new(rhs)))
     }
 
     /// Parses [0], [::-1], [0:-1], [0:1], etc...
@@ -388,7 +391,7 @@ impl<'a> Parser<'a> {
             // Sliced array from start (e.g., [2:])
             let lhs = Ast::Slice(parts[0], parts[1], parts[2]);
             let rhs = try!(self.projection_rhs(Token::Star.lbp()));
-            Ok(Ast::ArrayProjection(Box::new(lhs), Box::new(rhs)))
+            Ok(Ast::Projection(Box::new(lhs), Box::new(rhs)))
         }
     }
 
@@ -435,8 +438,9 @@ mod test {
 
     #[test] fn wildcard_values_test() {
         assert_eq!(parse("*").unwrap(),
-                   Ast::ObjectProjection(Box::new(Ast::CurrentNode),
-                                         Box::new(Ast::CurrentNode)));
+                   Ast::Projection(
+                       Box::new(Ast::ObjectValues(Box::new(Ast::CurrentNode))),
+                       Box::new(Ast::CurrentNode)));
     }
 
     #[test] fn dot_test() {
@@ -510,20 +514,20 @@ mod test {
 
     #[test] fn parses_single_element_slice_test() {
         assert_eq!(parse("[-1:]").unwrap(),
-                   Ast::ArrayProjection(Box::new(Ast::Slice(Some(-1), None, None)),
-                                        Box::new(Ast::CurrentNode)));
+                   Ast::Projection(Box::new(Ast::Slice(Some(-1), None, None)),
+                                   Box::new(Ast::CurrentNode)));
     }
 
     #[test] fn parses_double_element_slice_test() {
         assert_eq!(parse("[1:-1].a").unwrap(),
-                   Ast::ArrayProjection(Box::new(Ast::Slice(Some(1), Some(-1), None)),
-                                        bident(&"a")));
+                   Ast::Projection(Box::new(Ast::Slice(Some(1), Some(-1), None)),
+                                   bident(&"a")));
     }
 
     #[test] fn parses_revese_slice_test() {
         assert_eq!(parse("[::-1].a").unwrap(),
-                   Ast::ArrayProjection(Box::new(Ast::Slice(None, None, Some(-1))),
-                                        bident(&"a")));
+                   Ast::Projection(Box::new(Ast::Slice(None, None, Some(-1))),
+                                   bident(&"a")));
     }
 
     #[test] fn parses_or_test() {
@@ -586,7 +590,7 @@ mod test {
 
     #[test] fn parses_filters() {
         let comp = Ast::Comparison(Comparator::Eq, bident(&"foo"), bident(&"bar"));
-        let proj = Ast::ArrayProjection(
+        let proj = Ast::Projection(
             Box::new(Ast::Condition(
                 Box::new(comp),
                 Box::new(Ast::CurrentNode)
@@ -605,15 +609,15 @@ mod test {
     }
 
     #[test] fn parses_wildcard_array() {
-        let ast = Ast::ArrayProjection(
+        let ast = Ast::Projection(
             Box::new(Ast::Identifier("foo".to_string())),
             Box::new(Ast::Identifier("bar".to_string())));
         assert_eq!(ast, parse("foo[*].bar").unwrap());
     }
 
     #[test] fn parses_wildcard_object() {
-        let ast = Ast::ObjectProjection(
-            Box::new(Ast::Identifier("foo".to_string())),
+        let ast = Ast::Projection(
+            Box::new(Ast::ObjectValues(Box::new(Ast::Identifier("foo".to_string())))),
             Box::new(Ast::Identifier("bar".to_string())));
         assert_eq!(ast, parse("foo.*.bar").unwrap());
     }
