@@ -15,7 +15,7 @@ pub fn compile_opcodes(ast: &Ast) -> Vec<Opcode> {
 
 fn compile_with_offset(ast: &Ast, offset: usize) -> Vec<Opcode> {
     match *ast {
-        Ast::CurrentNode => vec![Opcode::Load(0)],
+        Ast::CurrentNode => vec![Opcode::PushCurrent],
         Ast::Identifier(ref j) => vec![Opcode::Field(j.clone())],
         Ast::Index(i) => {
             if i < 0 {
@@ -144,7 +144,7 @@ mod test {
     #[test] fn assembles_current_node() {
         let ast = Ast::CurrentNode;
         let opcodes = compile_opcodes(&ast);
-        assert_eq!(vec![Opcode::Load(0), Opcode::Halt], opcodes);
+        assert_eq!(vec![Opcode::PushCurrent, Opcode::Halt], opcodes);
     }
 
     #[test] fn assembles_eq_comparison() {

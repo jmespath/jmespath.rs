@@ -135,4 +135,10 @@ mod test {
         let json = Json::from_str("{\"foo\":[{\"bar\":true}]}").unwrap();
         assert_eq!(Json::Array(vec![Json::Boolean(true)]), expr.search(json).unwrap());
     }
+
+    #[test] fn can_evaluate_or_with_current_node() {
+        let expr = Expression::new("a || @").unwrap();
+        let json = Json::from_str("true").unwrap();
+        assert_eq!(Json::Boolean(true), expr.search(json).unwrap());
+    }
 }
