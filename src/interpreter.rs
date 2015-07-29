@@ -4,6 +4,7 @@ extern crate rustc_serialize;
 
 use self::rustc_serialize::json::Json;
 
+use std::collections::BTreeMap;
 use ast::{Ast, Comparator, KeyValuePair};
 
 pub fn interpret(data: &Json, node: &Ast) -> Result<Json, String> {
@@ -94,6 +95,33 @@ pub fn interpret(data: &Json, node: &Ast) -> Result<Json, String> {
                 }
             }
         },
+        &Ast::Comparison(ref cmp, ref lhs, ref rhs) => {
+            let left = try!(interpret(data, lhs));
+            let right = try!(interpret(data, rhs));
+            Ok(comparison(cmp, left, right))
+        },
+        &Ast::MultiList(ref nodes) => {
+            if data.is_null() {
+                return Ok(Json::Null);
+            }
+            let mut collected = vec!();
+            for node in nodes {
+                collected.push(try!(interpret(data, node)));
+            }
+            Ok(Json::Array(collected))
+        },
+        &Ast::MultiHash(ref kvp_list) => {
+            if data.is_null() {
+                return Ok(Json::Null);
+            }
+            let mut collected = BTreeMap::new();
+            for kvp in kvp_list {
+                let key = try!(interpret(data, &kvp.key));
+                let value = try!(interpret(data, &kvp.value));
+                collected.insert(key.as_string().unwrap().to_string(), value);
+            }
+            Ok(Json::Object(collected))
+        },
         ref node @ _ => panic!(format!("not implemented yet: {:?}", node))
     }
 }
@@ -128,5 +156,17 @@ fn jp_type(data: &Json) -> &str {
         &Json::Array(_) => "array",
         &Json::Object(_) => "object",
         &Json::Null => "null"
+    }
+}
+
+fn comparison(cmp: &Comparator, lhs: Json, rhs: Json) -> Json {
+    match cmp {
+        &Comparator::Eq => Json::Boolean(lhs == rhs),
+        &Comparator::Ne => Json::Boolean(lhs != rhs),
+        &Comparator::Lt if lhs.is_number() && rhs.is_number() => Json::Boolean(lhs < rhs),
+        &Comparator::Lte if lhs.is_number() && rhs.is_number() => Json::Boolean(lhs <= rhs),
+        &Comparator::Gt if lhs.is_number() && rhs.is_number() => Json::Boolean(lhs > rhs),
+        &Comparator::Gte if lhs.is_number() && rhs.is_number() => Json::Boolean(lhs >= rhs),
+        _ => Json::Null
     }
 }

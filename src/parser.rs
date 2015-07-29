@@ -300,10 +300,13 @@ impl<'a> Parser<'a> {
         // Eat the closing bracket.
         try!(self.validate(&self.token, "Rbracket"));
         self.advance();
+        let condition_rhs = Box::new(try!(self.projection_rhs(Token::Filter.lbp())));
         Ok(Ast::Projection(
-            Box::new(Ast::Condition(Box::new(condition_lhs), Box::new(lhs))),
-            Box::new(try!(self.projection_rhs(Token::Filter.lbp())))
-        ))
+            Box::new(lhs),
+            Box::new(
+                Ast::Condition(
+                    Box::new(condition_lhs),
+                    condition_rhs))))
     }
 
     fn parse_flatten(&mut self, lhs: Ast) -> ParseResult {
@@ -591,11 +594,11 @@ mod test {
     #[test] fn parses_filters() {
         let comp = Ast::Comparison(Comparator::Eq, bident(&"foo"), bident(&"bar"));
         let proj = Ast::Projection(
+            Box::new(Ast::CurrentNode),
             Box::new(Ast::Condition(
                 Box::new(comp),
-                Box::new(Ast::CurrentNode)
-            )),
-            bident(&"bar")
+                bident(&"bar")
+            ))
         );
         assert_eq!(parse("[?foo == bar].bar").unwrap(), proj);
     }

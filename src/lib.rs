@@ -145,4 +145,11 @@ mod test {
         assert_eq!(Json::Array(vec!(Json::U64(1), Json::U64(2))),
                    expr.search(json).unwrap());
     }
+
+    #[test] fn can_evaluate_filter_projection() {
+        let expr = Expression::new("[?a > b]").unwrap();
+        let json = Json::from_str("[{\"a\": 2, \"b\": 1}, {\"a\": 0, \"b\":2}]").unwrap();
+        assert_eq!(Json::from_str("[{\"a\": 2, \"b\": 1}]").unwrap(),
+                   expr.search(json).unwrap());
+    }
 }
