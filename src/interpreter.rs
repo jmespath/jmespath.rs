@@ -83,11 +83,7 @@ pub fn interpret(data: &Json, node: &Ast) -> Result<Json, String> {
                     let mut collected = vec!();
                     for element in a {
                         match element {
-                            &Json::Array(ref values) => {
-                                for value in values {
-                                    collected.push(value.clone());
-                                }
-                            },
+                            &Json::Array(ref a) => collected.extend(a.iter().cloned()),
                             _ => collected.push(element.clone())
                         }
                     }
