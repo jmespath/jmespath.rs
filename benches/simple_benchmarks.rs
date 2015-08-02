@@ -1,0 +1,43 @@
+#![feature(test)]
+#[cfg(test)]
+
+extern crate jmespath;
+extern crate test;
+extern crate rustc_serialize;
+
+use rustc_serialize::json::Json;
+use test::Bencher;
+
+#[bench]
+fn bench_parsing_foo_bar_baz(b: &mut Bencher) {
+    b.iter(|| jmespath::Expression::new("foo.bar.baz"));
+}
+
+#[bench]
+fn bench_lexing_foo_bar_baz(b: &mut Bencher) {
+    b.iter(|| for _ in jmespath::tokenize("foo.bar.baz") {});
+}
+
+#[bench]
+fn bench_full_foo_bar_baz(b: &mut Bencher) {
+    let json = Json::from_str("{\"foo\":{\"bar\":{\"baz\":true}}}").unwrap();
+    b.iter(|| {
+        let expr = jmespath::Expression::new("foo.bar.baz").unwrap();
+        expr.search(json.clone()).unwrap();
+    });
+}
+
+#[bench]
+fn bench_full_or_branches(b: &mut Bencher) {
+    let json = Json::from_str("{\"foo\":true}").unwrap();
+    b.iter(|| {
+        let expr = jmespath::Expression::new("bar || baz || bam || foo").unwrap();
+        expr.search(json.clone()).unwrap();
+    });
+}
+
+#[bench]
+fn bench_deep_projection_104(b: &mut Bencher) {
+    let deep = "a[*].b[*].c[*].d[*].e[*].f[*].g[*].h[*].i[*].j[*].k[*].l[*].m[*].n[*].o[*].p[*].q[*].r[*].s[*].t[*].u[*].v[*].w[*].x[*].y[*].z[*].a[*].b[*].c[*].d[*].e[*].f[*].g[*].h[*].i[*].j[*].k[*].l[*].m[*].n[*].o[*].p[*].q[*].r[*].s[*].t[*].u[*].v[*].w[*].x[*].y[*].z[*].a[*].b[*].c[*].d[*].e[*].f[*].g[*].h[*].i[*].j[*].k[*].l[*].m[*].n[*].o[*].p[*].q[*].r[*].s[*].t[*].u[*].v[*].w[*].x[*].y[*].z[*].a[*].b[*].c[*].d[*].e[*].f[*].g[*].h[*].i[*].j[*].k[*].l[*].m[*].n[*].o[*].p[*].q[*].r[*].s[*].t[*].u[*].v[*].w[*].x[*].y[*].z[*]";
+    b.iter(|| jmespath::parse(deep));
+}
