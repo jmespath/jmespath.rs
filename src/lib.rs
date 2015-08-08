@@ -20,8 +20,7 @@
 //! use jmespath;
 //!
 //! for token in jmespath::tokenize("foo.bar") {
-//!     println!("This token is a {} token with a span of {}",
-//!              token.token_name(), token.span());
+//!     // Do something with the token.
 //! }
 //! ```
 //!
@@ -37,7 +36,7 @@
 //! ```
 //! use jmespath;
 //!
-//! let ast = jmespath::parse("foo");
+//! let ast = jmespath::parse("foo.bar | baz");
 //! ```
 
 extern crate rustc_serialize;
@@ -104,10 +103,46 @@ impl PartialEq for Expression {
     }
 }
 
+
 #[cfg(test)]
 mod test {
+    use super::*;
     extern crate rustc_serialize;
     use self::rustc_serialize::json::Json;
-    use super::*;
 
+    #[test] fn can_evaluate_jmespath_expression() {
+        let expr = Expression::new("foo.bar").unwrap();
+        let json = Json::from_str("{\"foo\":{\"bar\":true}}").unwrap();
+        assert_eq!(Json::Boolean(true), expr.search(json).unwrap());
+    }
+
+    #[test] fn formats_expression_as_string() {
+        let expr = Expression::new("foo | baz").unwrap();
+        assert_eq!("foo | baz/foo | baz", format!("{}/{:?}", expr, expr));
+    }
+
+    #[test] fn implements_partial_eq() {
+        let a = Expression::new("@").unwrap();
+        let b = Expression::new("@").unwrap();
+        assert!(a == b);
+    }
+
+    #[test] fn can_evaluate_wildcards() {
+        let expr = Expression::new("foo[*].bar").unwrap();
+        let json = Json::from_str("{\"foo\":[{\"bar\":true}]}").unwrap();
+        assert_eq!(Json::Array(vec![Json::Boolean(true)]), expr.search(json).unwrap());
+    }
+
+    #[test] fn can_evaluate_or_with_current_node() {
+        let expr = Expression::new("a || @").unwrap();
+        let json = Json::from_str("true").unwrap();
+        assert_eq!(Json::Boolean(true), expr.search(json).unwrap());
+    }
+
+    #[test] fn can_evaluate_flatten_projection() {
+        let expr = Expression::new("@[].b").unwrap();
+        let json = Json::from_str("[{\"b\": 1}, [{\"b\":2}]]").unwrap();
+        assert_eq!(Json::Array(vec!(Json::U64(1), Json::U64(2))),
+                   expr.search(json).unwrap());
+    }
 }
