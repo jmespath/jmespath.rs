@@ -37,7 +37,13 @@ fn bench_full_or_branches(b: &mut Bencher) {
 }
 
 #[bench]
-fn bench_deep_projection_104(b: &mut Bencher) {
-    let deep = "a[*].b[*].c[*].d[*].e[*].f[*].g[*].h[*].i[*].j[*].k[*].l[*].m[*].n[*].o[*].p[*].q[*].r[*].s[*].t[*].u[*].v[*].w[*].x[*].y[*].z[*].a[*].b[*].c[*].d[*].e[*].f[*].g[*].h[*].i[*].j[*].k[*].l[*].m[*].n[*].o[*].p[*].q[*].r[*].s[*].t[*].u[*].v[*].w[*].x[*].y[*].z[*].a[*].b[*].c[*].d[*].e[*].f[*].g[*].h[*].i[*].j[*].k[*].l[*].m[*].n[*].o[*].p[*].q[*].r[*].s[*].t[*].u[*].v[*].w[*].x[*].y[*].z[*].a[*].b[*].c[*].d[*].e[*].f[*].g[*].h[*].i[*].j[*].k[*].l[*].m[*].n[*].o[*].p[*].q[*].r[*].s[*].t[*].u[*].v[*].w[*].x[*].y[*].z[*]";
-    b.iter(|| jmespath::parse(deep));
+fn bench_expr_identifier(b: &mut Bencher) {
+    let expr = "abcdefghijklmnopqrstuvwxyz";
+    b.iter(|| jmespath::parse(expr));
+}
+
+#[bench]
+fn bench_expr_subexpr(b: &mut Bencher) {
+    let expr = "abcdefghijklmnopqrstuvwxyz.abcdefghijklmnopqrstuvwxyz";
+    b.iter(|| jmespath::parse(expr));
 }
