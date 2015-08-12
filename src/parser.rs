@@ -74,21 +74,41 @@ enum Operator {
 
 impl Operator {
     /// Returns true if the current operator has a precedence < operator.
+    /// This function takes operator associativity into account. Left
+    /// associative operators check with <, while right associative check
+    /// with <=.
     #[inline]
-    pub fn is_lte(&self, op: &Operator) -> bool {
-        self.precedence() <= op.precedence()
+    pub fn is_lt(&self, op: &Operator) -> bool {
+        if self.is_right_associative() {
+            self.precedence() < op.precedence()
+        } else {
+            self.precedence() <= op.precedence()
+        }
     }
 
+    /// Determines if the operator is right associative (e.g., projections).
+    #[inline]
+    pub fn is_right_associative(&self) -> bool {
+        match self {
+            &Operator::Basic(ref p) if p == &Token::Star => true,
+            &Operator::Basic(ref p) if p == &Token::Filter => true,
+            &Operator::ArrayProjection => true,
+            &Operator::SliceProjection(_, _, _) => true,
+            _ => false
+        }
+    }
+
+    /// Retrieves the precedence of an operator.
     #[inline]
     pub fn precedence(&self) -> usize {
         match self {
             &Operator::Basic(ref p) => p.lbp(),
             &Operator::Function(_) => Token::Lparen.lbp(),
             &Operator::ArrayProjection => Token::Star.lbp(),
+            &Operator::SliceProjection(_, _, _) => Token::Star.lbp(),
             &Operator::OpenParen => Token::Lparen.lbp(),
             &Operator::OpenBracket => Token::Lbracket.lbp(),
             &Operator::OpenBrace => Token::Lbracket.lbp(),
-            &Operator::SliceProjection(_, _, _) => Token::Star.lbp(),
         }
     }
 
@@ -319,21 +339,18 @@ impl<'a> Parser<'a> {
     #[inline]
     fn operator(&mut self, operator: Operator) -> ParseStep {
         self.state_stack.push(State::Nud(operator.precedence()));
-        loop {
-            // Pop things from the top of the operator stack that have a higher precedence.
-            if self.is_last_lte(&operator) {
-                try!(self.pop_token());
-            } else {
-                self.operator_stack.push(operator);
-                return Ok(());
-            }
+        // Pop things from the top of the operator stack that have a higher precedence.
+        while self.is_last_gt(&operator) {
+            try!(self.pop_token())
         }
+        self.operator_stack.push(operator);
+        Ok(())
     }
 
     #[inline]
-    fn is_last_lte(&self, op: &Operator) -> bool {
+    fn is_last_gt(&self, op: &Operator) -> bool {
         match self.operator_stack.last() {
-            Some(operator) if op.is_lte(operator) => true,
+            Some(operator) if op.is_lt(operator) => true,
             _ => false
         }
     }
@@ -453,10 +470,9 @@ mod test {
 
     #[test] fn test_parse_subexpr() {
         let ast = parse("foo.bar.baz").unwrap();
-        assert_eq!(ast, Ast::Subexpr(
-            Box::new(Ast::Subexpr(Box::new(Ast::Identifier("foo".to_string())),
-                         Box::new(Ast::Identifier("bar".to_string())))),
-            Box::new(Ast::Identifier("baz".to_string()))));
+        assert_eq!("Subexpr(Subexpr(Identifier(\"foo\"), Identifier(\"bar\")), \
+                            Identifier(\"baz\"))",
+                   format!("{:?}", ast));
     }
 
     #[test] fn test_parse_or() {
@@ -536,6 +552,15 @@ mod test {
     #[test] fn test_parse_number_in_projection() {
         let ast = parse("foo.*[0]").unwrap();
         assert_eq!("Projection(ObjectValues(Identifier(\"foo\")), Index(0))",
+                   format!("{:?}", ast));
+    }
+
+    #[test] fn test_parse_complex_expression() {
+        let ast = parse("foo.*.bar[*][0].baz || bam | boo").unwrap();
+        assert_eq!("Subexpr(Or(Projection(ObjectValues(Identifier(\"foo\")), \
+                                Projection(Identifier(\"bar\"), \
+                                           Subexpr(Index(0), Identifier(\"baz\")))), \
+                       Identifier(\"bam\")), Identifier(\"boo\"))",
                    format!("{:?}", ast));
     }
 }
