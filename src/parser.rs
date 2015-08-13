@@ -67,10 +67,7 @@ enum Operator {
     Basic(Token),
     Function(String),
     ArrayProjection,
-    SliceProjection(Option<i32>, Option<i32>, Option<i32>),
-    OpenParen,
-    OpenBracket,
-    OpenBrace,
+    SliceProjection(Option<i32>, Option<i32>, Option<i32>)
 }
 
 impl Operator {
@@ -106,10 +103,7 @@ impl Operator {
             &Operator::Basic(ref p) => p.lbp(),
             &Operator::Function(_) => Token::Lparen.lbp(),
             &Operator::ArrayProjection => Token::Star.lbp(),
-            &Operator::SliceProjection(_, _, _) => Token::Star.lbp(),
-            &Operator::OpenParen => Token::Lparen.lbp(),
-            &Operator::OpenBracket => Token::Lbracket.lbp(),
-            &Operator::OpenBrace => Token::Lbracket.lbp(),
+            &Operator::SliceProjection(_, _, _) => Token::Star.lbp()
         }
     }
 
@@ -122,11 +116,12 @@ impl Operator {
         }
     }
 
-    pub fn terminates(&self, token: &Token) -> bool {
+    // Returns true if the token closes the passed in token.
+    pub fn closes(&self, token: &Token) -> bool {
         match self {
-            &Operator::OpenParen if token == &Token::Rparen => true,
-            &Operator::OpenBracket if token == &Token::Rbracket => true,
-            &Operator::OpenBrace if token == &Token::Rbrace => true,
+            &Operator::Basic(ref p) if p == &Token::Lparen && token == &Token::Rparen => true,
+            &Operator::Basic(ref p) if p == &Token::Lbrace && token == &Token::Rbrace => true,
+            &Operator::Basic(ref p) if p == &Token::Lbracket && token == &Token::Rbracket => true,
             &Operator::Function(_) if token == &Token::Rparen => true,
             _ => false
         }
@@ -419,9 +414,6 @@ impl<'a> Parser<'a> {
                 Ast::Projection(Box::new(lhs), Box::new(rhs))),
             Operator::Function(fn_name) => panic!(),
             Operator::SliceProjection(start, step, stop) => panic!(),
-            Operator::OpenParen => panic!(),
-            Operator::OpenBrace => panic!(),
-            Operator::OpenBracket => panic!(),
         };
         Ok(())
     }
