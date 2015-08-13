@@ -9,7 +9,7 @@ use lexer::{Lexer, Token};
 
 /// An alias for computations that can return an `Ast` or `ParseError`.
 pub type ParseResult = Result<Ast, ParseError>;
-type ParseStep = Result<(), ParseError>;
+type ParseStep = Result<Token, ParseError>;
 
 /// Parses a JMESPath expression into an AST
 pub fn parse(expr: &str) -> ParseResult {
@@ -142,8 +142,6 @@ pub struct Parser<'a> {
     stream: Peekable<Lexer<'a>>,
     /// Expression being parsed
     expr: String,
-    /// The current token
-    token: Token,
     /// The current character offset in the expression
     pos: usize,
     /// Operand queue containing AST nodes.
@@ -157,13 +155,10 @@ pub struct Parser<'a> {
 impl<'a> Parser<'a> {
     // Constructs a new lexer using the given expression string.
     pub fn new(expr: &'a str) -> Parser<'a> {
-        let mut lexer = Lexer::new(expr);
-        let tok0 = lexer.next().unwrap_or((0, Token::Eof));
         Parser {
-            stream: lexer.peekable(),
+            stream: Lexer::new(expr).peekable(),
             expr: expr.to_string(),
-            pos: tok0.0,
-            token: tok0.1,
+            pos: 0,
             operator_stack: vec!(),
             output_stack: vec!(),
             state_stack: vec!()
@@ -176,23 +171,24 @@ impl<'a> Parser<'a> {
         // After parsing the expr, we should reach the end of the stream.
         match self.stream.next() {
             None | Some((_, Token::Eof)) => Ok(result),
-            _ => Err(self.err(&"Did not reach token stream EOF"))
+            token @ _ => Err(self.err(&token.unwrap().1, &"Did not reach token stream EOF"))
         }
     }
 
     #[inline]
     fn expr(&mut self) -> ParseResult {
         self.state_stack.push(State::Nud(0));
-        while self.token != Token::Eof {
+        let mut token = self.advance();
+        while token != Token::Eof {
             match self.state_stack.last() {
                 Some(&State::Nud(rbp)) => {
                     self.state_stack.pop();
-                    try!(self.nud());
+                    token = try!(self.nud(token));
                     self.state_stack.push(State::Led(rbp));
                 },
                 Some(&State::Led(rbp)) => {
-                    if rbp < self.token.lbp() {
-                        try!(self.led());
+                    if rbp < token.lbp() {
+                        token = try!(self.led(token));
                     } else {
                         self.state_stack.pop();
                     }
@@ -202,118 +198,117 @@ impl<'a> Parser<'a> {
         }
         // Pop and process any remaining operators on the stack.
         while !self.operator_stack.is_empty() {
-            try!(self.pop_token());
+            token = try!(self.pop_token(token));
         }
         if self.output_stack.len() != 1 {
-            Err(self.err(&"Unexpected end of token stream"))
+            Err(self.err(&token, &"Unexpected end of token stream"))
         } else {
             Ok(self.output_stack.pop().unwrap())
         }
     }
 
     #[inline]
-    fn nud(&mut self) -> ParseStep {
+    fn nud(&mut self, token: Token) -> ParseStep {
         // First match tokens that do not need to be copied.
-        match self.token {
+        match token {
+            Token::Identifier(value) => {
+                self.output_stack.push(Ast::Identifier(value));
+                Ok(self.advance())
+            },
+            Token::Literal(value) => {
+                self.output_stack.push(Ast::Literal(value));
+                Ok(self.advance())
+            },
+            Token::QuotedIdentifier(ref value) => {
+                match self.advance() {
+                    Token::Lparen =>
+                        Err(self.err(&token, &"Quoted strings can't be function names")),
+                    next_token @ _ => {
+                        self.output_stack.push(Ast::Identifier(value.clone()));
+                        Ok(next_token)
+                    }
+                }
+            },
             Token::At => {
-                self.advance();
                 self.output_stack.push(Ast::CurrentNode);
-                Ok(())
+                Ok(self.advance())
             },
             Token::Star => {
-                self.advance();
                 self.output_stack.push(Ast::CurrentNode);
-                self.projection_rhs(Operator::Basic(Token::Star))
+                let next_token = self.advance();
+                self.projection_rhs(next_token, Operator::Basic(Token::Star))
             },
             Token::Flatten => {
-                self.advance();
                 self.output_stack.push(Ast::CurrentNode);
-                self.projection_rhs(Operator::Basic(Token::Flatten))
+                let next_token = self.advance();
+                self.projection_rhs(next_token, Operator::Basic(Token::Flatten))
             },
             Token::Filter => {
-                self.advance();
                 self.output_stack.push(Ast::CurrentNode);
-                self.projection_rhs(Operator::Basic(Token::Filter))
+                let next_token = self.advance();
+                self.projection_rhs(next_token, Operator::Basic(Token::Filter))
             },
-            Token::Lbracket => self.parse_lbracket(true),
             Token::Lbrace => {
-                self.advance();
+                let next_token = self.advance();
                 self.output_stack.push(Ast::CurrentNode);
+                // TODO: Handle multi-hash
                 panic!();
             },
             Token::Ampersand => {
-                self.advance();
-                self.operator(Operator::Basic(Token::Ampersand))
+                let next_token = self.advance();
+                self.operator(next_token, Operator::Basic(Token::Ampersand))
             },
-            _ => {
-                // Now match tokens that must be copied.
-                let token = self.token.clone();
-                self.advance();
-                match token {
-                    Token::Identifier(value) => {
-                        self.output_stack.push(Ast::Identifier(value));
-                        Ok(())
-                    },
-                    Token::QuotedIdentifier(value) => {
-                        match self.token {
-                            Token::Lparen => Err(self.err(&"Quoted strings can't be function names")),
-                            _ => {
-                                self.output_stack.push(Ast::Identifier(value));
-                                Ok(())
-                            }
-                        }
-                    },
-                    Token::Literal(value) => {
-                        self.output_stack.push(Ast::Literal(value));
-                        Ok(())
-                    },
-                    ref tok @ _ => Err(self.err(&format!("Unexpected nud token: {}",
-                                                         tok.token_name()))),
-                }
-            }
+            Token::Lbracket => self.parse_lbracket(true),
+            ref tok @ _ => Err(self.err(tok, &format!("Unexpected nud token: {}",
+                                                      tok.token_name()))),
         }
     }
 
     #[inline]
-    fn led(&mut self) -> ParseStep {
-        match self.token {
+    fn led(&mut self, token: Token) -> ParseStep {
+        // More easily advance and push a basic operator.
+        macro_rules! next_op {
+            ($x:expr) => {{
+                let next_token = self.advance();
+                self.operator(next_token, Operator::Basic($x))
+            }};
+        }
+        match token {
             Token::Dot => {
                 match self.stream.peek() {
                     Some(&(_, Token::Star)) => {
                         self.advance();
-                        self.advance();
-                        self.projection_rhs(Operator::Basic(Token::Star))
+                        let next_token = self.advance();
+                        self.projection_rhs(next_token, Operator::Basic(Token::Star))
                     },
                     _ => self.parse_dot(Operator::Basic(Token::Dot))
                 }
             },
             Token::Flatten => {
-                self.advance();
-                self.projection_rhs(Operator::Basic(Token::Flatten))
+                let next_token = self.advance();
+                self.projection_rhs(next_token, Operator::Basic(Token::Flatten))
             },
             Token::Lbracket => self.parse_lbracket(false),
-            Token::Or => { self.advance(); self.operator(Operator::Basic(Token::Or)) },
-            Token::Pipe => { self.advance(); self.operator(Operator::Basic(Token::Pipe)) },
-            Token::Lt => { self.advance(); self.operator(Operator::Basic(Token::Lt)) },
-            Token::Lte => { self.advance(); self.operator(Operator::Basic(Token::Lte)) },
-            Token::Gt => { self.advance(); self.operator(Operator::Basic(Token::Gt)) },
-            Token::Gte => { self.advance(); self.operator(Operator::Basic(Token::Gte)) },
-            Token::Eq => { self.advance(); self.operator(Operator::Basic(Token::Eq)) },
-            Token::Ne => { self.advance(); self.operator(Operator::Basic(Token::Ne)) },
-            _ => Err(self.err(&format!("Unexpected led token: {}",
-                              self.token.token_name()))),
+            Token::Or => next_op!(Token::Or),
+            Token::Pipe => next_op!(Token::Pipe),
+            Token::Lt => next_op!(Token::Lt),
+            Token::Lte => next_op!(Token::Lte),
+            Token::Gt => next_op!(Token::Gt),
+            Token::Gte => next_op!(Token::Gte),
+            Token::Eq => next_op!(Token::Eq),
+            Token::Ne => next_op!(Token::Ne),
+            _ => Err(self.err(&token, &format!("Unexpected led token: {}", token.token_name()))),
         }
     }
 
     #[inline]
     fn parse_lbracket(&mut self, is_nud: bool) -> ParseStep {
-        self.advance();
+        // Skip the bracket "["
+        let token = self.advance();
         match self.stream.peek() {
             Some(&(_, Token::Rbracket)) => {
-                match self.token {
+                match token {
                     Token::Number(value) => {
-                        self.advance();
-                        self.advance();
                         if is_nud {
                             self.output_stack.push(Ast::Index(value));
                         } else {
@@ -321,25 +316,30 @@ impl<'a> Parser<'a> {
                             self.output_stack.push(
                                 Ast::Subexpr(Box::new(lhs), Box::new(Ast::Index(value))));
                         }
-                        Ok(())
+                        // Skip the Rbracket token.
+                        self.advance();
+                        Ok(self.advance())
                     },
                     Token::Star => {
-                        self.advance();
-                        self.advance();
                         if is_nud {
                             self.output_stack.push(Ast::CurrentNode);
                         }
-                        self.projection_rhs(Operator::ArrayProjection)
+                        // Skip Rbracket
+                        self.advance();
+                        let next_token = self.advance();
+                        self.projection_rhs(next_token, Operator::ArrayProjection)
                     },
                     Token::Colon => {
-                        self.advance();
-                        self.advance();
                         if is_nud {
                             self.output_stack.push(Ast::CurrentNode);
                         }
-                        self.projection_rhs(Operator::SliceProjection(None, None, None))
+                        // Skip Rbracket
+                        self.advance();
+                        let next_token = self.advance();
+                        self.projection_rhs(
+                            next_token, Operator::SliceProjection(None, None, None))
                     },
-                    _ => Err(self.err("Expected number, ':', or '*'")),
+                    _ => Err(self.err(&token, "Expected number, ':', or '*'")),
                 }
             },
             _ => panic!()
@@ -347,14 +347,14 @@ impl<'a> Parser<'a> {
     }
 
     #[inline]
-    fn operator(&mut self, operator: Operator) -> ParseStep {
+    fn operator(&mut self, mut token: Token, operator: Operator) -> ParseStep {
         self.state_stack.push(State::Nud(operator.precedence()));
         // Pop things from the top of the operator stack that have a higher precedence.
         while self.is_last_gt(&operator) {
-            try!(self.pop_token())
+            token = try!(self.pop_token(token))
         }
         self.operator_stack.push(operator);
-        Ok(())
+        Ok(token)
     }
 
     #[inline]
@@ -366,123 +366,118 @@ impl<'a> Parser<'a> {
     }
 
     #[inline]
-    fn pop_token(&mut self) -> ParseStep {
+    fn pop_token(&mut self, token: Token) -> ParseStep {
         let operator = self.operator_stack.pop().unwrap();
         if operator.is_binary() {
             let rhs = self.output_stack.pop().unwrap();
             let lhs = self.output_stack.pop().unwrap();
-            self.popped_binary(operator, lhs, rhs)
+            match operator {
+                Operator::Basic(tok) => try!(self.pop_basic_binary(tok, lhs, rhs)),
+                Operator::ArrayProjection => self.output_stack.push(
+                    Ast::Projection(Box::new(lhs), Box::new(rhs))),
+                Operator::Function(fn_name) => panic!(),
+                Operator::SliceProjection(start, step, stop) => panic!(),
+            };
         } else {
             let output = self.output_stack.pop().unwrap();
-            self.popped_unary(operator, output)
+            match operator {
+                Operator::Basic(ref tok) if tok == &Token::Ampersand =>
+                    self.output_stack.push(Ast::Expref(Box::new(output))),
+                _ => return Err(self.err(&token, &"Unexpected unary operator"))
+            }
         }
+        Ok(token)
     }
 
     #[inline]
-    fn popped_binary(&mut self, operator: Operator, lhs: Ast, rhs: Ast) -> ParseStep {
-        match operator {
-            Operator::Basic(token) => {
-                match token {
-                    Token::Dot => self.output_stack.push(
-                        Ast::Subexpr(Box::new(lhs), Box::new(rhs))),
-                    Token::Or => self.output_stack.push(
-                        Ast::Or(Box::new(lhs), Box::new(rhs))),
-                    Token::Pipe => self.output_stack.push(
-                        Ast::Subexpr(Box::new(lhs), Box::new(rhs))),
-                    Token::Star => self.output_stack.push(
-                        Ast::Projection(Box::new(Ast::ObjectValues(Box::new(lhs))),
-                                        Box::new(rhs))),
-                    Token::Flatten => self.output_stack.push(
-                        Ast::Projection(Box::new(Ast::Flatten(Box::new(lhs))),
-                                        Box::new(rhs))),
-                    Token::Eq => self.output_stack.push(
-                        Ast::Comparison(Comparator::Eq, Box::new(lhs), Box::new(rhs))),
-                    Token::Ne => self.output_stack.push(
-                        Ast::Comparison(Comparator::Ne, Box::new(lhs), Box::new(rhs))),
-                    Token::Gt => self.output_stack.push(
-                        Ast::Comparison(Comparator::Gt, Box::new(lhs), Box::new(rhs))),
-                    Token::Gte => self.output_stack.push(
-                        Ast::Comparison(Comparator::Gte, Box::new(lhs), Box::new(rhs))),
-                    Token::Lt => self.output_stack.push(
-                        Ast::Comparison(Comparator::Lt, Box::new(lhs), Box::new(rhs))),
-                    Token::Lte => self.output_stack.push(
-                        Ast::Comparison(Comparator::Lte, Box::new(lhs), Box::new(rhs))),
-                    _ => return Err(self.err(&"Unexpected binary operator"))
-                }
-            },
-            Operator::ArrayProjection => self.output_stack.push(
-                Ast::Projection(Box::new(lhs), Box::new(rhs))),
-            Operator::Function(fn_name) => panic!(),
-            Operator::SliceProjection(start, step, stop) => panic!(),
-        };
-        Ok(())
-    }
-
-    #[inline]
-    fn popped_unary(&mut self, operator: Operator, output: Ast) -> ParseStep {
-        match operator {
-            Operator::Basic(ref token) if token == &Token::Ampersand =>
-                self.output_stack.push(Ast::Expref(Box::new(output))),
-            _ => return Err(self.err(&"Unexpected unary operator"))
+    fn pop_basic_binary(&mut self, tok: Token, lhs: Ast, rhs: Ast) -> Result<(), ParseError> {
+        match tok {
+            Token::Dot => self.output_stack.push(
+                Ast::Subexpr(Box::new(lhs), Box::new(rhs))),
+            Token::Or => self.output_stack.push(
+                Ast::Or(Box::new(lhs), Box::new(rhs))),
+            Token::Pipe => self.output_stack.push(
+                Ast::Subexpr(Box::new(lhs), Box::new(rhs))),
+            Token::Star => self.output_stack.push(
+                Ast::Projection(Box::new(Ast::ObjectValues(Box::new(lhs))),
+                                Box::new(rhs))),
+            Token::Flatten => self.output_stack.push(
+                Ast::Projection(Box::new(Ast::Flatten(Box::new(lhs))),
+                                Box::new(rhs))),
+            Token::Eq => self.output_stack.push(
+                Ast::Comparison(Comparator::Eq, Box::new(lhs), Box::new(rhs))),
+            Token::Ne => self.output_stack.push(
+                Ast::Comparison(Comparator::Ne, Box::new(lhs), Box::new(rhs))),
+            Token::Gt => self.output_stack.push(
+                Ast::Comparison(Comparator::Gt, Box::new(lhs), Box::new(rhs))),
+            Token::Gte => self.output_stack.push(
+                Ast::Comparison(Comparator::Gte, Box::new(lhs), Box::new(rhs))),
+            Token::Lt => self.output_stack.push(
+                Ast::Comparison(Comparator::Lt, Box::new(lhs), Box::new(rhs))),
+            Token::Lte => self.output_stack.push(
+                Ast::Comparison(Comparator::Lte, Box::new(lhs), Box::new(rhs))),
+            _ => return Err(self.err(&tok, &"Unexpected binary operator"))
         };
         Ok(())
     }
 
     /// Advances the cursor position
     #[inline]
-    fn advance(&mut self) {
-        self.stream.next().map(|(pos, tok)| {
-            self.pos = pos;
-            self.token = tok;
-        });
+    fn advance(&mut self) -> Token {
+        match self.stream.next() {
+            Some((pos, tok)) => { self.pos = pos; tok },
+            None => Token::Eof
+        }
     }
 
     #[inline]
-    fn projection_rhs(&mut self, parent_operator: Operator) -> ParseStep {
-        match self.token {
+    fn projection_rhs(&mut self, token: Token, parent_operator: Operator) -> ParseStep {
+        match token {
             // Skip the dot token and parse with a dot precedence (e.g.., foo.*.bar)
             Token::Dot => self.parse_dot(parent_operator),
             // Multilist and filter are valid tokens that have a precedence >= 10
-            Token::Lbracket | Token::Filter => self.operator(parent_operator),
+            Token::Lbracket | Token::Filter => self.operator(token, parent_operator),
             // Precedence < 10 are just parsed as. E.g., * | baz
-            _ if self.token.lbp() < 10 => {
+            _ if token.lbp() < 10 => {
                 self.output_stack.push(Ast::CurrentNode);
-                self.operator(parent_operator)
+                self.operator(token, parent_operator)
             },
-            _ => Err(self.token_err())
+            _ => Err(self.token_err(&token))
         }
     }
 
     #[inline]
     fn parse_dot(&mut self, parent_operator: Operator) -> ParseStep {
-        self.advance();
-        match self.token {
+        let token = self.advance();
+        match token {
             Token::Lbracket => {
-                self.advance();
-                panic!(); // self.parse_multi_list()
+                let next_token = self.advance();
+                panic!();
+                // TODO: self.parse_multi_list()
             },
             Token::Identifier(_)
             | Token::Star
             | Token::Lbrace
             | Token::Ampersand
-            | Token::Filter => self.operator(parent_operator),
-            _ => Err(self.err(&format!("Expected Identifier, '*', '{{', '[', '@', or '[?',\
-                                       found {}", self.token.token_name())))
+            | Token::Filter => self.operator(token, parent_operator),
+            _ => Err(self.err(&token, &format!("Expected Identifier, '*', '{{', '[', '@', \
+                                               or '[?', found {}", token.token_name())))
         }
     }
 
     /// Returns a formatted ParseError with the given message.
-    fn err(&self, msg: &str) -> ParseError {
-        let hint_msg = match self.token.clone() {
-            Token::Unknown { hint, .. } => hint,
+    fn err(&self, current_token: &Token, msg: &str) -> ParseError {
+        let hint_msg = match current_token {
+            &Token::Unknown { ref hint, .. } => hint.clone(),
             _ => "".to_string()
         };
         ParseError::new(&self.expr, self.pos, msg, &hint_msg)
     }
 
     /// Generates a formatted parse error for an out of place token.
-    fn token_err(&self) -> ParseError {
-        self.err(&format!("Unexpected token: {}", self.token.token_name()))
+    fn token_err(&self, current_token: &Token) -> ParseError {
+        self.err(current_token,
+                 &format!("Unexpected token: {}", current_token.token_name()))
     }
 }
 
