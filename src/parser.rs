@@ -62,6 +62,7 @@ impl ParseError {
 }
 
 /// Operators are pushed onto the operator stack.
+#[derive(Debug, PartialEq)]
 enum Operator {
     Basic(Token),
     Function(String),
@@ -78,7 +79,7 @@ impl Operator {
     /// associative operators check with <, while right associative check
     /// with <=.
     #[inline]
-    pub fn is_lt(&self, op: &Operator) -> bool {
+    pub fn has_lower_precedence(&self, op: &Operator) -> bool {
         if self.is_right_associative() {
             self.precedence() < op.precedence()
         } else {
@@ -112,6 +113,15 @@ impl Operator {
         }
     }
 
+    #[inline]
+    pub fn is_binary(&self) -> bool {
+        match self {
+            &Operator::Basic(ref p) if p == &Token::Ampersand => false,
+            &Operator::Basic(ref p) if p == &Token::Not => false,
+            _ => true
+        }
+    }
+
     pub fn terminates(&self, token: &Token) -> bool {
         match self {
             &Operator::OpenParen if token == &Token::Rparen => true,
@@ -125,6 +135,7 @@ impl Operator {
 
 /// Parse state tracks whether we are parsing nud or led and precedence.
 /// Parse states are pushed onto the parse_state stack.
+#[derive(Debug, PartialEq)]
 enum State {
     Nud(usize),
     Led(usize)
@@ -234,6 +245,10 @@ impl<'a> Parser<'a> {
                 self.advance();
                 self.output_stack.push(Ast::CurrentNode);
                 panic!();
+            },
+            Token::Ampersand => {
+                self.advance();
+                self.operator(Operator::Basic(Token::Ampersand))
             },
             _ => {
                 // Now match tokens that must be copied.
@@ -350,16 +365,27 @@ impl<'a> Parser<'a> {
     #[inline]
     fn is_last_gt(&self, op: &Operator) -> bool {
         match self.operator_stack.last() {
-            Some(operator) if op.is_lt(operator) => true,
+            Some(operator) if op.has_lower_precedence(operator) => true,
             _ => false
         }
     }
 
     #[inline]
     fn pop_token(&mut self) -> ParseStep {
-        let rhs = self.output_stack.pop().unwrap();
-        let lhs = self.output_stack.pop().unwrap();
-        match self.operator_stack.pop().unwrap() {
+        let operator = self.operator_stack.pop().unwrap();
+        if operator.is_binary() {
+            let rhs = self.output_stack.pop().unwrap();
+            let lhs = self.output_stack.pop().unwrap();
+            self.popped_binary(operator, lhs, rhs)
+        } else {
+            let output = self.output_stack.pop().unwrap();
+            self.popped_unary(operator, output)
+        }
+    }
+
+    #[inline]
+    fn popped_binary(&mut self, operator: Operator, lhs: Ast, rhs: Ast) -> ParseStep {
+        match operator {
             Operator::Basic(token) => {
                 match token {
                     Token::Dot => self.output_stack.push(
@@ -386,7 +412,7 @@ impl<'a> Parser<'a> {
                         Ast::Comparison(Comparator::Lt, Box::new(lhs), Box::new(rhs))),
                     Token::Lte => self.output_stack.push(
                         Ast::Comparison(Comparator::Lte, Box::new(lhs), Box::new(rhs))),
-                    _ => return Err(self.err(&"Unexpected led token"))
+                    _ => return Err(self.err(&"Unexpected binary operator"))
                 }
             },
             Operator::ArrayProjection => self.output_stack.push(
@@ -396,6 +422,16 @@ impl<'a> Parser<'a> {
             Operator::OpenParen => panic!(),
             Operator::OpenBrace => panic!(),
             Operator::OpenBracket => panic!(),
+        };
+        Ok(())
+    }
+
+    #[inline]
+    fn popped_unary(&mut self, operator: Operator, output: Ast) -> ParseStep {
+        match operator {
+            Operator::Basic(ref token) if token == &Token::Ampersand =>
+                self.output_stack.push(Ast::Expref(Box::new(output))),
+            _ => return Err(self.err(&"Unexpected unary operator"))
         };
         Ok(())
     }
@@ -561,6 +597,12 @@ mod test {
                                 Projection(Identifier(\"bar\"), \
                                            Subexpr(Index(0), Identifier(\"baz\")))), \
                        Identifier(\"bam\")), Identifier(\"boo\"))",
+                   format!("{:?}", ast));
+    }
+
+    #[test] fn test_parse_expression_reference() {
+        let ast = parse("&foo.bar | [0]").unwrap();
+        assert_eq!("Expref(Subexpr(Subexpr(Identifier(\"foo\"), Identifier(\"bar\")), Index(0)))",
                    format!("{:?}", ast));
     }
 }
