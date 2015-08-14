@@ -65,7 +65,8 @@ impl ParseError {
 #[derive(Debug, PartialEq)]
 enum Operator {
     Basic(Token),
-    Function(String),
+    Function(String, Vec<Ast>),
+    MultiList(Vec<Ast>),
     ArrayProjection,
     SliceProjection(Option<i32>, Option<i32>, Option<i32>)
 }
@@ -101,9 +102,10 @@ impl Operator {
     pub fn precedence(&self) -> usize {
         match self {
             &Operator::Basic(ref p) => p.lbp(),
-            &Operator::Function(_) => Token::Lparen.lbp(),
+            &Operator::Function(_, _) => 0,
             &Operator::ArrayProjection => Token::Star.lbp(),
-            &Operator::SliceProjection(_, _, _) => Token::Star.lbp()
+            &Operator::SliceProjection(_, _, _) => Token::Star.lbp(),
+            &Operator::MultiList(_) => Token::Lparen.lbp()
         }
     }
 
@@ -122,7 +124,7 @@ impl Operator {
             &Operator::Basic(ref p) if p == &Token::Lparen && token == &Token::Rparen => true,
             &Operator::Basic(ref p) if p == &Token::Lbrace && token == &Token::Rbrace => true,
             &Operator::Basic(ref p) if p == &Token::Lbracket && token == &Token::Rbracket => true,
-            &Operator::Function(_) if token == &Token::Rparen => true,
+            &Operator::Function(_, _) if token == &Token::Rparen => true,
             _ => false
         }
     }
@@ -190,6 +192,10 @@ impl<'a> Parser<'a> {
                     if rbp < token.lbp() {
                         token = try!(self.led(token));
                     } else {
+                        if token == Token::Rparen {
+                            token = try!(self.closing_paren());
+                            panic!(format!("{:?}, {:?}, {:?}", token, self.operator_stack, self.output_stack));
+                        }
                         self.state_stack.pop();
                     }
                 },
@@ -201,7 +207,7 @@ impl<'a> Parser<'a> {
             token = try!(self.pop_token(token));
         }
         if self.output_stack.len() != 1 {
-            Err(self.err(&token, &"Unexpected end of token stream"))
+            Err(self.err(&token, &"Internal parse error: multiple values left on output stack"))
         } else {
             Ok(self.output_stack.pop().unwrap())
         }
@@ -259,6 +265,7 @@ impl<'a> Parser<'a> {
                 self.operator(next_token, Operator::Basic(Token::Ampersand))
             },
             Token::Lbracket => self.parse_lbracket(true),
+            Token::Rparen => self.closing_paren(),
             ref tok @ _ => Err(self.err(tok, &format!("Unexpected nud token: {}",
                                                       tok.token_name()))),
         }
@@ -297,7 +304,41 @@ impl<'a> Parser<'a> {
             Token::Gte => next_op!(Token::Gte),
             Token::Eq => next_op!(Token::Eq),
             Token::Ne => next_op!(Token::Ne),
+            Token::Lparen => {
+                match self.output_stack.pop() {
+                    // A "(" preceded by an identifier means that it is a function call.
+                    Some(Ast::Identifier(fn_name)) => self.open_function(fn_name),
+                    // TODO: Implement parenthesis as a precedence mechanism. This will require
+                    // a new JEP to be added into JMESPath
+                    _ => Err(self.err(&token, &format!("Unexpected parenthesis"))),
+                }
+            },
             _ => Err(self.err(&token, &format!("Unexpected led token: {}", token.token_name()))),
+        }
+    }
+
+    #[inline]
+    fn open_function(&mut self, fn_name: String) -> ParseStep {
+        match self.advance() {
+            Token::Rparen => {
+                self.output_stack.push(Ast::Function(fn_name, vec!()));
+                Ok(self.advance())
+            },
+            next_token @ _ => self.operator(next_token, Operator::Function(fn_name, vec!()))
+        }
+    }
+
+    #[inline]
+    fn close_enumerated_parse(&mut self, operator: Operator) -> ParseStep {
+        let next_token = self.advance();
+        match operator {
+            Operator::Function(name, args) => {
+                panic!();
+            },
+            Operator::MultiList(values) => {
+                panic!();
+            },
+            _ => Err(self.err(&next_token, &"Internal parser error: invalid closing token"))
         }
     }
 
@@ -342,7 +383,7 @@ impl<'a> Parser<'a> {
                     _ => Err(self.err(&token, "Expected number, ':', or '*'")),
                 }
             },
-            _ => panic!()
+            _ => self.operator(token, Operator::MultiList(vec!()))
         }
     }
 
@@ -366,6 +407,36 @@ impl<'a> Parser<'a> {
     }
 
     #[inline]
+    fn is_last_closing(&self, token: &Token) -> bool {
+        match self.operator_stack.last() {
+            Some(operator) if operator.closes(token) => true,
+            _ => false
+        }
+    }
+
+    #[inline]
+    fn closing_paren(&mut self) -> ParseStep {
+        let mut collected: Vec<Ast> = vec!();
+        loop {
+            if self.is_last_closing(&Token::Rparen) {
+                match self.operator_stack.pop().unwrap() {
+                    Operator::Function(name, _) => self.output_stack.push(
+                        Ast::Function(name, collected)),
+                    _ => panic!() // TODO: Implement simple precedence parens.
+                };
+                let next_token = self.advance();
+                return Ok(next_token);
+            } else if self.operator_stack.is_empty() {
+                return Err(ParseError::new(&self.expr, self.pos,
+                                           "Unclosed parenthesis", &"".to_string()));
+            } else {
+                try!(self.pop_token(Token::Rparen));
+                collected.push(self.output_stack.pop().unwrap());
+            }
+        }
+    }
+
+    #[inline]
     fn pop_token(&mut self, token: Token) -> ParseStep {
         let operator = self.operator_stack.pop().unwrap();
         if operator.is_binary() {
@@ -375,7 +446,8 @@ impl<'a> Parser<'a> {
                 Operator::Basic(tok) => try!(self.pop_basic_binary(tok, lhs, rhs)),
                 Operator::ArrayProjection => self.output_stack.push(
                     Ast::Projection(Box::new(lhs), Box::new(rhs))),
-                Operator::Function(fn_name) => panic!(),
+                Operator::Function(fn_name, _) => panic!(),
+                Operator::MultiList(_) => panic!(),
                 Operator::SliceProjection(start, step, stop) => panic!(),
             };
         } else {
@@ -451,16 +523,16 @@ impl<'a> Parser<'a> {
         let token = self.advance();
         match token {
             Token::Lbracket => {
+                // Parse a multi-list
                 let next_token = self.advance();
-                panic!();
-                // TODO: self.parse_multi_list()
+                self.operator(next_token, Operator::MultiList(vec!()))
             },
             Token::Identifier(_)
-            | Token::Star
-            | Token::Lbrace
-            | Token::Ampersand
-            | Token::Filter => self.operator(token, parent_operator),
-            _ => Err(self.err(&token, &format!("Expected Identifier, '*', '{{', '[', '@', \
+                | Token::Star
+                | Token::Lbrace
+                | Token::Ampersand
+                | Token::Filter => self.operator(token, parent_operator),
+            _ => Err(self.err(&token, &format!("Expected identifier, '*', '{{', '[', '@', \
                                                or '[?', found {}", token.token_name())))
         }
     }
@@ -591,5 +663,15 @@ mod test {
         let ast = parse("&foo.bar | [0]").unwrap();
         assert_eq!("Expref(Subexpr(Subexpr(Identifier(\"foo\"), Identifier(\"bar\")), Index(0)))",
                    format!("{:?}", ast));
+    }
+
+    #[test] fn test_parse_empty_functions() {
+        let ast = parse("foo()").unwrap();
+        assert_eq!("Function(\"foo\", [])", format!("{:?}", ast));
+    }
+
+    #[test] fn test_parse_functions_at_end() {
+        // let ast = parse("foo(bar)").unwrap();
+        // assert_eq!("Function(\"foo\", [Identifer(\"bar\")])", format!("{:?}", ast));
     }
 }
