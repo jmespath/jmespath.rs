@@ -123,8 +123,16 @@ impl Operator {
         match self {
             &Operator::Basic(ref p) if p == &Token::Lparen && token == &Token::Rparen => true,
             &Operator::Basic(ref p) if p == &Token::Lbrace && token == &Token::Rbrace => true,
-            &Operator::Basic(ref p) if p == &Token::Lbracket && token == &Token::Rbracket => true,
             &Operator::Function(_, _) if token == &Token::Rparen => true,
+            &Operator::MultiList(_) if token == &Token::Rbracket => true,
+            _ => false
+        }
+    }
+
+    // Returns true if the token supports commas.
+    pub fn supports_comma(&self) -> bool {
+        match self {
+            &Operator::MultiList(_) | &Operator::Function(_, _) => true,
             _ => false
         }
     }
@@ -192,11 +200,15 @@ impl<'a> Parser<'a> {
                     if rbp < token.lbp() {
                         token = try!(self.led(token));
                     } else {
-                        if token == Token::Rparen {
-                            token = try!(self.closing_paren());
-                            panic!(format!("{:?}, {:?}, {:?}", token, self.operator_stack, self.output_stack));
-                        }
                         self.state_stack.pop();
+                        if token == Token::Rparen {
+                            token = try!(self.close_paren());
+                        } else if token == Token::Rbracket {
+                            token = try!(self.close_multi_list());
+                        } else if token == Token::Comma {
+                            token = try!(self.parse_comma());
+                            self.state_stack.push(State::Nud(0));
+                        }
                     }
                 },
                 None => break
@@ -207,7 +219,8 @@ impl<'a> Parser<'a> {
             token = try!(self.pop_token(token));
         }
         if self.output_stack.len() != 1 {
-            Err(self.err(&token, &"Internal parse error: multiple values left on output stack"))
+            Err(self.err(&token, &format!("Multiple values left on output stack: {:?}",
+                                          self.output_stack)))
         } else {
             Ok(self.output_stack.pop().unwrap())
         }
@@ -256,16 +269,13 @@ impl<'a> Parser<'a> {
             },
             Token::Lbrace => {
                 let next_token = self.advance();
-                self.output_stack.push(Ast::CurrentNode);
-                // TODO: Handle multi-hash
-                panic!();
+                self.operator(next_token, Operator::MultiList(vec!()))
             },
             Token::Ampersand => {
                 let next_token = self.advance();
                 self.operator(next_token, Operator::Basic(Token::Ampersand))
             },
             Token::Lbracket => self.parse_lbracket(true),
-            Token::Rparen => self.closing_paren(),
             ref tok @ _ => Err(self.err(tok, &format!("Unexpected nud token: {}",
                                                       tok.token_name()))),
         }
@@ -325,20 +335,6 @@ impl<'a> Parser<'a> {
                 Ok(self.advance())
             },
             next_token @ _ => self.operator(next_token, Operator::Function(fn_name, vec!()))
-        }
-    }
-
-    #[inline]
-    fn close_enumerated_parse(&mut self, operator: Operator) -> ParseStep {
-        let next_token = self.advance();
-        match operator {
-            Operator::Function(name, args) => {
-                panic!();
-            },
-            Operator::MultiList(values) => {
-                panic!();
-            },
-            _ => Err(self.err(&next_token, &"Internal parser error: invalid closing token"))
         }
     }
 
@@ -415,23 +411,77 @@ impl<'a> Parser<'a> {
     }
 
     #[inline]
-    fn closing_paren(&mut self) -> ParseStep {
-        let mut collected: Vec<Ast> = vec!();
+    fn does_last_support_comma(&self) -> bool {
+        match self.operator_stack.last() {
+            Some(operator) if operator.supports_comma() => true,
+            _ => false
+        }
+    }
+
+    #[inline]
+    fn close_paren(&mut self) -> ParseStep {
         loop {
             if self.is_last_closing(&Token::Rparen) {
                 match self.operator_stack.pop().unwrap() {
-                    Operator::Function(name, _) => self.output_stack.push(
-                        Ast::Function(name, collected)),
+                    Operator::Function(name, mut args) => {
+                        args.push(self.output_stack.pop().unwrap());
+                        self.output_stack.push(Ast::Function(name, args));
+                    },
                     _ => panic!() // TODO: Implement simple precedence parens.
                 };
-                let next_token = self.advance();
-                return Ok(next_token);
+                return Ok(self.advance());
             } else if self.operator_stack.is_empty() {
                 return Err(ParseError::new(&self.expr, self.pos,
                                            "Unclosed parenthesis", &"".to_string()));
             } else {
                 try!(self.pop_token(Token::Rparen));
-                collected.push(self.output_stack.pop().unwrap());
+            }
+        }
+    }
+
+    #[inline]
+    fn close_multi_list(&mut self) -> ParseStep {
+        loop {
+            if self.is_last_closing(&Token::Rbracket) {
+                match self.operator_stack.pop().unwrap() {
+                    Operator::MultiList(mut args) => {
+                        args.push(self.output_stack.pop().unwrap());
+                        self.output_stack.push(Ast::MultiList(args));
+                    },
+                    _ => return Err(ParseError::new(&self.expr, self.pos,
+                                                    "Misplaced \"]\"", &"".to_string()))
+                };
+                return Ok(self.advance());
+            } else if self.operator_stack.is_empty() {
+                return Err(ParseError::new(&self.expr, self.pos,
+                                           "Unclosed \"]\"", &"".to_string()));
+            } else {
+                try!(self.pop_token(Token::Rbracket));
+            }
+        }
+    }
+
+    #[inline]
+    fn parse_comma(&mut self) -> ParseStep {
+        loop {
+            if self.does_last_support_comma() {
+                match self.operator_stack.pop().unwrap() {
+                    Operator::Function(fn_name, mut args) => {
+                        args.push(self.output_stack.pop().unwrap());
+                        self.operator_stack.push(Operator::Function(fn_name, args));
+                    },
+                    Operator::MultiList(mut args) => {
+                        args.push(self.output_stack.pop().unwrap());
+                        self.operator_stack.push(Operator::MultiList(args));
+                    },
+                    _ => panic!() // TODO: Implement simple precedence parens.
+                };
+                return Ok(self.advance());
+            } else if self.operator_stack.is_empty() {
+                return Err(ParseError::new(&self.expr, self.pos,
+                                           "Misplaced comma", &"".to_string()));
+            } else {
+                try!(self.pop_token(Token::Comma));
             }
         }
     }
@@ -447,7 +497,7 @@ impl<'a> Parser<'a> {
                 Operator::ArrayProjection => self.output_stack.push(
                     Ast::Projection(Box::new(lhs), Box::new(rhs))),
                 Operator::Function(fn_name, _) => panic!(),
-                Operator::MultiList(_) => panic!(),
+                Operator::MultiList(_) => panic!("Not implemented yet"),
                 Operator::SliceProjection(start, step, stop) => panic!(),
             };
         } else {
@@ -671,7 +721,20 @@ mod test {
     }
 
     #[test] fn test_parse_functions_at_end() {
-        // let ast = parse("foo(bar)").unwrap();
-        // assert_eq!("Function(\"foo\", [Identifer(\"bar\")])", format!("{:?}", ast));
+        let ast = parse("foo(bar)").unwrap();
+        assert_eq!("Function(\"foo\", [Identifier(\"bar\")])", format!("{:?}", ast));
+    }
+
+    #[test] fn test_parse_functions_with_multiple_args() {
+        let ast = parse("foo(bar, baz.boo, bam || qux)").unwrap();
+        assert_eq!("Function(\"foo\", [Identifier(\"bar\"), \
+                                       Subexpr(Identifier(\"baz\"), Identifier(\"boo\")), \
+                                       Or(Identifier(\"bam\"), Identifier(\"qux\"))])",
+                   format!("{:?}", ast));
+    }
+
+    #[test] fn test_parse_multi_list() {
+        let ast = parse("foo.[bar, baz]").unwrap();
+        assert_eq!("", format!("{:?}", ast));
     }
 }

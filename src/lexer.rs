@@ -57,7 +57,6 @@ pub enum Token {
     Rparen,
     Lbrace,
     Rbrace,
-    Whitespace,
     Eof,
 }
 
