@@ -74,6 +74,7 @@ impl Token {
     }
 
     /// Provides the left binding power of the token.
+    #[inline]
     pub fn lbp(&self) -> usize {
         match *self {
             Pipe     => 1,
@@ -234,6 +235,7 @@ impl<'a> Lexer<'a> {
     }
 
     // Consume and parse a literal JSON token.
+    #[inline]
     fn consume_literal(&mut self) -> Token {
         self.consume_inside('`', |s| {
             match Json::from_str(s.as_ref()) {
