@@ -101,6 +101,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Main parse function of the Pratt parser that parses while RBP < LBP
+    #[inline(never)]
     fn expr(&mut self, rbp: usize) -> ParseResult {
         let mut left = self.nud();
         while rbp < self.token.lbp() {
@@ -109,6 +110,7 @@ impl<'a> Parser<'a> {
         left
     }
 
+    #[inline(never)]
     fn nud(&mut self) -> ParseResult {
         match self.token.clone() {
             Token::At => {
@@ -252,6 +254,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Advances the cursor position, skipping any whitespace encountered.
+    #[inline]
     fn advance(&mut self) {
         loop {
             self.pos += self.token.span();
@@ -327,16 +330,26 @@ impl<'a> Parser<'a> {
     }
 
     /// Parses the right hand side of a dot expression.
+    #[inline(never)]
     fn parse_dot(&mut self, lbp: usize) -> ParseResult {
-        try!(self.expect("Identifier|Star|Lbrace|Lbracket|Ampersand|Filter"));
+        self.advance();
         match self.token {
-            Token::Lbracket => { self.advance(); self.parse_multi_list() },
-            _ => self.expr(lbp)
+            Token::Lbracket => {
+                self.advance();
+                self.parse_multi_list()
+            },
+            Token::Identifier { .. }
+                | Token::Star
+                | Token::Lbrace
+                | Token::Ampersand
+                | Token::Filter => self.expr(lbp),
+            _ => Err(self.err(&"Expected identifier, '*', '{', '[', '&', or '[?'"))
         }
     }
 
     /// Parses the right hand side of a projection, using the given LBP to
     /// determine when to stop consuming tokens.
+    #[inline(never)]
     fn projection_rhs(&mut self, lbp: usize) -> ParseResult {
         if self.token.lbp() < 10 {
             return Ok(Ast::CurrentNode);

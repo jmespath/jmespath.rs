@@ -74,6 +74,7 @@ impl Token {
     }
 
     /// Provides the left binding power of the token.
+    #[inline]
     pub fn lbp(&self) -> usize {
         match *self {
             Pipe     => 1,
@@ -96,6 +97,7 @@ impl Token {
     }
 
     /// Provides the number of characters a token lexem spans.
+    #[inline]
     pub fn span(&self) -> usize {
         match *self {
             Identifier { ref value, .. } => value.len(),
@@ -111,6 +113,7 @@ impl Token {
     }
 
     /// Returns `true` if the token is a whitespace token.
+    #[inline]
     pub fn is_whitespace(&self) -> bool {
         return *self == Whitespace;
     }
