@@ -103,6 +103,23 @@ impl Token {
             _ => false
         }
     }
+
+    /// Returns true if the token is a nud token.
+    pub fn is_nud(&self) -> bool {
+        match self {
+            &Token::Identifier(_) => true,
+            &Token::Literal(_) => true,
+            &Token::QuotedIdentifier(_) => true,
+            &Token::At => true,
+            &Token::Star => true,
+            &Token::Flatten => true,
+            &Token::Filter => true,
+            &Token::Lbrace => true,
+            &Token::Ampersand => true,
+            &Token::Lbracket => true,
+            _ => false
+        }
+    }
 }
 
 /// The lexer is used to tokenize JMESPath expressions.
