@@ -147,7 +147,8 @@ impl<'a> Lexer<'a> {
     // Consumes characters while the predicate function returns true.
     #[inline]
     fn consume_while<F>(&mut self, predicate: F) -> String
-        where F: Fn(char) -> bool {
+        where F: Fn(char) -> bool
+    {
         let mut buffer = self.iter.next().unwrap().1.to_string();
         loop {
             match self.iter.peek() {
@@ -211,7 +212,8 @@ impl<'a> Lexer<'a> {
     // can be escaped using a "\" character.
     #[inline]
     fn consume_inside<F>(&mut self, wrapper: char, invoke: F) -> Token
-        where F: Fn(String) -> Token {
+        where F: Fn(String) -> Token
+    {
         let mut buffer = String::new();
         // Skip the opening character.
         self.iter.next();

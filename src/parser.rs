@@ -4,7 +4,7 @@ extern crate rustc_serialize;
 
 use std::iter::Peekable;
 
-use ast::{Ast, Comparator};
+use ast::{Ast, KeyValuePair, Comparator};
 use lexer::{Lexer, Token};
 
 /// An alias for computations that can return an `Ast` or `ParseError`.
@@ -67,6 +67,7 @@ enum Operator {
     Basic(Token),
     Function(String, Vec<Ast>),
     MultiList(Vec<Ast>),
+    MultiHash(Vec<Ast>),
     ArrayProjection,
     FilterProjection(Ast),
     PartialFilter,
@@ -80,23 +81,15 @@ impl Operator {
     /// with <=.
     #[inline]
     pub fn has_lower_precedence(&self, op: &Operator) -> bool {
-        if self.is_right_associative() {
-            self.precedence() < op.precedence()
-        } else {
-            self.precedence() <= op.precedence()
-        }
-    }
-
-    /// Determines if the operator is right associative (e.g., projections).
-    #[inline]
-    pub fn is_right_associative(&self) -> bool {
         match self {
-            &Operator::Basic(ref p) if p == &Token::Star => true,
-            &Operator::ArrayProjection => true,
-            &Operator::SliceProjection(_, _, _, _) => true,
-            &Operator::FilterProjection(_) => true,
-            &Operator::PartialFilter => true,
-            _ => false
+            // Projections are right associative.
+            &Operator::Basic(Token::Star)
+                | &Operator::ArrayProjection
+                | &Operator::SliceProjection(_, _, _, _)
+                | &Operator::FilterProjection(_)
+                | &Operator::PartialFilter => self.precedence() < op.precedence(),
+            // Let associative.
+            _ => self.precedence() <= op.precedence()
         }
     }
 
@@ -104,13 +97,16 @@ impl Operator {
     #[inline]
     pub fn precedence(&self) -> usize {
         match self {
-            &Operator::Function(_, _) => 0,
-            &Operator::PartialFilter => 0,
             &Operator::Basic(ref p) => p.lbp(),
-            &Operator::ArrayProjection => Token::Star.lbp(),
-            &Operator::FilterProjection(_) => Token::Star.lbp(),
-            &Operator::SliceProjection(_,_, _, _) => Token::Star.lbp(),
-            &Operator::MultiList(_) => Token::Lparen.lbp()
+            // Projections all share the "*" precedence.
+            &Operator::ArrayProjection
+                | &Operator::FilterProjection(_)
+                | &Operator::SliceProjection(_,_, _, _) => Token::Star.lbp(),
+            &Operator::MultiList(_) => Token::Lbracket.lbp(),
+            &Operator::MultiHash(_) => Token::Lbrace.lbp(),
+            // These should never be popped by other operators. Only by closing characters.
+            &Operator::Function(_, _)
+                | &Operator::PartialFilter => 0
         }
     }
 
@@ -132,6 +128,7 @@ impl Operator {
             &Operator::PartialFilter if token == &Token::Rbracket => true,
             &Operator::Function(_, _) if token == &Token::Rparen => true,
             &Operator::MultiList(_) if token == &Token::Rbracket => true,
+            &Operator::MultiHash(_) if token == &Token::Rbrace => true,
             _ => false
         }
     }
@@ -139,7 +136,9 @@ impl Operator {
     // Returns true if the token supports commas.
     pub fn supports_comma(&self) -> bool {
         match self {
-            &Operator::MultiList(_) | &Operator::Function(_, _) => true,
+            &Operator::Function(_, _)
+                | &Operator::MultiList(_)
+                | &Operator::MultiHash(_) => true,
             _ => false
         }
     }
@@ -417,8 +416,55 @@ impl<'a> Parser<'a> {
     #[inline]
     fn check_enumerated_tokens(&mut self, current_token: Token) -> ParseStep {
         match current_token {
-            Token::Rparen => self.close_paren(),
-            Token::Rbracket => self.close_rbracket(),
+            Token::Rparen => self.closing_token(current_token, |p: &mut Self, op: Operator| {
+                match op {
+                    Operator::Function(name, mut args) => {
+                        args.push(p.output_stack.pop().unwrap());
+                        p.output_stack.push(Ast::Function(name, args));
+                        Some(Ok(p.advance()))
+                    },
+                    // TODO: Implement simple precedence parens? Needs a JEP.
+                    _ => None
+                }
+            }),
+            Token::Rbracket => self.closing_token(current_token, |p: &mut Self, op: Operator| {
+                match op {
+                    Operator::MultiList(mut args) => {
+                        args.push(p.output_stack.pop().unwrap());
+                        p.output_stack.push(Ast::MultiList(args));
+                        Some(Ok(p.advance()))
+                    },
+                    Operator::PartialFilter => {
+                        let filter_expr = p.output_stack.pop().unwrap();
+                        let next_token = p.advance();
+                        Some(p.projection_rhs(next_token,
+                                              Operator::FilterProjection(filter_expr)))
+                    },
+                    _ => None
+                }
+            }),
+            Token::Rbrace => self.closing_token(current_token, |p: &mut Self, op: Operator| {
+                match op {
+                    Operator::MultiHash(mut args) => {
+                        args.push(p.output_stack.pop().unwrap());
+                        // If there are an odd number of values, then there is a mis-match.
+                        if args.len() % 2 == 1 {
+                            Some(Err(p.err(Some(&Token::Rbrace), "Unbalanced key value pairs")))
+                        } else {
+                            let mut kvps: Vec<KeyValuePair> = vec!();
+                            while args.len() > 0 {
+                                kvps.push(KeyValuePair {
+                                    key: args.pop().unwrap(),
+                                    value: args.pop().unwrap()
+                                });
+                            }
+                            p.output_stack.push(Ast::MultiHash(kvps));
+                            Some(Ok(p.advance()))
+                        }
+                    },
+                    _ => None
+                }
+            }),
             Token::Comma => {
                 self.state_stack.push(State::Nud(0));
                 self.parse_comma()
@@ -455,57 +501,31 @@ impl<'a> Parser<'a> {
     }
 
     #[inline]
+    fn closing_token<F>(&mut self, mut token: Token, on_match: F) -> ParseStep
+        where F: Fn(&mut Self, Operator) -> Option<ParseStep>
+    {
+        while !self.operator_stack.is_empty() {
+            if !self.is_last_closing(&token) {
+                // Keep popping operators off the operator stack and onto output stack.
+                token = try!(self.pop_token(token));
+            } else {
+                let last_operator = self.operator_stack.pop().unwrap();
+                // Ensure that the operator that was popped is our desired match.
+                if let Some(t) = on_match(self, last_operator) {
+                    return t;
+                }
+                break;
+            }
+        }
+        Err(self.err(Some(&token), &format!("Unbalanced {:?}", token)))
+    }
+
+    #[inline]
     fn does_last_support_comma(&self) -> bool {
         match self.operator_stack.last() {
             Some(operator) if operator.supports_comma() => true,
             _ => false
         }
-    }
-
-    #[inline]
-    fn close_paren(&mut self) -> ParseStep {
-        while !self.operator_stack.is_empty() {
-            if self.is_last_closing(&Token::Rparen) {
-                match self.operator_stack.pop().unwrap() {
-                    Operator::Function(name, mut args) => {
-                        args.push(self.output_stack.pop().unwrap());
-                        self.output_stack.push(Ast::Function(name, args));
-                        return Ok(self.advance());
-                    },
-                    _ => break // TODO: Implement simple precedence parens.
-                };
-            } else {
-                try!(self.pop_token(Token::Rparen));
-            }
-        }
-        return Err(ParseError::new(&self.expr, self.pos,
-                                   "Unbalanced parenthesis", &"".to_string()));
-    }
-
-    #[inline]
-    fn close_rbracket(&mut self) -> ParseStep {
-        while !self.operator_stack.is_empty() {
-            if self.is_last_closing(&Token::Rbracket) {
-                match self.operator_stack.pop().unwrap() {
-                    Operator::MultiList(mut args) => {
-                        args.push(self.output_stack.pop().unwrap());
-                        self.output_stack.push(Ast::MultiList(args));
-                        return Ok(self.advance());
-                    },
-                    Operator::PartialFilter => {
-                        let filter_expr = self.output_stack.pop().unwrap();
-                        let next_token = self.advance();
-                        return self.projection_rhs(
-                            next_token, Operator::FilterProjection(filter_expr));
-                    },
-                    _ => break
-                };
-            } else {
-                // Keep popping operators off the operator stack and onto output stack.
-                try!(self.pop_token(Token::Rbracket));
-            }
-        }
-        Err(ParseError::new(&self.expr, self.pos, "Unbalanced \"]\"", &"".to_string()))
     }
 
     /// When a comma is encountered, we pop from the operator stack until
