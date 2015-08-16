@@ -89,3 +89,21 @@ fn bench_parse_raw_string_literal(b: &mut Bencher) {
     let expr = "'abcdefghijklmnopqrstuvwxyz.abcdefghijklmnopqrstuvwxyz'";
     b.iter(|| jmespath::parse(expr));
 }
+
+#[bench]
+fn bench_parse_function_five_args(b: &mut Bencher) {
+    let expr = "function(foo, bar, baz, bam, qux)";
+    b.iter(|| jmespath::parse(expr));
+}
+
+#[bench]
+fn bench_parse_mutli_list_five_exprs(b: &mut Bencher) {
+    let expr = "foo.[foo, bar, baz, bam, qux]";
+    b.iter(|| jmespath::parse(expr));
+}
+
+#[bench]
+fn bench_parse_filter_projection(b: &mut Bencher) {
+    let expr = "foo[bar > baz].qux";
+    b.iter(|| jmespath::parse(expr));
+}
