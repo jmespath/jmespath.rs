@@ -559,7 +559,6 @@ impl<'a> Parser<'a> {
                                     Box::new(Ast::Condition(
                                         Box::new(expr),
                                         Box::new(rhs))))),
-                Operator::Function(fn_name, _) => panic!(),
                 Operator::SliceProjection(_, start, stop, step) => self.output_stack.push(
                     Ast::Subexpr(Box::new(lhs),
                                  Box::new(Ast::Projection(
