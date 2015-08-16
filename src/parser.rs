@@ -247,6 +247,7 @@ impl<'a> Parser<'a> {
                     }
                 }
             },
+            Token::Lbracket => self.open_lbracket(true),
             Token::At => {
                 self.output_stack.push(Ast::CurrentNode);
                 Ok(self.advance())
@@ -273,8 +274,7 @@ impl<'a> Parser<'a> {
                 let next_token = self.advance();
                 self.operator(next_token, Operator::Basic(Token::Ampersand))
             },
-            Token::Lbracket => self.open_lbracket(true),
-            ref tok @ _ => Err(self.err(Some(tok), &format!("Unexpected nud token: {}",
+            ref tok @ _ => Err(self.err(Some(tok), &format!("Unexpected prefix token: {}",
                                                             tok.token_name()))),
         }
     }
@@ -323,7 +323,7 @@ impl<'a> Parser<'a> {
                 }
             },
             _ => Err(self.err(Some(&token),
-                              &format!("Unexpected led token: {}", token.token_name()))),
+                              &format!("Unexpected postfix token: {}", token.token_name()))),
         }
     }
 
@@ -331,11 +331,7 @@ impl<'a> Parser<'a> {
     #[inline]
     fn start_filter(&mut self) -> ParseStep {
         let next_token = self.advance();
-        if !next_token.is_nud() {
-            Err(self.err(Some(&next_token), "Filters require a filter expression"))
-        } else {
-            self.operator(next_token, Operator::PartialFilter)
-        }
+        self.operator(next_token, Operator::PartialFilter)
     }
 
     #[inline]
@@ -883,8 +879,8 @@ mod test {
 
     #[test] fn test_ensures_filters_are_not_empty() {
         let result = parse("prefix[?].bar");
-        assert_eq!("Err(ParseError { msg: \"Parse error at line 0, col 8; Filters require a \
-                   filter expression\\nprefix[?].bar\\n        ^\\n\", line: 0, col: 8 })",
+        assert_eq!("Err(ParseError { msg: \"Parse error at line 0, col 8; Unexpected prefix \
+                   token: Rbracket\\nprefix[?].bar\\n        ^\\n\", line: 0, col: 8 })",
                    format!("{:?}", result));
     }
 
