@@ -68,7 +68,7 @@ enum Operator {
     Function(String, Vec<Ast>),
     MultiList(Vec<Ast>),
     ArrayProjection,
-    SliceProjection(Option<i32>, Option<i32>, Option<i32>)
+    SliceProjection(bool, Option<i32>, Option<i32>, Option<i32>)
 }
 
 impl Operator {
@@ -92,7 +92,7 @@ impl Operator {
             &Operator::Basic(ref p) if p == &Token::Star => true,
             &Operator::Basic(ref p) if p == &Token::Filter => true,
             &Operator::ArrayProjection => true,
-            &Operator::SliceProjection(_, _, _) => true,
+            &Operator::SliceProjection(_, _, _, _) => true,
             _ => false
         }
     }
@@ -104,7 +104,7 @@ impl Operator {
             &Operator::Basic(ref p) => p.lbp(),
             &Operator::Function(_, _) => 0,
             &Operator::ArrayProjection => Token::Star.lbp(),
-            &Operator::SliceProjection(_, _, _) => Token::Star.lbp(),
+            &Operator::SliceProjection(_,_, _, _) => Token::Star.lbp(),
             &Operator::MultiList(_) => Token::Lparen.lbp()
         }
     }
@@ -114,6 +114,7 @@ impl Operator {
         match self {
             &Operator::Basic(ref p) if p == &Token::Ampersand => false,
             &Operator::Basic(ref p) if p == &Token::Not => false,
+            &Operator::SliceProjection(is_binary, _, _, _) => is_binary,
             _ => true
         }
     }
@@ -221,7 +222,6 @@ impl<'a> Parser<'a> {
 
     #[inline]
     fn nud(&mut self, token: Token) -> ParseStep {
-        // First match tokens that do not need to be copied.
         match token {
             Token::Identifier(value) => {
                 self.output_stack.push(Ast::Identifier(value));
@@ -364,7 +364,7 @@ impl<'a> Parser<'a> {
                             self.output_stack.push(
                                 Ast::Subexpr(Box::new(lhs), Box::new(Ast::Index(value))));
                         }
-                        // Skip the Rbracket token.
+                        // Skip the "]" token.
                         self.advance();
                         Ok(self.advance())
                     },
@@ -372,26 +372,45 @@ impl<'a> Parser<'a> {
                         if is_nud {
                             self.output_stack.push(Ast::CurrentNode);
                         }
-                        // Skip Rbracket
+                        // Skip the "]" token.
                         self.advance();
                         let next_token = self.advance();
                         self.projection_rhs(next_token, Operator::ArrayProjection)
                     },
-                    Token::Colon => {
-                        if is_nud {
-                            self.output_stack.push(Ast::CurrentNode);
-                        }
-                        // Skip Rbracket
-                        self.advance();
-                        let next_token = self.advance();
-                        self.projection_rhs(
-                            next_token, Operator::SliceProjection(None, None, None))
-                    },
+                    Token::Colon => self.parse_slice(!is_nud, token),
                     _ => Err(self.err(&token, "Expected number, ':', or '*'")),
                 }
             },
+            Some(&(_, Token::Number(_))) | Some(&(_, Token::Colon)) =>
+                self.parse_slice(!is_nud, token),
             _ => self.operator(token, Operator::MultiList(vec!()))
         }
+    }
+
+    // Parse slices. e.g., [:::], [::-1], [0:10], [0:10:-2], etc...
+    fn parse_slice(&mut self, is_binary: bool, mut current_token: Token) -> ParseStep {
+        let mut pos = 0;
+        let mut parts = [None, None, None];
+        loop {
+            match current_token {
+                Token::Rbracket => break,
+                ref t @ Token::Colon if pos == 2 =>
+                    return Err(self.err(t, "Found too many colons in slice expression")),
+                Token::Colon => { pos += 1; current_token = self.advance(); },
+                Token::Number(value) => {
+                    parts[pos] = Some(value);
+                    current_token = self.advance();
+                    if current_token.is_number() {
+                        return Err(self.err(&current_token, "Expected ':', or ']'"))
+                    }
+                },
+                ref t @ _ => return Err(self.err(t, "Expected number, ':', or ']'"))
+            }
+        }
+        // Sliced array from start (e.g., [2:])
+        let next_token = self.advance();
+        self.projection_rhs(
+            next_token, Operator::SliceProjection(is_binary, parts[0], parts[1], parts[2]))
     }
 
     #[inline]
@@ -509,14 +528,19 @@ impl<'a> Parser<'a> {
                 Operator::ArrayProjection => self.output_stack.push(
                     Ast::Projection(Box::new(lhs), Box::new(rhs))),
                 Operator::Function(fn_name, _) => panic!(),
-                Operator::MultiList(_) => panic!("Not implemented yet"),
-                Operator::SliceProjection(start, step, stop) => panic!(),
+                Operator::SliceProjection(_, start, stop, step) => self.output_stack.push(
+                    Ast::Subexpr(Box::new(lhs),
+                                 Box::new(Ast::Projection(
+                                     Box::new(Ast::Slice(start, stop, step)), Box::new(rhs))))),
+                _ => return Err(self.err(&token, &"Unexpected binary operator"))
             };
         } else {
-            let output = self.output_stack.pop().unwrap();
+            let node = self.output_stack.pop().unwrap();
             match operator {
                 Operator::Basic(ref tok) if tok == &Token::Ampersand =>
-                    self.output_stack.push(Ast::Expref(Box::new(output))),
+                    self.output_stack.push(Ast::Expref(Box::new(node))),
+                Operator::SliceProjection(_, start, stop, step) => self.output_stack.push(
+                    Ast::Projection(Box::new(Ast::Slice(start, stop, step)), Box::new(node))),
                 _ => return Err(self.err(&token, &"Unexpected unary operator"))
             }
         }
@@ -753,6 +777,20 @@ mod test {
         let ast = parse("foo.[bar, baz]").unwrap();
         assert_eq!("Subexpr(Identifier(\"foo\"), \
                             MultiList([Identifier(\"bar\"), Identifier(\"baz\")]))",
+                   format!("{:?}", ast));
+    }
+
+    #[test] fn test_parse_postfix_slice_projections() {
+        let ast = parse("foo[0::-1].bar").unwrap();
+        assert_eq!("Subexpr(Identifier(\"foo\"), \
+                            Projection(Slice(Some(0), None, Some(-1)), \
+                                       Identifier(\"bar\")))",
+                   format!("{:?}", ast));
+    }
+
+    #[test] fn test_parse_prefix_slice_projections() {
+        let ast = parse("[0::-1].bar").unwrap();
+        assert_eq!("Projection(Slice(Some(0), None, Some(-1)), Identifier(\"bar\"))",
                    format!("{:?}", ast));
     }
 }

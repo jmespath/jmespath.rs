@@ -95,6 +95,14 @@ impl Token {
             _        => 0,
         }
     }
+
+    /// Returns true if the token is a number token.
+    pub fn is_number(&self) -> bool {
+        match *self {
+            Number(_) => true,
+            _ => false
+        }
+    }
 }
 
 /// The lexer is used to tokenize JMESPath expressions.
@@ -474,5 +482,17 @@ mod tests {
         assert_eq!("Unknown",
                    Unknown { value: "".to_string(), hint: "".to_string() }.token_name());
         assert_eq!("Dot".to_string(), Dot.token_name());
+    }
+
+    #[test] fn tokenizes_slices() {
+        let tokens: Vec<(usize, Token)> = tokenize("foo[0::-1]").collect();
+        assert_eq!("[(0, Identifier(\"foo\")), (3, Lbracket), (4, Number(0)), (5, Colon), \
+                     (6, Colon), (7, Number(-1)), (9, Rbracket), (10, Eof)]",
+                   format!("{:?}", tokens));
+    }
+
+    #[test] fn determines_if_number() {
+        assert_eq!(true, Token::Number(10).is_number());
+        assert_eq!(false, Token::Comma.is_number());
     }
 }
