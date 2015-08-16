@@ -188,7 +188,7 @@ impl<'a> Parser<'a> {
         // After parsing the expr, we should reach the end of the stream.
         match self.stream.next() {
             None | Some((_, Token::Eof)) => Ok(result),
-            token @ _ => Err(self.err(None, &"Did not reach token stream EOF"))
+            _ => Err(self.err(None, &"Did not reach token stream EOF"))
         }
     }
 
@@ -396,7 +396,7 @@ impl<'a> Parser<'a> {
         loop {
             match current_token {
                 Token::Rbracket => break,
-                ref t @ Token::Colon if pos == 2 =>
+                Token::Colon if pos == 2 =>
                     return Err(self.err(None, "Found too many colons in slice expression")),
                 Token::Colon => { pos += 1; current_token = self.advance(); },
                 Token::Number(value) => {
