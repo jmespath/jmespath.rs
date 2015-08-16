@@ -188,7 +188,7 @@ impl<'a> Parser<'a> {
         // After parsing the expr, we should reach the end of the stream.
         match self.stream.next() {
             None | Some((_, Token::Eof)) => Ok(result),
-            token @ _ => Err(self.err(&token.unwrap().1, &"Did not reach token stream EOF"))
+            token @ _ => Err(self.err(None, &"Did not reach token stream EOF"))
         }
     }
 
@@ -219,8 +219,8 @@ impl<'a> Parser<'a> {
             token = try!(self.pop_token(token));
         }
         if self.output_stack.len() != 1 {
-            Err(self.err(&token, &format!("Multiple values left on output stack: {:?}, {:?}",
-                                          self.output_stack, self.operator_stack)))
+            Err(self.err(None, &format!("Multiple values left on output stack: {:?}, {:?}",
+                                        self.output_stack, self.operator_stack)))
         } else {
             Ok(self.output_stack.pop().unwrap())
         }
@@ -240,7 +240,7 @@ impl<'a> Parser<'a> {
             Token::QuotedIdentifier(ref value) => {
                 match self.advance() {
                     Token::Lparen =>
-                        Err(self.err(&token, &"Quoted strings can't be function names")),
+                        Err(self.err(None, &"Quoted strings can't be function names")),
                     next_token @ _ => {
                         self.output_stack.push(Ast::Identifier(value.clone()));
                         Ok(next_token)
@@ -274,8 +274,8 @@ impl<'a> Parser<'a> {
                 self.operator(next_token, Operator::Basic(Token::Ampersand))
             },
             Token::Lbracket => self.open_lbracket(true),
-            ref tok @ _ => Err(self.err(tok, &format!("Unexpected nud token: {}",
-                                                      tok.token_name()))),
+            ref tok @ _ => Err(self.err(Some(tok), &format!("Unexpected nud token: {}",
+                                                            tok.token_name()))),
         }
     }
 
@@ -319,10 +319,11 @@ impl<'a> Parser<'a> {
                     Some(Ast::Identifier(fn_name)) => self.start_function(fn_name),
                     // TODO: Implement parenthesis as a precedence mechanism. This will require
                     // a new JEP to be added into JMESPath
-                    _ => Err(self.err(&token, &format!("Unexpected parenthesis"))),
+                    _ => Err(self.err(None, &format!("Unexpected parenthesis"))),
                 }
             },
-            _ => Err(self.err(&token, &format!("Unexpected led token: {}", token.token_name()))),
+            _ => Err(self.err(Some(&token),
+                              &format!("Unexpected led token: {}", token.token_name()))),
         }
     }
 
@@ -331,7 +332,7 @@ impl<'a> Parser<'a> {
     fn start_filter(&mut self) -> ParseStep {
         let next_token = self.advance();
         if !next_token.is_nud() {
-            Err(self.err(&next_token, "Filters require a filter expression"))
+            Err(self.err(Some(&next_token), "Filters require a filter expression"))
         } else {
             self.operator(next_token, Operator::PartialFilter)
         }
@@ -379,7 +380,7 @@ impl<'a> Parser<'a> {
                         self.projection_rhs(next_token, Operator::ArrayProjection)
                     },
                     Token::Colon => self.parse_slice(!is_nud, token),
-                    _ => Err(self.err(&token, "Expected number, ':', or '*'")),
+                    _ => Err(self.err(Some(&token), "Expected number, ':', or '*'")),
                 }
             },
             Some(&(_, Token::Number(_))) | Some(&(_, Token::Colon)) =>
@@ -396,16 +397,16 @@ impl<'a> Parser<'a> {
             match current_token {
                 Token::Rbracket => break,
                 ref t @ Token::Colon if pos == 2 =>
-                    return Err(self.err(t, "Found too many colons in slice expression")),
+                    return Err(self.err(None, "Found too many colons in slice expression")),
                 Token::Colon => { pos += 1; current_token = self.advance(); },
                 Token::Number(value) => {
                     parts[pos] = Some(value);
                     current_token = self.advance();
                     if current_token.is_number() {
-                        return Err(self.err(&current_token, "Expected ':', or ']'"))
+                        return Err(self.err(Some(&current_token), "Expected ':', or ']'"))
                     }
                 },
-                ref t @ _ => return Err(self.err(t, "Expected number, ':', or ']'"))
+                ref t @ _ => return Err(self.err(Some(t), "Expected number, ':', or ']'"))
             }
         }
         // Sliced array from start (e.g., [2:])
@@ -537,16 +538,29 @@ impl<'a> Parser<'a> {
             };
             let next_token = self.advance();
             if !next_token.is_nud() {
-                return Err(self.err(&next_token, &"A comma must be followed by an expression"));
+                return Err(self.err(Some(&next_token),
+                                    &"A comma must be followed by an expression"));
             }
             return Ok(next_token);
         }
         Err(ParseError::new(&self.expr, self.pos, "Misplaced comma", &"".to_string()))
     }
 
+    // Ensures that the operator is something that can be popped otherwise it's unclosed.
+    #[inline]
+    fn assert_not_unclosed(&mut self, operator: &Operator) -> Result<(), ParseError> {
+        match operator {
+            &Operator::Function(_, _) => Err(self.err(None, "Unclosed function")),
+            &Operator::MultiList(_) => Err(self.err(None, "Unclosed multi-list '['")),
+            &Operator::PartialFilter => Err(self.err(None, "Unclosed filter")),
+            _ => Ok(())
+        }
+    }
+
     #[inline]
     fn pop_token(&mut self, token: Token) -> ParseStep {
         let operator = self.operator_stack.pop().unwrap();
+        try!(self.assert_not_unclosed(&operator));
         if operator.is_binary() {
             let rhs = self.output_stack.pop().unwrap();
             let lhs = self.output_stack.pop().unwrap();
@@ -563,8 +577,8 @@ impl<'a> Parser<'a> {
                     Ast::Subexpr(Box::new(lhs),
                                  Box::new(Ast::Projection(
                                      Box::new(Ast::Slice(start, stop, step)), Box::new(rhs))))),
-                _ => return Err(self.err(&token, &format!("Unexpected binary operator: {:?}",
-                                                          operator)))
+                _ => return Err(self.err(None, &format!("Unexpected binary operator: {:?}",
+                                                        operator)))
             };
         } else {
             let node = self.output_stack.pop().unwrap();
@@ -573,7 +587,7 @@ impl<'a> Parser<'a> {
                     self.output_stack.push(Ast::Expref(Box::new(node))),
                 Operator::SliceProjection(_, start, stop, step) => self.output_stack.push(
                     Ast::Projection(Box::new(Ast::Slice(start, stop, step)), Box::new(node))),
-                _ => return Err(self.err(&token, &"Unexpected unary operator"))
+                _ => return Err(self.err(None, &"Unexpected unary operator"))
             }
         }
         Ok(token)
@@ -606,7 +620,7 @@ impl<'a> Parser<'a> {
                 Ast::Comparison(Comparator::Lt, Box::new(lhs), Box::new(rhs))),
             Token::Lte => self.output_stack.push(
                 Ast::Comparison(Comparator::Lte, Box::new(lhs), Box::new(rhs))),
-            _ => return Err(self.err(&tok, &"Unexpected binary operator"))
+            _ => return Err(self.err(None, &"Unexpected binary operator"))
         };
         Ok(())
     }
@@ -654,15 +668,16 @@ impl<'a> Parser<'a> {
                 | Token::Lbrace
                 | Token::Ampersand
                 | Token::Filter => self.operator(token, parent_operator),
-            _ => Err(self.err(&token, &format!("Expected an identifier, '*', '{{', '[', '@', \
-                                               or '[?', found {}", token.token_name())))
+            _ => Err(self.err(Some(&token),
+                              &format!("Expected an identifier, '*', '{{', '[', '@', or '[?', \
+                              found {}", token.token_name())))
         }
     }
 
     /// Returns a formatted ParseError with the given message.
-    fn err(&self, current_token: &Token, msg: &str) -> ParseError {
+    fn err(&self, current_token: Option<&Token>, msg: &str) -> ParseError {
         let hint_msg = match current_token {
-            &Token::Unknown { ref hint, .. } => hint.clone(),
+            Some(&Token::Unknown { ref hint, .. }) => hint.clone(),
             _ => "".to_string()
         };
         ParseError::new(&self.expr, self.pos, msg, &hint_msg)
@@ -670,8 +685,8 @@ impl<'a> Parser<'a> {
 
     /// Generates a formatted parse error for an out of place token.
     fn token_err(&self, current_token: &Token) -> ParseError {
-        self.err(current_token,
-                 &format!("Unexpected token: {}", current_token.token_name()))
+        self.err(Some(current_token), &format!("Unexpected token: {}",
+                                               current_token.token_name()))
     }
 }
 
@@ -796,6 +811,13 @@ mod test {
         assert_eq!("Function(\"foo\", [Identifier(\"bar\")])", format!("{:?}", ast));
     }
 
+    #[test] fn test_ensures_functions_are_closed() {
+        let result = parse("foo(bar");
+        assert_eq!("Err(ParseError { msg: \"Parse error at line 0, col 7; Unclosed function\\n\
+                   foo(bar\\n       ^\\n\", line: 0, col: 7 })",
+                   format!("{:?}", result));
+    }
+
     #[test] fn test_parse_functions_with_multiple_args() {
         let ast = parse("foo(bar, baz.boo, bam || qux)").unwrap();
         assert_eq!("Function(\"foo\", [Identifier(\"bar\"), \
@@ -811,6 +833,14 @@ mod test {
                    format!("{:?}", ast));
     }
 
+    #[test] fn test_ensures_multi_list_are_closed() {
+        let result = parse("foo.[bar, baz");
+        assert_eq!("Err(ParseError { msg: \"Parse error at line 0, col 13; \
+                   Unclosed multi-list \\\'[\\\'\\n\
+                   foo.[bar, baz\\n             ^\\n\", line: 0, col: 13 })",
+                   format!("{:?}", result));
+    }
+
     #[test] fn test_parse_postfix_slice_projections() {
         let ast = parse("foo[0::-1].bar").unwrap();
         assert_eq!("Subexpr(Identifier(\"foo\"), \
@@ -823,6 +853,14 @@ mod test {
         let ast = parse("[0::-1].bar").unwrap();
         assert_eq!("Projection(Slice(Some(0), None, Some(-1)), Identifier(\"bar\"))",
                    format!("{:?}", ast));
+    }
+
+    #[test] fn test_ensures_slices_are_closed() {
+        let result = parse("[0::1");
+        assert_eq!("Err(ParseError { msg: \"Parse error at line 0, col 5; \
+                   Expected number, \\\':\\\', or \\\']\\\'\\n\
+                   [0::1\\n     ^\\n\", line: 0, col: 5 })",
+                   format!("{:?}", result));
     }
 
     #[test] fn test_parses_nud_filter_projections() {
@@ -841,5 +879,19 @@ mod test {
                                    Comparison(Eq, Identifier(\"foo\"), Identifier(\"bar\")), \
                                    Subexpr(Identifier(\"baz\"), Identifier(\"boo\"))))",
                    format!("{:?}", ast));
+    }
+
+    #[test] fn test_ensures_filters_are_not_empty() {
+        let result = parse("prefix[?].bar");
+        assert_eq!("Err(ParseError { msg: \"Parse error at line 0, col 8; Filters require a \
+                   filter expression\\nprefix[?].bar\\n        ^\\n\", line: 0, col: 8 })",
+                   format!("{:?}", result));
+    }
+
+    #[test] fn test_ensures_filters_are_closed() {
+        let result = parse("prefix[?baz");
+        assert_eq!("Err(ParseError { msg: \"Parse error at line 0, col 11; Unclosed filter\\n\
+                   prefix[?baz\\n           ^\\n\", line: 0, col: 11 })",
+                   format!("{:?}", result));
     }
 }
