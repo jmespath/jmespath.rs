@@ -190,12 +190,13 @@ impl<'a> Parser<'a> {
 
     /// Parses the expression into result containing an AST or ParseError.
     pub fn parse(&mut self) -> ParseResult {
-        let result = try!(self.expr());
-        // After parsing the expr, we should reach the end of the stream.
-        match self.stream.next() {
-            None | Some((_, Token::Eof)) => Ok(result),
-            _ => Err(self.err(None, &"Did not reach token stream EOF"))
-        }
+        self.expr().and_then(|result| {
+            if self.stream.next().is_some() {
+                Err(self.err(None, &"Did not reach token stream EOF"))
+            } else {
+                Ok(result)
+            }
+        })
     }
 
     #[inline]
@@ -222,7 +223,7 @@ impl<'a> Parser<'a> {
         }
         // Pop and process any remaining operators on the stack.
         while !self.operator_stack.is_empty() {
-            token = try!(self.pop_token(token));
+            try!(self.pop_token());
         }
         if self.output_stack.len() != 1 {
             Err(self.err(None, &format!("Multiple values left on output stack: {:?}, {:?}",
@@ -488,8 +489,43 @@ impl<'a> Parser<'a> {
                     _ => None
                 }
             }),
-            Token::Comma => self.parse_comma(),
-            Token::Colon => self.parse_colon(),
+            Token::Comma => self.separator_token(Token::Comma, |p: &mut Self, op: Operator| {
+                match op {
+                    Operator::Function(fn_name, mut args) => {
+                        args.push(p.output_stack.pop().unwrap());
+                        p.operator_stack.push(Operator::Function(fn_name, args));
+                        Some(Ok(p.advance()))
+                    },
+                    Operator::MultiList(mut args) => {
+                        args.push(p.output_stack.pop().unwrap());
+                        p.operator_stack.push(Operator::MultiList(args));
+                        Some(Ok(p.advance()))
+                    },
+                    Operator::MultiHash(mut args) => {
+                        args.push(p.output_stack.pop().unwrap());
+                        p.operator_stack.push(Operator::MultiHash(args));
+                        let next_token = p.advance();
+                        Some(p.open_multi_hash_key(next_token))
+                    },
+                    // Error when a comma is inside a precedence parens: e.g., "(a || b, c) | d"
+                    _ => None
+                }
+            }),
+            Token::Colon => self.separator_token(Token::Colon, |p: &mut Self, op: Operator| {
+                match op {
+                    Operator::MultiHash(mut args) => {
+                        // Cannot have an uneven number when adding a key.
+                        if args.len() % 1 == 1 {
+                            None
+                        } else {
+                            args.push(p.output_stack.pop().unwrap());
+                            p.operator_stack.push(Operator::MultiHash(args));
+                            Some(Ok(p.advance()))
+                        }
+                    },
+                    _ => None
+                }
+            }),
             _ => Ok(current_token)
         }
     }
@@ -530,11 +566,11 @@ impl<'a> Parser<'a> {
     // the operator stack and processed, meaningbinary operators pop two output_stack values and
     // unary tokens pop one.
     #[inline]
-    fn operator(&mut self, mut token: Token, operator: Operator) -> ParseStep {
+    fn operator(&mut self, token: Token, operator: Operator) -> ParseStep {
         self.state_stack.push(State::Nud(operator.precedence()));
         // Pop things from the top of the operator stack that have a higher precedence.
         while self.does_last_have_greater_precedence(&operator) {
-            token = try!(self.pop_token(token))
+            try!(self.pop_token());
         }
         self.operator_stack.push(operator);
         Ok(token)
@@ -546,13 +582,13 @@ impl<'a> Parser<'a> {
     // operator is found but not what we were expecting (enforced with the closure), then the
     // closing character is unbalanced in relation to other closing characters.
     #[inline]
-    fn closing_token<F>(&mut self, mut token: Token, on_match: F) -> ParseStep
+    fn closing_token<F>(&mut self, token: Token, on_match: F) -> ParseStep
         where F: Fn(&mut Self, Operator) -> Option<ParseStep>
     {
         while !self.operator_stack.is_empty() {
             if !self.does_last_operator_close(&token) {
                 // Keep popping operators off the operator stack and onto output stack.
-                token = try!(self.pop_token(token));
+                try!(self.pop_token());
             } else {
                 let last_operator = self.operator_stack.pop().unwrap();
                 // Ensure that the operator that was popped is our desired match.
@@ -565,68 +601,29 @@ impl<'a> Parser<'a> {
         Err(self.err(Some(&token), &format!("Unbalanced {:?}", token)))
     }
 
-    /// When a comma is encountered, we pop from the operator stack until
-    /// the operator at the top of the stack is an operator that accepts
-    /// commas (e.g., function or multi-list). We then add the value at
-    /// the top of the output stack to the operator that accepts mutliple
-    /// values. This value is popped and then added back to the operator
-    /// stack after pushing the value.
+    /// When a comma/colon/etc. is encountered, we pop from the operator stack until the operator
+    /// at the top of the stack is an operator that accepts the token (e.g., function or
+    /// multi-list). We then add the value at the top of the output stack to the operator that
+    /// accepts mutliple values. This value is popped and then added back to the operator stack
+    /// after pushing the value.
     #[inline]
-    fn parse_comma(&mut self) -> ParseStep {
-        let separator = Token::Comma;
+    fn separator_token<F>(&mut self, token: Token, on_match: F) -> ParseStep
+        where F: Fn(&mut Self, Operator) -> Option<ParseStep>
+    {
         self.state_stack.push(State::Nud(0));
         while !self.operator_stack.is_empty() {
-            if !self.does_last_support(&separator) {
-                try!(self.pop_token(Token::Comma));
+            if !self.does_last_support(&token) {
+                try!(self.pop_token());
             } else {
-                match self.operator_stack.pop().unwrap() {
-                    Operator::Function(fn_name, mut args) => {
-                        args.push(self.output_stack.pop().unwrap());
-                        self.operator_stack.push(Operator::Function(fn_name, args));
-                        return Ok(self.advance());
-                    },
-                    Operator::MultiList(mut args) => {
-                        args.push(self.output_stack.pop().unwrap());
-                        self.operator_stack.push(Operator::MultiList(args));
-                        return Ok(self.advance());
-                    },
-                    Operator::MultiHash(mut args) => {
-                        args.push(self.output_stack.pop().unwrap());
-                        self.operator_stack.push(Operator::MultiHash(args));
-                        let next_token = self.advance();
-                        return self.open_multi_hash_key(next_token);
-                    },
-                    // Error when a comma is inside a precedence parens: e.g., "(a || b, c) | d"
-                    _ => break
-                };
+                let last_operator = self.operator_stack.pop().unwrap();
+                // Ensure that the operator that was popped is our desired match.
+                if let Some(t) = on_match(self, last_operator) {
+                    return t;
+                }
+                break;
             }
         }
-        Err(ParseError::new(&self.expr, self.pos, "Misplaced \",\"", &"".to_string()))
-    }
-
-    #[inline]
-    fn parse_colon(&mut self) -> ParseStep {
-        let separator = Token::Colon;
-        self.state_stack.push(State::Nud(0));
-        while !self.operator_stack.is_empty() {
-            if !self.does_last_support(&separator) {
-                try!(self.pop_token(Token::Colon));
-            } else {
-                match self.operator_stack.pop().unwrap() {
-                    Operator::MultiHash(mut args) => {
-                        // Cannot have an uneven number when adding a key.
-                        if args.len() % 1 == 1 {
-                            break;
-                        }
-                        args.push(self.output_stack.pop().unwrap());
-                        self.operator_stack.push(Operator::MultiHash(args));
-                        return Ok(self.advance());
-                    },
-                    _ => break
-                };
-            }
-        }
-        Err(ParseError::new(&self.expr, self.pos, "Misplaced \":\"", &"".to_string()))
+        Err(self.err(Some(&token), &format!("Misplaced {:?}", token)))
     }
 
     // Ensures that the operator is something that can be popped otherwise it's unclosed.
@@ -642,14 +639,14 @@ impl<'a> Parser<'a> {
     }
 
     #[inline]
-    fn pop_token(&mut self, token: Token) -> ParseStep {
+    fn pop_token(&mut self) -> Result<(), ParseError> {
         let operator = self.operator_stack.pop().unwrap();
         try!(self.assert_not_unclosed(&operator));
         if operator.is_binary() {
             let rhs = self.output_stack.pop().unwrap();
             let lhs = self.output_stack.pop().unwrap();
             match operator {
-                Operator::Basic(tok) => try!(self.pop_basic_binary(tok, lhs, rhs)),
+                Operator::Basic(ref tok) => try!(self.pop_basic_binary(tok, lhs, rhs)),
                 Operator::ArrayProjection => self.output_stack.push(
                     Ast::Projection(Box::new(lhs), Box::new(rhs))),
                 Operator::FilterProjection(expr) => self.output_stack.push(
@@ -674,35 +671,35 @@ impl<'a> Parser<'a> {
                 _ => return Err(self.err(None, &"Unexpected unary operator"))
             }
         }
-        Ok(token)
+        Ok(())
     }
 
     #[inline]
-    fn pop_basic_binary(&mut self, tok: Token, lhs: Ast, rhs: Ast) -> Result<(), ParseError> {
+    fn pop_basic_binary(&mut self, tok: &Token, lhs: Ast, rhs: Ast) -> Result<(), ParseError> {
         match tok {
-            Token::Dot => self.output_stack.push(
+            &Token::Dot => self.output_stack.push(
                 Ast::Subexpr(Box::new(lhs), Box::new(rhs))),
-            Token::Or => self.output_stack.push(
+            &Token::Or => self.output_stack.push(
                 Ast::Or(Box::new(lhs), Box::new(rhs))),
-            Token::Pipe => self.output_stack.push(
+            &Token::Pipe => self.output_stack.push(
                 Ast::Subexpr(Box::new(lhs), Box::new(rhs))),
-            Token::Star => self.output_stack.push(
+            &Token::Star => self.output_stack.push(
                 Ast::Projection(Box::new(Ast::ObjectValues(Box::new(lhs))),
                                 Box::new(rhs))),
-            Token::Flatten => self.output_stack.push(
+            &Token::Flatten => self.output_stack.push(
                 Ast::Projection(Box::new(Ast::Flatten(Box::new(lhs))),
                                 Box::new(rhs))),
-            Token::Eq => self.output_stack.push(
+            &Token::Eq => self.output_stack.push(
                 Ast::Comparison(Comparator::Eq, Box::new(lhs), Box::new(rhs))),
-            Token::Ne => self.output_stack.push(
+            &Token::Ne => self.output_stack.push(
                 Ast::Comparison(Comparator::Ne, Box::new(lhs), Box::new(rhs))),
-            Token::Gt => self.output_stack.push(
+            &Token::Gt => self.output_stack.push(
                 Ast::Comparison(Comparator::Gt, Box::new(lhs), Box::new(rhs))),
-            Token::Gte => self.output_stack.push(
+            &Token::Gte => self.output_stack.push(
                 Ast::Comparison(Comparator::Gte, Box::new(lhs), Box::new(rhs))),
-            Token::Lt => self.output_stack.push(
+            &Token::Lt => self.output_stack.push(
                 Ast::Comparison(Comparator::Lt, Box::new(lhs), Box::new(rhs))),
-            Token::Lte => self.output_stack.push(
+            &Token::Lte => self.output_stack.push(
                 Ast::Comparison(Comparator::Lte, Box::new(lhs), Box::new(rhs))),
             _ => return Err(self.err(None, &"Unexpected binary operator"))
         };
