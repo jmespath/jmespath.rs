@@ -125,20 +125,27 @@ impl Operator {
         match self {
             &Operator::Basic(ref p) if p == &Token::Lparen && token == &Token::Rparen => true,
             &Operator::Basic(ref p) if p == &Token::Lbrace && token == &Token::Rbrace => true,
-            &Operator::PartialFilter if token == &Token::Rbracket => true,
             &Operator::Function(_, _) if token == &Token::Rparen => true,
+            &Operator::PartialFilter if token == &Token::Rbracket => true,
             &Operator::MultiList(_) if token == &Token::Rbracket => true,
             &Operator::MultiHash(_) if token == &Token::Rbrace => true,
             _ => false
         }
     }
 
-    // Returns true if the token supports commas.
-    pub fn supports_comma(&self) -> bool {
+    // Returns true if the operator is built up using the provided token separator.
+    pub fn supports_token_separator(&self, token: &Token) -> bool {
         match self {
+            // Support only commas.
             &Operator::Function(_, _)
-                | &Operator::MultiList(_)
-                | &Operator::MultiHash(_) => true,
+                | &Operator::MultiList(_) => token == &Token::Comma,
+            // Supports commas and colons.
+            &Operator::MultiHash(_) => {
+                match token {
+                    &Token::Comma | &Token::Colon => true,
+                    _ => false
+                }
+            },
             _ => false
         }
     }
@@ -263,11 +270,12 @@ impl<'a> Parser<'a> {
             },
             Token::Filter => {
                 self.output_stack.push(Ast::CurrentNode);
-                self.start_filter()
+                self.open_filter()
             },
             Token::Lbrace => {
                 let next_token = self.advance();
-                self.operator(next_token, Operator::MultiList(vec!()))
+                self.operator(next_token, Operator::MultiHash(vec!()))
+                    .and_then(|next_token| self.open_multi_hash_key(next_token))
             },
             Token::Ampersand => {
                 let next_token = self.advance();
@@ -302,7 +310,7 @@ impl<'a> Parser<'a> {
                 let next_token = self.advance();
                 self.projection_rhs(next_token, Operator::Basic(Token::Flatten))
             },
-            Token::Filter => self.start_filter(),
+            Token::Filter => self.open_filter(),
             Token::Lbracket => self.open_lbracket(false),
             Token::Or => next_op!(Token::Or),
             Token::Pipe => next_op!(Token::Pipe),
@@ -315,7 +323,7 @@ impl<'a> Parser<'a> {
             Token::Lparen => {
                 match self.output_stack.pop() {
                     // A "(" preceded by an identifier means that it is a function call.
-                    Some(Ast::Identifier(fn_name)) => self.start_function(fn_name),
+                    Some(Ast::Identifier(fn_name)) => self.open_function(fn_name),
                     // TODO: Implement parenthesis as a precedence mechanism. This will require
                     // a new JEP to be added into JMESPath
                     _ => Err(self.err(None, &format!("Unexpected parenthesis"))),
@@ -328,15 +336,16 @@ impl<'a> Parser<'a> {
 
     // Starts a filter projection and ensures that the next token is a valid nud token.
     #[inline]
-    fn start_filter(&mut self) -> ParseStep {
+    fn open_filter(&mut self) -> ParseStep {
         let next_token = self.advance();
         self.operator(next_token, Operator::PartialFilter)
     }
 
+    // Opens a function expression, ensuring that functions that are immediately closed are not
+    // pushed onto the operator stack as it would try to consume an argument token which would
+    // not exist.
     #[inline]
-    fn start_function(&mut self, fn_name: String) -> ParseStep {
-        // Functions that are immediately closed must not be pushed onto the operator stack
-        // as it would try to consume an argument token which would not exist.
+    fn open_function(&mut self, fn_name: String) -> ParseStep {
         match self.advance() {
             Token::Rparen => {
                 self.output_stack.push(Ast::Function(fn_name, vec!()));
@@ -346,13 +355,25 @@ impl<'a> Parser<'a> {
         }
     }
 
+    // Advances to the next token and ensures that the multi-hash key is an identifier.
+    #[inline]
+    fn open_multi_hash_key(&mut self, next_token: Token) -> ParseStep {
+        match next_token {
+            Token::Identifier(_) | Token::QuotedIdentifier(_) => Ok(next_token),
+            _ => Err(self.err(Some(&next_token), &"Expected identifier for multi-hash key"))
+        }
+    }
+
+    // Opens a "[", accounting for [*], [a, b], [1], [:]
     #[inline]
     fn open_lbracket(&mut self, is_nud: bool) -> ParseStep {
         // Skip the bracket "["
         let token = self.advance();
         match self.stream.peek() {
+            // If the next token is a closing "]", then we know exactly what it is.
             Some(&(_, Token::Rbracket)) => {
                 match token {
+                    // Example: [1]
                     Token::Number(value) => {
                         if is_nud {
                             self.output_stack.push(Ast::Index(value));
@@ -365,6 +386,7 @@ impl<'a> Parser<'a> {
                         self.advance();
                         Ok(self.advance())
                     },
+                    // Example: [*]
                     Token::Star => {
                         if is_nud {
                             self.output_stack.push(Ast::CurrentNode);
@@ -374,12 +396,16 @@ impl<'a> Parser<'a> {
                         let next_token = self.advance();
                         self.projection_rhs(next_token, Operator::ArrayProjection)
                     },
+                    // Example: [:]
                     Token::Colon => self.parse_slice(!is_nud, token),
+                    // Everything else is invalid
                     _ => Err(self.err(Some(&token), "Expected number, ':', or '*'")),
                 }
             },
+            // Example: [1:], [::-1]
             Some(&(_, Token::Number(_))) | Some(&(_, Token::Colon)) =>
                 self.parse_slice(!is_nud, token),
+            // Everything else is a multi-list.
             _ => self.operator(token, Operator::MultiList(vec!()))
         }
     }
@@ -404,7 +430,6 @@ impl<'a> Parser<'a> {
                 ref t @ _ => return Err(self.err(Some(t), "Expected number, ':', or ']'"))
             }
         }
-        // Sliced array from start (e.g., [2:])
         let next_token = self.advance();
         self.projection_rhs(
             next_token, Operator::SliceProjection(is_binary, parts[0], parts[1], parts[2]))
@@ -453,10 +478,8 @@ impl<'a> Parser<'a> {
                         } else {
                             let mut kvps: Vec<KeyValuePair> = vec!();
                             while args.len() > 0 {
-                                kvps.push(KeyValuePair {
-                                    key: args.pop().unwrap(),
-                                    value: args.pop().unwrap()
-                                });
+                                kvps.insert(0, KeyValuePair {value: args.pop().unwrap(),
+                                                             key: args.pop().unwrap()});
                             }
                             p.output_stack.push(Ast::MultiHash(kvps));
                             Some(Ok(p.advance()))
@@ -465,47 +488,69 @@ impl<'a> Parser<'a> {
                     _ => None
                 }
             }),
-            Token::Comma => {
-                self.state_stack.push(State::Nud(0));
-                self.parse_comma()
-            },
+            Token::Comma => self.parse_comma(),
+            Token::Colon => self.parse_colon(),
             _ => Ok(current_token)
         }
     }
 
+    // Returns true if the last operator has a greater precedence than the provided token.
+    // Note: This is only its own method to play nice with the borrow checker.
     #[inline]
-    fn operator(&mut self, mut token: Token, operator: Operator) -> ParseStep {
-        self.state_stack.push(State::Nud(operator.precedence()));
-        // Pop things from the top of the operator stack that have a higher precedence.
-        while self.is_last_gt(&operator) {
-            token = try!(self.pop_token(token))
-        }
-        self.operator_stack.push(operator);
-        Ok(token)
-    }
-
-    #[inline]
-    fn is_last_gt(&self, op: &Operator) -> bool {
+    fn does_last_have_greater_precedence(&self, op: &Operator) -> bool {
         match self.operator_stack.last() {
             Some(operator) if op.has_lower_precedence(operator) => true,
             _ => false
         }
     }
 
+    // Returns true if the last operator is "closed by" the provided token.
+    // Note: This is only its own method to play nice with the borrow checker.
     #[inline]
-    fn is_last_closing(&self, token: &Token) -> bool {
+    fn does_last_operator_close(&self, token: &Token) -> bool {
         match self.operator_stack.last() {
             Some(operator) if operator.closes(token) => true,
             _ => false
         }
     }
 
+    // Returns true if the last operator is enumerated and supported token concatenation.
+    // Note: This is only its own method to play nice with the borrow checker.
+    #[inline]
+    fn does_last_support(&self, token: &Token) -> bool {
+        match self.operator_stack.last() {
+            Some(operator) if operator.supports_token_separator(token) => true,
+            _ => false
+        }
+    }
+
+    // Adds an operator to the operator_stack.
+    //
+    // Any operators that have a greater precedence than the provided operator are popped from
+    // the operator stack and processed, meaningbinary operators pop two output_stack values and
+    // unary tokens pop one.
+    #[inline]
+    fn operator(&mut self, mut token: Token, operator: Operator) -> ParseStep {
+        self.state_stack.push(State::Nud(operator.precedence()));
+        // Pop things from the top of the operator stack that have a higher precedence.
+        while self.does_last_have_greater_precedence(&operator) {
+            token = try!(self.pop_token(token))
+        }
+        self.operator_stack.push(operator);
+        Ok(token)
+    }
+
+    // Pops operators until the operator at the top of the stack is closed by the provided token.
+    //
+    // If no matching opened operator is found, it means the token is misplaced. If an opened
+    // operator is found but not what we were expecting (enforced with the closure), then the
+    // closing character is unbalanced in relation to other closing characters.
     #[inline]
     fn closing_token<F>(&mut self, mut token: Token, on_match: F) -> ParseStep
         where F: Fn(&mut Self, Operator) -> Option<ParseStep>
     {
         while !self.operator_stack.is_empty() {
-            if !self.is_last_closing(&token) {
+            if !self.does_last_operator_close(&token) {
                 // Keep popping operators off the operator stack and onto output stack.
                 token = try!(self.pop_token(token));
             } else {
@@ -520,14 +565,6 @@ impl<'a> Parser<'a> {
         Err(self.err(Some(&token), &format!("Unbalanced {:?}", token)))
     }
 
-    #[inline]
-    fn does_last_support_comma(&self) -> bool {
-        match self.operator_stack.last() {
-            Some(operator) if operator.supports_comma() => true,
-            _ => false
-        }
-    }
-
     /// When a comma is encountered, we pop from the operator stack until
     /// the operator at the top of the stack is an operator that accepts
     /// commas (e.g., function or multi-list). We then add the value at
@@ -536,30 +573,60 @@ impl<'a> Parser<'a> {
     /// stack after pushing the value.
     #[inline]
     fn parse_comma(&mut self) -> ParseStep {
+        let separator = Token::Comma;
+        self.state_stack.push(State::Nud(0));
         while !self.operator_stack.is_empty() {
-            if !self.does_last_support_comma() {
+            if !self.does_last_support(&separator) {
                 try!(self.pop_token(Token::Comma));
+            } else {
+                match self.operator_stack.pop().unwrap() {
+                    Operator::Function(fn_name, mut args) => {
+                        args.push(self.output_stack.pop().unwrap());
+                        self.operator_stack.push(Operator::Function(fn_name, args));
+                        return Ok(self.advance());
+                    },
+                    Operator::MultiList(mut args) => {
+                        args.push(self.output_stack.pop().unwrap());
+                        self.operator_stack.push(Operator::MultiList(args));
+                        return Ok(self.advance());
+                    },
+                    Operator::MultiHash(mut args) => {
+                        args.push(self.output_stack.pop().unwrap());
+                        self.operator_stack.push(Operator::MultiHash(args));
+                        let next_token = self.advance();
+                        return self.open_multi_hash_key(next_token);
+                    },
+                    // Error when a comma is inside a precedence parens: e.g., "(a || b, c) | d"
+                    _ => break
+                };
             }
-            match self.operator_stack.pop().unwrap() {
-                Operator::Function(fn_name, mut args) => {
-                    args.push(self.output_stack.pop().unwrap());
-                    self.operator_stack.push(Operator::Function(fn_name, args));
-                },
-                Operator::MultiList(mut args) => {
-                    args.push(self.output_stack.pop().unwrap());
-                    self.operator_stack.push(Operator::MultiList(args));
-                },
-                // Error when a comma is inside a precedence parens: e.g., "(a || b, c) | d"
-                _ => break
-            };
-            let next_token = self.advance();
-            if !next_token.is_nud() {
-                return Err(self.err(Some(&next_token),
-                                    &"A comma must be followed by an expression"));
-            }
-            return Ok(next_token);
         }
-        Err(ParseError::new(&self.expr, self.pos, "Misplaced comma", &"".to_string()))
+        Err(ParseError::new(&self.expr, self.pos, "Misplaced \",\"", &"".to_string()))
+    }
+
+    #[inline]
+    fn parse_colon(&mut self) -> ParseStep {
+        let separator = Token::Colon;
+        self.state_stack.push(State::Nud(0));
+        while !self.operator_stack.is_empty() {
+            if !self.does_last_support(&separator) {
+                try!(self.pop_token(Token::Colon));
+            } else {
+                match self.operator_stack.pop().unwrap() {
+                    Operator::MultiHash(mut args) => {
+                        // Cannot have an uneven number when adding a key.
+                        if args.len() % 1 == 1 {
+                            break;
+                        }
+                        args.push(self.output_stack.pop().unwrap());
+                        self.operator_stack.push(Operator::MultiHash(args));
+                        return Ok(self.advance());
+                    },
+                    _ => break
+                };
+            }
+        }
+        Err(ParseError::new(&self.expr, self.pos, "Misplaced \":\"", &"".to_string()))
     }
 
     // Ensures that the operator is something that can be popped otherwise it's unclosed.
@@ -567,6 +634,7 @@ impl<'a> Parser<'a> {
     fn assert_not_unclosed(&mut self, operator: &Operator) -> Result<(), ParseError> {
         match operator {
             &Operator::Function(_, _) => Err(self.err(None, "Unclosed function")),
+            &Operator::MultiHash(_) => Err(self.err(None, "Unclosed multi-hash '{'")),
             &Operator::MultiList(_) => Err(self.err(None, "Unclosed multi-list '['")),
             &Operator::PartialFilter => Err(self.err(None, "Unclosed filter")),
             _ => Ok(())
@@ -641,7 +709,7 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
-    /// Advances the cursor position
+    /// Advances the cursor position of the parser and returns the next token or Token::Eof.
     #[inline]
     fn advance(&mut self) -> Token {
         match self.stream.next() {
@@ -650,6 +718,7 @@ impl<'a> Parser<'a> {
         }
     }
 
+    // Prepares the parser for the right hand side of a projection.
     #[inline]
     fn projection_rhs(&mut self, token: Token, parent_operator: Operator) -> ParseStep {
         match token {
@@ -666,18 +735,20 @@ impl<'a> Parser<'a> {
         }
     }
 
+    // Prepares the parser for the right hand side of a "." token.
     #[inline]
     fn parse_dot(&mut self, parent_operator: Operator) -> ParseStep {
         // Skip the "." token.
         let token = self.advance();
         match token {
-            Token::Lbracket => {
-                // Parse a multi-list. Skip the "[" and push the multi-list operator.
-                let next_token = self.advance();
+            Token::Lbracket =>
                 // Push the dot operator onto the operator stack.
-                try!(self.operator(token, parent_operator));
-                self.operator(next_token, Operator::MultiList(vec!()))
-            },
+                self.operator(token, parent_operator)
+                    .and_then(|_| {
+                        // Parse a multi-list. Skip the "[" and push the multi-list operator.
+                        let next_token = self.advance();
+                        self.operator(next_token, Operator::MultiList(vec![]))
+                    }),
             // Ensure the next character is valid after the "." token.
             Token::Identifier(_)
                 | Token::Star
@@ -908,6 +979,53 @@ mod test {
         let result = parse("prefix[?baz");
         assert_eq!("Err(ParseError { msg: \"Parse error at line 0, col 11; Unclosed filter\\n\
                    prefix[?baz\\n           ^\\n\", line: 0, col: 11 })",
+                   format!("{:?}", result));
+    }
+
+    #[test] fn test_parse_multi_hash() {
+        let ast = parse("foo.{bar: baz, bam: boo}.bam").unwrap();
+        assert_eq!("Subexpr(Subexpr(Identifier(\"foo\"), \
+                            MultiHash([KeyValuePair { key: Identifier(\"bar\"), \
+                                                      value: Identifier(\"baz\") }, \
+                                       KeyValuePair { key: Identifier(\"bam\"), \
+                                                      value: Identifier(\"boo\") }])), \
+                            Identifier(\"bam\"))",
+                   format!("{:?}", ast));
+    }
+
+    #[test] fn test_parse_nud_multi_hash() {
+        let ast = parse("{bar: baz}").unwrap();
+        assert_eq!("MultiHash([KeyValuePair { key: Identifier(\"bar\"), \
+                                              value: Identifier(\"baz\") }])",
+                   format!("{:?}", ast));
+    }
+
+    #[test] fn test_ensures_multi_hash_are_closed() {
+        let result = parse("foo.{bar: baz");
+        assert_eq!("Err(ParseError { msg: \"Parse error at line 0, col 13; Unclosed multi-hash \
+                   \\\'{\\\'\\nfoo.{bar: baz\\n             ^\\n\", line: 0, col: 13 })",
+                   format!("{:?}", result));
+    }
+
+    #[test] fn test_ensures_multi_hash_colon_has_value() {
+        let result = parse("foo.{bar:}");
+        assert_eq!("Err(ParseError { msg: \"Parse error at line 0, col 9; Unexpected prefix \
+                   token: Rbrace\\nfoo.{bar:}\\n         ^\\n\", line: 0, col: 9 })",
+                   format!("{:?}", result));
+    }
+
+    #[test] fn test_ensures_multi_hash_comma_followed_by_expr() {
+        let result = parse("foo.{bar: baz, }");
+        assert_eq!("Err(ParseError { msg: \"Parse error at line 0, col 15; Expected identifier \
+                   for multi-hash key\\nfoo.{bar: baz, }\\n               ^\\n\", \
+                   line: 0, col: 15 })",
+                   format!("{:?}", result));
+    }
+
+    #[test] fn test_ensures_multi_hash_comma_followed_by_key() {
+        let result = parse("{&bar: bam}");
+        assert_eq!("Err(ParseError { msg: \"Parse error at line 0, col 1; Expected identifier \
+                   for multi-hash key\\n{&bar: bam}\\n ^\\n\", line: 0, col: 1 })",
                    format!("{:?}", result));
     }
 }
