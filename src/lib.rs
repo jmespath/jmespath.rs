@@ -20,8 +20,7 @@
 //! use jmespath;
 //!
 //! for token in jmespath::tokenize("foo.bar") {
-//!     println!("This token is a {} token with a span of {}",
-//!              token.token_name(), token.span());
+//!     // Do something with the token.
 //! }
 //! ```
 //!
@@ -104,11 +103,12 @@ impl PartialEq for Expression {
     }
 }
 
+
 #[cfg(test)]
 mod test {
+    use super::*;
     extern crate rustc_serialize;
     use self::rustc_serialize::json::Json;
-    use super::*;
 
     #[test] fn can_evaluate_jmespath_expression() {
         let expr = Expression::new("foo.bar").unwrap();
@@ -143,13 +143,6 @@ mod test {
         let expr = Expression::new("@[].b").unwrap();
         let json = Json::from_str("[{\"b\": 1}, [{\"b\":2}]]").unwrap();
         assert_eq!(Json::Array(vec!(Json::U64(1), Json::U64(2))),
-                   expr.search(json).unwrap());
-    }
-
-    #[test] fn can_evaluate_filter_projection() {
-        let expr = Expression::new("[?a > b]").unwrap();
-        let json = Json::from_str("[{\"a\": 2, \"b\": 1}, {\"a\": 0, \"b\":2}]").unwrap();
-        assert_eq!(Json::from_str("[{\"a\": 2, \"b\": 1}]").unwrap(),
                    expr.search(json).unwrap());
     }
 }

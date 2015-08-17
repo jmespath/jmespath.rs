@@ -5,7 +5,7 @@ extern crate rustc_serialize;
 use self::rustc_serialize::json::Json;
 use std::collections::BTreeMap;
 
-use ast::{Ast, Comparator, KeyValuePair};
+use ast::{Ast, Comparator};
 
 pub fn interpret(data: &Json, node: &Ast) -> Result<Json, String> {
     match node {
@@ -144,6 +144,7 @@ fn is_truthy(data: &Json) -> bool {
     }
 }
 
+/*
 fn jp_type(data: &Json) -> &str {
     match data {
         &Json::Boolean(_) => "boolean",
@@ -154,6 +155,7 @@ fn jp_type(data: &Json) -> &str {
         &Json::Null => "null"
     }
 }
+*/
 
 fn comparison(cmp: &Comparator, lhs: Json, rhs: Json) -> Json {
     match cmp {
