@@ -54,6 +54,7 @@ mod ast;
 mod interpreter;
 mod lexer;
 mod parser;
+mod utils;
 
 /// A compiled JMESPath expression.
 #[derive(Clone)]
