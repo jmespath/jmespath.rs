@@ -288,13 +288,12 @@ impl<'a> Iterator for Lexer<'a> {
                             self.iter.next();
                             continue;
                         },
-                        'a' ... 'z' | 'A' ... 'Z' | '_' =>
-                            return Some((pos, self.consume_identifier())),
-                        '0' ... '9' => return Some((pos, self.consume_number(false))),
-                        '-' => return Some((pos, self.consume_negative_number())),
                         '[' => tok!((pos, self.consume_lbracket())),
                         '.' => tok!((pos, Dot)),
                         '*' => tok!((pos, Star)),
+                        '|' => tok!((pos, self.alt(&'|', Or, Pipe))),
+                        'a' ... 'z' | 'A' ... 'Z' | '_' =>
+                            return Some((pos, self.consume_identifier())),
                         '@' => tok!((pos, At)),
                         ']' => tok!((pos, Rbracket)),
                         '{' => tok!((pos, Lbrace)),
@@ -304,16 +303,17 @@ impl<'a> Iterator for Lexer<'a> {
                         ')' => tok!((pos, Rparen)),
                         ',' => tok!((pos, Comma)),
                         ':' => tok!((pos, Colon)),
-                        '|' => tok!((pos, self.alt(&'|', Or, Pipe))),
+                        '"' => return Some((pos, self.consume_quoted_identifier())),
+                        '\'' => return Some((pos, self.consume_raw_string())),
+                        '`' => return Some((pos, self.consume_literal())),
                         '>' => tok!((pos, self.alt(&'=', Gte, Gt))),
                         '<' => tok!((pos, self.alt(&'=', Lte, Lt))),
                         '!' => tok!((pos, self.alt(&'=', Ne, Not))),
                         '=' => tok!((pos, self.alt(&'=', Eq, Unknown {
                                 value: '='.to_string(),
                                 hint: "Did you mean \"==\"?".to_string() }))),
-                        '"' => return Some((pos, self.consume_quoted_identifier())),
-                        '\'' => return Some((pos, self.consume_raw_string())),
-                        '`' => return Some((pos, self.consume_literal())),
+                        '-' => return Some((pos, self.consume_negative_number())),
+                        '0' ... '9' => return Some((pos, self.consume_number(false))),
                         c @ _ => tok!((pos, Unknown {
                             value: c.to_string(),
                             hint: "".to_string()
