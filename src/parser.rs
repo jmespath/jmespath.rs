@@ -2,6 +2,7 @@
 
 extern crate rustc_serialize;
 
+use std::fmt;
 use std::iter::Peekable;
 
 use ast::{Ast, KeyValuePair, Comparator};
@@ -72,6 +73,21 @@ enum Operator {
     FilterProjection(Ast),
     PartialFilter,
     SliceProjection(bool, Option<i32>, Option<i32>, Option<i32>)
+}
+
+impl fmt::Display for Operator {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            &Operator::Basic(ref tok) => write!(f, "{}", tok.lexeme()),
+            &Operator::Function(ref name, _) => write!(f, "{} function", name),
+            &Operator::MultiList(_) => write!(f, "multi-list"),
+            &Operator::MultiHash(_) => write!(f, "multi-hash"),
+            &Operator::ArrayProjection => write!(f, "[*]"),
+            &Operator::SliceProjection(_, _, _, _) => write!(f, "slice-projection"),
+            &Operator::PartialFilter
+                | &Operator::FilterProjection(_) => write!(f, "filter-projection")
+        }
+    }
 }
 
 impl Operator {
@@ -643,6 +659,9 @@ impl<'a> Parser<'a> {
         let operator = self.operator_stack.pop().unwrap();
         try!(self.assert_not_unclosed(&operator));
         if operator.is_binary() {
+            if self.output_stack.len() < 2 {
+                return Err(self.err(None, &format!("Missing right side of '{}'", operator)));
+            }
             let rhs = self.output_stack.pop().unwrap();
             let lhs = self.output_stack.pop().unwrap();
             match operator {
@@ -778,6 +797,9 @@ impl<'a> Parser<'a> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use super::Operator;
+    use ast::Ast;
+    use lexer::Token;
 
     #[test] fn test_parse_nud() {
         let ast = parse("foo").unwrap();
@@ -903,6 +925,13 @@ mod test {
                    format!("{:?}", result));
     }
 
+    #[test] fn test_ensures_functions_with_no_args_are_closed() {
+        let result = parse("foo(");
+        assert_eq!("Err(ParseError { msg: \"Parse error at line 0, col 4; Unclosed function\\n\
+                   foo(\\n    ^\\n\", line: 0, col: 4 })",
+                   format!("{:?}", result));
+    }
+
     #[test] fn test_parse_functions_with_multiple_args() {
         let ast = parse("foo(bar, baz.boo, bam || qux)").unwrap();
         assert_eq!("Function(\"foo\", [Identifier(\"bar\"), \
@@ -1025,5 +1054,26 @@ mod test {
         assert_eq!("Err(ParseError { msg: \"Parse error at line 0, col 1; Expected identifier \
                    for multi-hash key\\n{&bar: bam}\\n ^\\n\", line: 0, col: 1 })",
                    format!("{:?}", result));
+    }
+
+    #[test] fn test_does_not_blow_up_on_bad_binary() {
+        let result = parse("foo |");
+        assert_eq!("Err(ParseError { msg: \"Parse error at line 0, col 5; Missing right side \
+                   of \\\'|\\\'\\nfoo |\\n     ^\\n\", line: 0, col: 5 })",
+                   format!("{:?}", result));
+    }
+
+    #[test] fn test_displays_operators() {
+        assert_eq!(".".to_string(), format!("{}", Operator::Basic(Token::Dot)));
+        assert_eq!("foo function".to_string(),
+                   format!("{}", Operator::Function("foo".to_string(), vec!())));
+        assert_eq!("multi-list".to_string(), format!("{}", Operator::MultiList(vec!())));
+        assert_eq!("multi-hash".to_string(), format!("{}", Operator::MultiHash(vec!())));
+        assert_eq!("[*]".to_string(), format!("{}", Operator::ArrayProjection));
+        assert_eq!("filter-projection".to_string(), format!("{}", Operator::PartialFilter));
+        assert_eq!("filter-projection".to_string(),
+                   format!("{}", Operator::FilterProjection(Ast::CurrentNode)));
+        assert_eq!("slice-projection".to_string(),
+                   format!("{}", Operator::SliceProjection(true, None, None, None)));
     }
 }
