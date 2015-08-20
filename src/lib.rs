@@ -73,8 +73,8 @@ impl Expression {
     }
 
     /// Returns the result of searching data with the compiled expression.
-    pub fn search(&self, data: Json) -> Result<Json, String> {
-        interpret(&data, &self.ast)
+    pub fn search(&self, data: &Json) -> Result<Json, String> {
+        interpret(data, &self.ast)
     }
 
     /// Returns the original string of this JMESPath expression.
@@ -114,7 +114,7 @@ mod test {
     #[test] fn can_evaluate_jmespath_expression() {
         let expr = Expression::new("foo.bar").unwrap();
         let json = Json::from_str("{\"foo\":{\"bar\":true}}").unwrap();
-        assert_eq!(Json::Boolean(true), expr.search(json).unwrap());
+        assert_eq!(Json::Boolean(true), expr.search(&json).unwrap());
     }
 
     #[test] fn formats_expression_as_string() {
@@ -131,19 +131,19 @@ mod test {
     #[test] fn can_evaluate_wildcards() {
         let expr = Expression::new("foo[*].bar").unwrap();
         let json = Json::from_str("{\"foo\":[{\"bar\":true}]}").unwrap();
-        assert_eq!(Json::Array(vec![Json::Boolean(true)]), expr.search(json).unwrap());
+        assert_eq!(Json::Array(vec![Json::Boolean(true)]), expr.search(&json).unwrap());
     }
 
     #[test] fn can_evaluate_or_with_current_node() {
         let expr = Expression::new("a || @").unwrap();
         let json = Json::from_str("true").unwrap();
-        assert_eq!(Json::Boolean(true), expr.search(json).unwrap());
+        assert_eq!(Json::Boolean(true), expr.search(&json).unwrap());
     }
 
     #[test] fn can_evaluate_flatten_projection() {
         let expr = Expression::new("@[].b").unwrap();
         let json = Json::from_str("[{\"b\": 1}, [{\"b\":2}]]").unwrap();
         assert_eq!(Json::Array(vec!(Json::U64(1), Json::U64(2))),
-                   expr.search(json).unwrap());
+                   expr.search(&json).unwrap());
     }
 }

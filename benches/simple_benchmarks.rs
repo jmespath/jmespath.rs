@@ -19,11 +19,11 @@ fn bench_lexing_foo_bar_baz(b: &mut Bencher) {
 }
 
 #[bench]
-fn bench_full_foo_bar_baz(b: &mut Bencher) {
+fn bench_parse_and_interpret_foo_bar_baz(b: &mut Bencher) {
     let json = Json::from_str("{\"foo\":{\"bar\":{\"baz\":true}}}").unwrap();
     b.iter(|| {
         let expr = jmespath::Expression::new("foo.bar.baz").unwrap();
-        expr.search(json.clone()).unwrap();
+        expr.search(&json).unwrap();
     });
 }
 
@@ -32,7 +32,7 @@ fn bench_full_or_branches(b: &mut Bencher) {
     let json = Json::from_str("{\"foo\":true}").unwrap();
     b.iter(|| {
         let expr = jmespath::Expression::new("bar || baz || bam || foo").unwrap();
-        expr.search(json.clone()).unwrap();
+        expr.search(&json).unwrap();
     });
 }
 
@@ -106,4 +106,15 @@ fn bench_parse_mutli_list_five_exprs(b: &mut Bencher) {
 fn bench_parse_filter_projection(b: &mut Bencher) {
     let expr = "foo[bar > baz].qux";
     b.iter(|| jmespath::parse(expr));
+}
+
+#[bench]
+fn bench_parse_and_interpret_seven_deep_subexpr(b: &mut Bencher) {
+    let expr = "a.b.c.d.e.f.g";
+    let data = Json::from_str("{\"a\":{\"b\":{\"c\":{\"d\":{\"e\":{\"f\":{\"g\":true}}}}}}}")
+        .unwrap();
+    let expression = jmespath::Expression::new(expr).unwrap();
+    b.iter(|| {
+        expression.search(&data)
+    });
 }
