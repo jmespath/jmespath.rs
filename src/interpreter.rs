@@ -223,4 +223,18 @@ mod tests {
             assert_eq!(result, interpret(&Json::Null, &ast).unwrap());
         }
     }
+
+    #[test] fn interprets_object_values_negative() {
+        let ast = Ast::ObjectValues(Box::new(Ast::Literal(Json::Boolean(false))));
+        let data = Json::Null;
+        assert_eq!(Json::Null, interpret(&data, &ast).unwrap());
+    }
+
+    #[test] fn interprets_object_values_affirmative() {
+        let json_value = Json::from_str("{\"foo\": \"bar\"}").unwrap();
+        let ast = Ast::ObjectValues(Box::new(Ast::Literal(json_value)));
+        let data = Json::Null;
+        assert_eq!(Json::from_str("[\"bar\"]").unwrap(),
+                   interpret(&data, &ast).unwrap());
+    }
 }
