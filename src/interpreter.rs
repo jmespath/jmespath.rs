@@ -129,7 +129,7 @@ mod tests {
     extern crate rustc_serialize;
     use self::rustc_serialize::json::Json;
     use super::*;
-    use ast::{Ast, Comparator};
+    use ast::{Ast, Comparator, KeyValuePair};
 
     #[test] fn interprets_identifier() {
         let ast = Ast::Identifier("foo".to_string());
@@ -235,6 +235,64 @@ mod tests {
         let ast = Ast::ObjectValues(Box::new(Ast::Literal(json_value)));
         let data = Json::Null;
         assert_eq!(Json::from_str("[\"bar\"]").unwrap(),
+                   interpret(&data, &ast).unwrap());
+    }
+
+    #[test] fn projection_on_non_array_returns_null() {
+        let ast = Ast::Projection(
+            Box::new(Ast::Identifier("a".to_string())),
+            Box::new(Ast::Identifier("b".to_string())));
+        let data = Json::Boolean(true);
+        assert_eq!(Json::Null, interpret(&data, &ast).unwrap());
+    }
+
+    #[test] fn projection_applies_to_array() {
+        let data = Json::from_str("{\"a\": [{\"b\":1},{\"b\":2}]}").unwrap();
+        let ast = Ast::Projection(
+            Box::new(Ast::Identifier("a".to_string())),
+            Box::new(Ast::Identifier("b".to_string())));
+        assert_eq!(Json::from_str("[1, 2]").unwrap(),
+                   interpret(&data, &ast).unwrap());
+    }
+
+    #[test] fn flatten_of_non_array_is_null() {
+        let data = Json::from_str("{\"a\": true}").unwrap();
+        let ast = Ast::Flatten(Box::new(Ast::Identifier("a".to_string())));
+        assert_eq!(Json::Null, interpret(&data, &ast).unwrap());
+    }
+
+    #[test] fn flattens_arrays() {
+        let data = Json::from_str("{\"a\": [1, [2, 3], 4, [[5]]]}").unwrap();
+        let ast = Ast::Flatten(Box::new(Ast::Identifier("a".to_string())));
+        assert_eq!(Json::from_str("[1, 2, 3, 4, [5]]").unwrap(),
+                   interpret(&data, &ast).unwrap());
+    }
+
+    #[test] fn multi_list_on_null_is_null() {
+        let ast = Ast::MultiList(vec!());
+        assert_eq!(Json::Null, interpret(&Json::Null, &ast).unwrap());
+    }
+
+    #[test] fn multi_list_creates_array() {
+        let data = Json::from_str("{\"a\": 1, \"b\": 2}").unwrap();
+        let ast = Ast::MultiList(vec!(Ast::Identifier("a".to_string()),
+                                      Ast::Identifier("b".to_string())));
+        assert_eq!(Json::from_str("[1, 2]").unwrap(), interpret(&data, &ast).unwrap());
+    }
+
+    #[test] fn multi_hash_on_null_is_null() {
+        let ast = Ast::MultiHash(vec!());
+        assert_eq!(Json::Null, interpret(&Json::Null, &ast).unwrap());
+    }
+
+    #[test] fn multi_hash_creates_object() {
+        let data = Json::from_str("{\"aye\": 1, \"bee\": 2}").unwrap();
+        let ast = Ast::MultiHash(
+            vec!(KeyValuePair { key: Ast::Literal(Json::String("a".to_string())),
+                                value: Ast::Identifier("aye".to_string()) },
+                 KeyValuePair { key: Ast::Literal(Json::String("b".to_string())),
+                                value: Ast::Identifier("bee".to_string()) }));
+        assert_eq!(Json::from_str("{\"a\": 1, \"b\": 2}").unwrap(),
                    interpret(&data, &ast).unwrap());
     }
 }
