@@ -70,8 +70,7 @@ enum Operator {
     MultiList(Vec<Ast>),
     MultiHash(Vec<Ast>),
     ArrayProjection,
-    FilterProjection(Ast),
-    PartialFilter,
+    FilterProjection(Option<Ast>),
     SliceProjection(bool, Option<i32>, Option<i32>, Option<i32>)
 }
 
@@ -84,8 +83,7 @@ impl fmt::Display for Operator {
             &Operator::MultiHash(_) => write!(f, "multi-hash"),
             &Operator::ArrayProjection => write!(f, "[*]"),
             &Operator::SliceProjection(_, _, _, _) => write!(f, "slice-projection"),
-            &Operator::PartialFilter
-                | &Operator::FilterProjection(_) => write!(f, "filter-projection")
+            &Operator::FilterProjection(_) => write!(f, "filter-projection")
         }
     }
 }
@@ -102,8 +100,7 @@ impl Operator {
             &Operator::Basic(Token::Star)
                 | &Operator::ArrayProjection
                 | &Operator::SliceProjection(_, _, _, _)
-                | &Operator::FilterProjection(_)
-                | &Operator::PartialFilter => self.precedence() < op.precedence(),
+                | &Operator::FilterProjection(_) => self.precedence() < op.precedence(),
             // Let associative.
             _ => self.precedence() <= op.precedence()
         }
@@ -116,13 +113,12 @@ impl Operator {
             &Operator::Basic(ref p) => p.lbp(),
             // Projections all share the "*" precedence.
             &Operator::ArrayProjection
-                | &Operator::FilterProjection(_)
+                | &Operator::FilterProjection(Some(_))
                 | &Operator::SliceProjection(_,_, _, _) => Token::Star.lbp(),
             &Operator::MultiList(_) => Token::Lbracket.lbp(),
             &Operator::MultiHash(_) => Token::Lbrace.lbp(),
             // These should never be popped by other operators. Only by closing characters.
-            &Operator::Function(_, _)
-                | &Operator::PartialFilter => 0
+            _ => 0
         }
     }
 
@@ -142,7 +138,7 @@ impl Operator {
             &Operator::Basic(ref p) if p == &Token::Lparen && token == &Token::Rparen => true,
             &Operator::Basic(ref p) if p == &Token::Lbrace && token == &Token::Rbrace => true,
             &Operator::Function(_, _) if token == &Token::Rparen => true,
-            &Operator::PartialFilter if token == &Token::Rbracket => true,
+            &Operator::FilterProjection(None) if token == &Token::Rbracket => true,
             &Operator::MultiList(_) if token == &Token::Rbracket => true,
             &Operator::MultiHash(_) if token == &Token::Rbrace => true,
             _ => false
@@ -355,7 +351,7 @@ impl<'a> Parser<'a> {
     #[inline]
     fn open_filter(&mut self) -> ParseStep {
         let next_token = self.advance();
-        self.operator(next_token, Operator::PartialFilter)
+        self.operator(next_token, Operator::FilterProjection(None))
     }
 
     // Opens a function expression, ensuring that functions that are immediately closed are not
@@ -476,11 +472,11 @@ impl<'a> Parser<'a> {
                         p.output_stack.push(Ast::MultiList(args));
                         Some(Ok(p.advance()))
                     },
-                    Operator::PartialFilter => {
+                    Operator::FilterProjection(None) => {
                         let filter_expr = p.output_stack.pop().unwrap();
                         let next_token = p.advance();
                         Some(p.projection_rhs(next_token,
-                                              Operator::FilterProjection(filter_expr)))
+                                              Operator::FilterProjection(Some(filter_expr))))
                     },
                     _ => None
                 }
@@ -649,7 +645,7 @@ impl<'a> Parser<'a> {
             &Operator::Function(_, _) => Err(self.err(None, "Unclosed function")),
             &Operator::MultiHash(_) => Err(self.err(None, "Unclosed multi-hash '{'")),
             &Operator::MultiList(_) => Err(self.err(None, "Unclosed multi-list '['")),
-            &Operator::PartialFilter => Err(self.err(None, "Unclosed filter")),
+            &Operator::FilterProjection(None) => Err(self.err(None, "Unclosed filter")),
             _ => Ok(())
         }
     }
@@ -668,7 +664,7 @@ impl<'a> Parser<'a> {
                 Operator::Basic(ref tok) => try!(self.pop_basic_binary(tok, lhs, rhs)),
                 Operator::ArrayProjection => self.output_stack.push(
                     Ast::Projection(Box::new(lhs), Box::new(rhs))),
-                Operator::FilterProjection(expr) => self.output_stack.push(
+                Operator::FilterProjection(Some(expr)) => self.output_stack.push(
                     Ast::Projection(Box::new(lhs),
                                     Box::new(Ast::Condition(
                                         Box::new(expr),
@@ -1070,9 +1066,8 @@ mod test {
         assert_eq!("multi-list".to_string(), format!("{}", Operator::MultiList(vec!())));
         assert_eq!("multi-hash".to_string(), format!("{}", Operator::MultiHash(vec!())));
         assert_eq!("[*]".to_string(), format!("{}", Operator::ArrayProjection));
-        assert_eq!("filter-projection".to_string(), format!("{}", Operator::PartialFilter));
         assert_eq!("filter-projection".to_string(),
-                   format!("{}", Operator::FilterProjection(Ast::CurrentNode)));
+                   format!("{}", Operator::FilterProjection(Some(Ast::CurrentNode))));
         assert_eq!("slice-projection".to_string(),
                    format!("{}", Operator::SliceProjection(true, None, None, None)));
     }
