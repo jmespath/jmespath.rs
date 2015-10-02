@@ -287,12 +287,12 @@ impl<'a> Parser<'a> {
             },
             Token::Lbrace => {
                 let next_token = self.advance();
-                self.operator(next_token, Operator::MultiHash(vec!()))
+                self.push_operator(next_token, Operator::MultiHash(vec!()))
                     .and_then(|next_token| self.open_multi_hash_key(next_token))
             },
             Token::Ampersand => {
                 let next_token = self.advance();
-                self.operator(next_token, Operator::Basic(Token::Ampersand))
+                self.push_operator(next_token, Operator::Basic(Token::Ampersand))
             },
             ref tok @ _ => Err(self.err(Some(tok), &format!("Unexpected prefix token: {}",
                                                             tok.token_name()))),
@@ -305,7 +305,7 @@ impl<'a> Parser<'a> {
         macro_rules! next_op {
             ($x:expr) => {{
                 let next_token = self.advance();
-                self.operator(next_token, Operator::Basic($x))
+                self.push_operator(next_token, Operator::Basic($x))
             }};
         }
         match token {
@@ -351,7 +351,7 @@ impl<'a> Parser<'a> {
     #[inline]
     fn open_filter(&mut self) -> ParseStep {
         let next_token = self.advance();
-        self.operator(next_token, Operator::FilterProjection(None))
+        self.push_operator(next_token, Operator::FilterProjection(None))
     }
 
     // Opens a function expression, ensuring that functions that are immediately closed are not
@@ -364,7 +364,7 @@ impl<'a> Parser<'a> {
                 self.output_stack.push(Ast::Function(fn_name, vec!()));
                 Ok(self.advance())
             },
-            next_token @ _ => self.operator(next_token, Operator::Function(fn_name, vec!()))
+            next_token @ _ => self.push_operator(next_token, Operator::Function(fn_name, vec!()))
         }
     }
 
@@ -419,7 +419,7 @@ impl<'a> Parser<'a> {
             Some(&(_, Token::Number(_))) | Some(&(_, Token::Colon)) =>
                 self.parse_slice(!is_nud, token),
             // Everything else is a multi-list.
-            _ => self.operator(token, Operator::MultiList(vec!()))
+            _ => self.push_operator(token, Operator::MultiList(vec!()))
         }
     }
 
@@ -578,7 +578,7 @@ impl<'a> Parser<'a> {
     // the operator stack and processed, meaningbinary operators pop two output_stack values and
     // unary tokens pop one.
     #[inline]
-    fn operator(&mut self, token: Token, operator: Operator) -> ParseStep {
+    fn push_operator(&mut self, token: Token, operator: Operator) -> ParseStep {
         self.state_stack.push(State::Nud(operator.precedence()));
         // Pop things from the top of the operator stack that have a higher precedence.
         while self.does_last_have_greater_precedence(&operator) {
@@ -737,11 +737,11 @@ impl<'a> Parser<'a> {
             // Skip the dot token and parse with a dot precedence (e.g.., foo.*.bar)
             Token::Dot => self.parse_dot(parent_operator),
             // Multilist and filter are valid tokens that have a precedence >= 10
-            Token::Lbracket | Token::Filter => self.operator(token, parent_operator),
+            Token::Lbracket | Token::Filter => self.push_operator(token, parent_operator),
             // Precedence < 10 are just parsed as. E.g., * | baz
             _ if token.lbp() < 10 => {
                 self.output_stack.push(Ast::CurrentNode);
-                self.operator(token, parent_operator)
+                self.push_operator(token, parent_operator)
             },
             _ => Err(self.token_err(&token))
         }
@@ -755,17 +755,17 @@ impl<'a> Parser<'a> {
         match token {
             Token::Lbracket =>
                 // Push the dot operator onto the operator stack.
-                self.operator(token, parent_operator).and_then(|_| {
+                self.push_operator(token, parent_operator).and_then(|_| {
                     // Parse a multi-list. Skip the "[" and push the multi-list operator.
                     let next_token = self.advance();
-                    self.operator(next_token, Operator::MultiList(vec![]))
+                    self.push_operator(next_token, Operator::MultiList(vec![]))
                 }),
             // Ensure the next character is valid after the "." token.
             Token::Identifier(_)
                 | Token::Star
                 | Token::Lbrace
                 | Token::Ampersand
-                | Token::Filter => self.operator(token, parent_operator),
+                | Token::Filter => self.push_operator(token, parent_operator),
             _ => Err(self.err(Some(&token),
                               &format!("Expected an identifier, '*', '{{', '[', '@', or '[?', \
                               found {}", token.token_name())))
