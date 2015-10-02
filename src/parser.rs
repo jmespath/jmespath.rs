@@ -29,7 +29,7 @@ pub struct ParseError {
 }
 
 impl ParseError {
-    fn new(expr: &str, pos: usize, msg: &str, hint: &str) -> ParseError {
+    fn new(expr: &str, pos: usize, msg: String) -> ParseError {
         // Find each new line and create a formatted error message.
         let mut line: usize = 0;
         let mut col: usize = 0;
@@ -47,7 +47,6 @@ impl ParseError {
             }
             line += 1;
         }
-        if hint.len() > 0 { buff.push_str(&format!("Hint: {}", hint)); }
         ParseError {
             msg: format!("Parse error at line {}, col {}; {}\n{}", line, col, msg, buff),
             line: line,
@@ -773,11 +772,12 @@ impl<'a> Parser<'a> {
     }
 
     /// Returns a formatted ParseError with the given message.
-    fn err(&self, current_token: Option<&Token>, msg: &str) -> ParseError {
-        ParseError::new(&self.expr, self.pos, msg, match current_token {
-            Some(&Token::Unknown { ref hint, .. }) => hint,
-            _ => &""
-        })
+    fn err(&self, current_token: Option<&Token>, error_msg: &str) -> ParseError {
+        let mut buff = error_msg.to_string();
+        if let Some(&Token::Error { ref msg, .. }) = current_token {
+            buff.push_str(&format!(" -- {}", msg));
+        }
+        ParseError::new(&self.expr, self.pos, buff)
     }
 
     /// Generates a formatted parse error for an out of place token.

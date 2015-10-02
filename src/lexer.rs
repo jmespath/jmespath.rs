@@ -33,7 +33,7 @@ pub enum Token {
     QuotedIdentifier(String),
     Number(i32),
     Literal(Json),
-    Unknown { value: String, hint: String },
+    Error { value: String, msg: String },
     Dot,
     Star,
     Flatten,
@@ -68,7 +68,7 @@ impl Token {
             &QuotedIdentifier(_) => "Identifier".to_string(),
             &Number(_) => "Number".to_string(),
             &Literal(_) => "Literal".to_string(),
-            &Unknown { .. } => "Unknown".to_string(),
+            &Error { .. } => "Error".to_string(),
             _ => format!("{:?}", self)
         }
     }
@@ -80,7 +80,7 @@ impl Token {
             &QuotedIdentifier(ref value) => format!("\"{}\"", value.to_string()),
             &Number(ref value) => value.to_string(),
             &Literal(ref value) => format!("`{}`", value),
-            &Unknown { ref value, .. } => value.to_string(),
+            &Error { ref value, .. } => value.to_string(),
             &Dot => ".".to_string(),
             &Star => "*".to_string(),
             &Flatten => "[]".to_string(),
@@ -219,9 +219,9 @@ impl<'a> Lexer<'a> {
         // Ensure that the next value is a number > 0
         match self.iter.peek() {
             Some(&(_, c)) if c.is_numeric() && c != '0' => self.consume_number(true),
-            _ => Unknown {
+            _ => Error {
                 value: "-".to_string(),
-                hint: "Negative sign must be followed by numbers 1-9".to_string()
+                msg: "Negative sign must be followed by numbers 1-9".to_string()
             }
         }
     }
@@ -252,9 +252,9 @@ impl<'a> Lexer<'a> {
         }
         // The token was not closed, so error with the string, including the
         // wrapper (e.g., '"foo').
-        Unknown {
+        Error {
             value: wrapper.to_string() + buffer.as_ref(),
-            hint: format!("Unclosed {} delimiter", wrapper)
+            msg: format!("Unclosed {} delimiter", wrapper)
         }
     }
 
@@ -266,9 +266,9 @@ impl<'a> Lexer<'a> {
             match Json::from_str(format!(r##""{}""##, s).as_ref()) {
                 // Convert the JSON value into a string literal.
                 Ok(j) => QuotedIdentifier(j.as_string().unwrap().to_string()),
-                Err(e) => Unknown {
+                Err(e) => Error {
                     value: format!(r#""{}""#, s),
-                    hint: format!("Unable to parse JSON value in quoted identifier: {}", e)
+                    msg: format!("Unable to parse JSON value in quoted identifier: {}", e)
                 }
             }
         })
@@ -285,9 +285,9 @@ impl<'a> Lexer<'a> {
         self.consume_inside('`', |s| {
             match Json::from_str(s.as_ref()) {
                 Ok(j) => Literal(j),
-                Err(err) => Unknown {
+                Err(err) => Error {
                     value: format!("`{}`", s),
-                    hint: format!("Unable to parse literal JSON: {}", err)
+                    msg: format!("Unable to parse literal JSON: {}", err)
                 }
             }
         })
@@ -344,14 +344,14 @@ impl<'a> Iterator for Lexer<'a> {
                         '>' => tok!((pos, self.alt(&'=', Gte, Gt))),
                         '<' => tok!((pos, self.alt(&'=', Lte, Lt))),
                         '!' => tok!((pos, self.alt(&'=', Ne, Not))),
-                        '=' => tok!((pos, self.alt(&'=', Eq, Unknown {
+                        '=' => tok!((pos, self.alt(&'=', Eq, Error {
                                 value: '='.to_string(),
-                                hint: "Did you mean \"==\"?".to_string() }))),
+                                msg: "Did you mean \"==\"?".to_string() }))),
                         '-' => return Some((pos, self.consume_negative_number())),
                         '0' ... '9' => return Some((pos, self.consume_number(false))),
-                        c @ _ => tok!((pos, Unknown {
+                        c @ _ => tok!((pos, Error {
                             value: c.to_string(),
-                            hint: "".to_string()
+                            msg: "".to_string()
                         }))
                     }
                 }
@@ -398,9 +398,9 @@ mod tests {
 
     #[test] fn tokenize_eq_ne_test() {
         assert_eq!(tokenize("=").next(),
-                   Some((0, Unknown {
+                   Some((0, Error {
                        value: "=".to_string(),
-                       hint: "Did you mean \"==\"?".to_string() })));
+                       msg: "Did you mean \"==\"?".to_string() })));
         assert!(tokenize("==").next() == Some((0, Eq)));
         assert!(tokenize("!").next() == Some((0, Not)));
         assert!(tokenize("!=").next() == Some((0, Ne)));
@@ -412,22 +412,22 @@ mod tests {
         assert_eq!(tokens.next(), Some((7, Lparen)));
     }
 
-    #[test] fn tokenize_single_unknown_test() {
+    #[test] fn tokenize_single_error_test() {
         assert_eq!(tokenize("~").next(),
-                   Some((0, Unknown {
+                   Some((0, Error {
                        value: "~".to_string(),
-                       hint: "".to_string() })));
+                       msg: "".to_string() })));
     }
 
-    #[test] fn tokenize_unclosed_unknowns_test() {
+    #[test] fn tokenize_unclosed_errors_test() {
         assert_eq!(tokenize("\"foo").next(),
-                   Some((0, Unknown {
+                   Some((0, Error {
                        value: "\"foo".to_string(),
-                       hint: "Unclosed \" delimiter".to_string() })));
+                       msg: "Unclosed \" delimiter".to_string() })));
         assert_eq!(tokenize("`foo").next(),
-                   Some((0, Unknown {
+                   Some((0, Error {
                        value: "`foo".to_string(),
-                       hint: "Unclosed ` delimiter".to_string() })));
+                       msg: "Unclosed ` delimiter".to_string() })));
     }
 
     #[test] fn tokenize_identifier_test() {
@@ -464,9 +464,9 @@ mod tests {
     #[test] fn tokenize_literal_test() {
         // Must enclose in quotes. See JEP 12.
         assert_eq!(tokenize("`a`").next(),
-                   Some((0, Unknown {
+                   Some((0, Error {
                        value: "`a`".to_string(),
-                       hint: "Unable to parse literal JSON: SyntaxError(\"invalid syntax\", 1, 1)"
+                       msg: "Unable to parse literal JSON: SyntaxError(\"invalid syntax\", 1, 1)"
                              .to_string() })));
         assert_eq!(tokenize("`\"a\"`").next(),
                    Some((0, Literal(Json::String("a".to_string())))));
@@ -485,9 +485,9 @@ mod tests {
     }
 
     #[test] fn tokenize_negative_number_test_failure() {
-        assert_eq!(tokenize("-01").next(), Some((0, Unknown {
+        assert_eq!(tokenize("-01").next(), Some((0, Error {
             value: "-".to_string(),
-            hint: "Negative sign must be followed by numbers 1-9".to_string() })));
+            msg: "Negative sign must be followed by numbers 1-9".to_string() })));
     }
 
     #[test] fn tokenize_successive_test() {
@@ -516,8 +516,8 @@ mod tests {
         assert_eq!("Number", Number(0).token_name());
         assert_eq!("Literal",
                    Literal(Json::String("a".to_string())).token_name());
-        assert_eq!("Unknown",
-                   Unknown { value: "".to_string(), hint: "".to_string() }.token_name());
+        assert_eq!("Error",
+                   Error { value: "".to_string(), msg: "".to_string() }.token_name());
         assert_eq!("Dot".to_string(), Dot.token_name());
     }
 
