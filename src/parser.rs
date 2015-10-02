@@ -755,12 +755,11 @@ impl<'a> Parser<'a> {
         match token {
             Token::Lbracket =>
                 // Push the dot operator onto the operator stack.
-                self.operator(token, parent_operator)
-                    .and_then(|_| {
-                        // Parse a multi-list. Skip the "[" and push the multi-list operator.
-                        let next_token = self.advance();
-                        self.operator(next_token, Operator::MultiList(vec![]))
-                    }),
+                self.operator(token, parent_operator).and_then(|_| {
+                    // Parse a multi-list. Skip the "[" and push the multi-list operator.
+                    let next_token = self.advance();
+                    self.operator(next_token, Operator::MultiList(vec![]))
+                }),
             // Ensure the next character is valid after the "." token.
             Token::Identifier(_)
                 | Token::Star
@@ -775,17 +774,16 @@ impl<'a> Parser<'a> {
 
     /// Returns a formatted ParseError with the given message.
     fn err(&self, current_token: Option<&Token>, msg: &str) -> ParseError {
-        let hint_msg = match current_token {
-            Some(&Token::Unknown { ref hint, .. }) => hint.clone(),
-            _ => "".to_string()
-        };
-        ParseError::new(&self.expr, self.pos, msg, &hint_msg)
+        ParseError::new(&self.expr, self.pos, msg, match current_token {
+            Some(&Token::Unknown { ref hint, .. }) => hint,
+            _ => &""
+        })
     }
 
     /// Generates a formatted parse error for an out of place token.
     fn token_err(&self, current_token: &Token) -> ParseError {
-        self.err(Some(current_token), &format!("Unexpected token: {}",
-                                               current_token.token_name()))
+        let error_message = &format!("Unexpected token: {}", current_token.token_name());
+        self.err(Some(current_token), error_message)
     }
 }
 
