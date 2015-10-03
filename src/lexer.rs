@@ -110,7 +110,7 @@ impl Token {
 
     /// Provides the left binding power of the token.
     #[inline]
-    pub fn lbp(&self) -> usize {
+    pub fn precedence(&self) -> usize {
         match self {
             &Pipe     => 1,
             &Eq       => 2,
@@ -496,10 +496,10 @@ mod tests {
         assert_eq!(tokens.next(), None);
     }
 
-    #[test] fn token_has_lbp_test() {
-        assert!(0 == Rparen.lbp());
-        assert!(1 == Pipe.lbp());
-        assert!(60 == Lparen.lbp());
+    #[test] fn token_has_precedence_test() {
+        assert!(0 == Rparen.precedence());
+        assert!(1 == Pipe.precedence());
+        assert!(60 == Lparen.precedence());
     }
 
     #[test] fn returns_token_name_test() {

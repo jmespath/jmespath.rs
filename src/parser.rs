@@ -119,13 +119,13 @@ impl Operator {
     #[inline]
     pub fn precedence(&self) -> usize {
         match self {
-            &Operator::Basic(ref p) => p.lbp(),
+            &Operator::Basic(ref p) => p.precedence(),
             // Projections all share the "*" precedence.
             &Operator::ArrayProjection
                 | &Operator::FilterProjection(Some(_))
-                | &Operator::SliceProjection(_,_, _, _) => Token::Star.lbp(),
-            &Operator::MultiList(_) => Token::Lbracket.lbp(),
-            &Operator::MultiHash(_) => Token::Lbrace.lbp(),
+                | &Operator::SliceProjection(_,_, _, _) => Token::Star.precedence(),
+            &Operator::MultiList(_) => Token::Lbracket.precedence(),
+            &Operator::MultiHash(_) => Token::Lbrace.precedence(),
             // These should never be popped by other operators. Only by closing characters.
             _ => 0
         }
@@ -732,7 +732,7 @@ impl<'a> Parser<'a> {
                 self.push_operator(token, parent_operator)
             },
             // Precedence < 10 are just parsed as. E.g., * | baz
-            _ if token.lbp() < 10 => {
+            _ if token.precedence() < 10 => {
                 self.output_queue.push(Ast::CurrentNode);
                 self.parser_state = ParserState::HasOperand;
                 self.push_operator(token, parent_operator)
