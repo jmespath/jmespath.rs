@@ -172,7 +172,7 @@ impl Operator {
     }
 }
 
-/// ParserState is used to determine how to parse tokens in context.
+/// Influences how to parse tokens and which tokens are allowed.
 enum ParserState {
     NeedOperand,
     HasOperand
@@ -190,6 +190,7 @@ pub struct Parser<'a> {
     output_queue: Vec<Ast>,
     /// Operator stack containing operator states.
     operator_stack: Vec<Operator>,
+    /// Current state of parser. Determines acceptable tokens and behavior.
     parser_state: ParserState
 }
 
