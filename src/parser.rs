@@ -208,18 +208,8 @@ impl<'a> Parser<'a> {
 
     /// Parses the expression into result containing an AST or ParseError.
     pub fn parse(&mut self) -> ParseResult {
-        self.expr().and_then(|result| {
-            if self.stream.next().is_some() {
-                Err(self.err(None, &"Did not reach token stream EOF"))
-            } else {
-                Ok(result)
-            }
-        })
-    }
-
-    #[inline]
-    fn expr(&mut self) -> ParseResult {
         let mut token = self.advance();
+
         loop {
             token = match self.parser_state {
                 ParserState::NeedOperand => try!(self.need_operand_state(token)),
@@ -229,11 +219,17 @@ impl<'a> Parser<'a> {
                 break;
             }
         }
+
         // Pop and process any remaining operators on the stack.
         while !self.operator_stack.is_empty() {
             try!(self.pop_token());
         }
-        Ok(self.output_queue.pop().unwrap())
+
+        if self.stream.next().is_some() {
+            Err(self.err(None, &"Did not reach token stream EOF"))
+        } else {
+            Ok(self.output_queue.pop().unwrap())
+        }
     }
 
     #[inline]
@@ -533,6 +529,58 @@ impl<'a> Parser<'a> {
             next_token, Operator::SliceProjection(is_binary, parts[0], parts[1], parts[2]))
     }
 
+    // Prepares the parser for the right hand side of a projection.
+    #[inline]
+    fn projection_rhs(&mut self, token: Token, parent_operator: Operator) -> ParseStep {
+        match token {
+            // Skip the dot token and parse with a dot precedence (e.g.., foo.*.bar)
+            Token::Dot => self.parse_dot(parent_operator),
+            // Multilist and filter are valid tokens that have a precedence >= 10
+            Token::Lbracket | Token::Filter => {
+                self.parser_state = ParserState::NeedOperand;
+                self.push_operator(token, parent_operator)
+            },
+            // Precedence < 10 are just parsed as. E.g., * | baz
+            _ if token.precedence() < 10 => {
+                self.output_queue.push(Ast::CurrentNode);
+                self.parser_state = ParserState::HasOperand;
+                self.push_operator(token, parent_operator)
+            },
+            _ => Err(self.token_err(&token))
+        }
+    }
+
+    // Prepares the parser for the right hand side of a "." token.
+    #[inline]
+    fn parse_dot(&mut self, parent_operator: Operator) -> ParseStep {
+        // Skip the "." token.
+        let token = self.advance();
+        match token {
+            // Parse multi-list when it follows a dot. e.g., foo.[a, b]
+            Token::Lbracket => {
+                // Push the operator that triggered this onto the operator stack.
+                self.push_operator(token, parent_operator).and_then(|_| {
+                    // Parse a multi-list. Skip the "[" and push the multi-list operator.
+                    let next_token = self.advance();
+                    self.parser_state = ParserState::NeedOperand;
+                    self.push_operator(next_token, Operator::MultiList(vec![]))
+                })
+            },
+            // Ensure the next character is valid after the "." token.
+            Token::Identifier(_)
+                | Token::Star
+                | Token::Lbrace
+                | Token::Ampersand
+                | Token::Filter =>
+            {
+                self.parser_state = ParserState::NeedOperand;
+                self.push_operator(token, parent_operator)
+            },
+            _ => Err(self.err(Some(&token), &format!("Expected an identifier, '*', '{{', '[', \
+                                                     '@', or '[?', found {}", token.token_name())))
+        }
+    }
+
     // Returns true if the last operator has a greater precedence than the provided token.
     // Note: This is only its own method to play nice with the borrow checker.
     #[inline]
@@ -717,58 +765,6 @@ impl<'a> Parser<'a> {
         match self.stream.next() {
             Some((pos, tok)) => { self.pos = pos; tok },
             None => Token::Eof
-        }
-    }
-
-    // Prepares the parser for the right hand side of a projection.
-    #[inline]
-    fn projection_rhs(&mut self, token: Token, parent_operator: Operator) -> ParseStep {
-        match token {
-            // Skip the dot token and parse with a dot precedence (e.g.., foo.*.bar)
-            Token::Dot => self.parse_dot(parent_operator),
-            // Multilist and filter are valid tokens that have a precedence >= 10
-            Token::Lbracket | Token::Filter => {
-                self.parser_state = ParserState::NeedOperand;
-                self.push_operator(token, parent_operator)
-            },
-            // Precedence < 10 are just parsed as. E.g., * | baz
-            _ if token.precedence() < 10 => {
-                self.output_queue.push(Ast::CurrentNode);
-                self.parser_state = ParserState::HasOperand;
-                self.push_operator(token, parent_operator)
-            },
-            _ => Err(self.token_err(&token))
-        }
-    }
-
-    // Prepares the parser for the right hand side of a "." token.
-    #[inline]
-    fn parse_dot(&mut self, parent_operator: Operator) -> ParseStep {
-        // Skip the "." token.
-        let token = self.advance();
-        match token {
-            // Parse multi-list when it follows a dot. e.g., foo.[a, b]
-            Token::Lbracket => {
-                // Push the operator that triggered this onto the operator stack.
-                self.push_operator(token, parent_operator).and_then(|_| {
-                    // Parse a multi-list. Skip the "[" and push the multi-list operator.
-                    let next_token = self.advance();
-                    self.parser_state = ParserState::NeedOperand;
-                    self.push_operator(next_token, Operator::MultiList(vec![]))
-                })
-            },
-            // Ensure the next character is valid after the "." token.
-            Token::Identifier(_)
-                | Token::Star
-                | Token::Lbrace
-                | Token::Ampersand
-                | Token::Filter =>
-            {
-                self.parser_state = ParserState::NeedOperand;
-                self.push_operator(token, parent_operator)
-            },
-            _ => Err(self.err(Some(&token), &format!("Expected an identifier, '*', '{{', '[', \
-                                                     '@', or '[?', found {}", token.token_name())))
         }
     }
 
