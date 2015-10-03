@@ -435,7 +435,7 @@ impl<'a> Parser<'a> {
                 Token::Number(value) => {
                     parts[pos] = Some(value);
                     current_token = self.advance();
-                    if current_token.is_number() {
+                    if let Token::Number(_) = current_token {
                         return Err(self.err(Some(&current_token), "Expected ':', or ']'"))
                     }
                 },
