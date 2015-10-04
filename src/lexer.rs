@@ -60,78 +60,6 @@ pub enum Token {
     Eof,
 }
 
-impl Token {
-    /// Gets the string name of the token.
-    pub fn token_name(&self) -> String {
-        match self {
-            &Identifier(_) => "Identifier".to_string(),
-            &QuotedIdentifier(_) => "Identifier".to_string(),
-            &Number(_) => "Number".to_string(),
-            &Literal(_) => "Literal".to_string(),
-            &Error { .. } => "Error".to_string(),
-            _ => format!("{:?}", self)
-        }
-    }
-
-    /// Gets the lexeme representation of a token (as best as possible).
-    pub fn lexeme(&self) -> String {
-        match self {
-            &Identifier(ref value) => value.to_string(),
-            &QuotedIdentifier(ref value) => format!("\"{}\"", value.to_string()),
-            &Number(ref value) => value.to_string(),
-            &Literal(ref value) => format!("`{}`", value),
-            &Error { ref value, .. } => value.to_string(),
-            &Dot => ".".to_string(),
-            &Star => "*".to_string(),
-            &Flatten => "[]".to_string(),
-            &Or => "||".to_string(),
-            &Pipe => "|".to_string(),
-            &Filter => "[?".to_string(),
-            &Lbracket => "[".to_string(),
-            &Rbracket => "]".to_string(),
-            &Comma => ",".to_string(),
-            &Colon => ":".to_string(),
-            &Not => "!".to_string(),
-            &Ne => "!=".to_string(),
-            &Eq => "==".to_string(),
-            &Gt => ">".to_string(),
-            &Gte => ">=".to_string(),
-            &Lt => "<".to_string(),
-            &Lte => "<=".to_string(),
-            &At => "@".to_string(),
-            &Ampersand => "&".to_string(),
-            &Lparen => "(".to_string(),
-            &Rparen => ")".to_string(),
-            &Lbrace => "{".to_string(),
-            &Rbrace => "}".to_string(),
-            &Eof => "".to_string()
-        }
-    }
-
-    /// Provides the left binding power of the token.
-    #[inline]
-    pub fn precedence(&self) -> usize {
-        match self {
-            &Pipe     => 1,
-            &Eq       => 2,
-            &Gt       => 2,
-            &Lt       => 2,
-            &Gte      => 2,
-            &Lte      => 2,
-            &Ne       => 2,
-            &Or       => 5,
-            &Flatten  => 6,
-            &Star     => 20,
-            &Filter   => 20,
-            &Dot      => 40,
-            &Lbrace   => 50,
-            &Lbracket => 55,
-            &Lparen   => 60,
-            _        => 0,
-        }
-    }
-}
-
 /// The lexer is used to tokenize JMESPath expressions.
 ///
 /// A lexer implements Iterator and yields Tokens.
@@ -341,10 +269,7 @@ impl<'a> Iterator for Lexer<'a> {
                                 msg: "Did you mean \"==\"?".to_string() }))),
                         '-' => return Some((pos, self.consume_negative_number())),
                         '0' ... '9' => return Some((pos, self.consume_number(false))),
-                        c @ _ => tok!((pos, Error {
-                            value: c.to_string(),
-                            msg: "".to_string()
-                        }))
+                        c @ _ => tok!((pos, Error { value: c.to_string(), msg: "".to_string() }))
                     }
                 }
             }
@@ -494,23 +419,6 @@ mod tests {
         assert_eq!(tokens.next(), Some((19, Number(10))));
         assert_eq!(tokens.next(), Some((21, Eof)));
         assert_eq!(tokens.next(), None);
-    }
-
-    #[test] fn token_has_precedence_test() {
-        assert!(0 == Rparen.precedence());
-        assert!(1 == Pipe.precedence());
-        assert!(60 == Lparen.precedence());
-    }
-
-    #[test] fn returns_token_name_test() {
-        assert_eq!("Identifier",
-                   Identifier("a".to_string()).token_name());
-        assert_eq!("Number", Number(0).token_name());
-        assert_eq!("Literal",
-                   Literal(Json::String("a".to_string())).token_name());
-        assert_eq!("Error",
-                   Error { value: "".to_string(), msg: "".to_string() }.token_name());
-        assert_eq!("Dot".to_string(), Dot.token_name());
     }
 
     #[test] fn tokenizes_slices() {
