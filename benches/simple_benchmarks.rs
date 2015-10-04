@@ -118,3 +118,11 @@ fn bench_parse_and_interpret_seven_deep_subexpr(b: &mut Bencher) {
         expression.search(&data)
     });
 }
+
+#[bench]
+fn bench_evaluate_deep(b: &mut Bencher) {
+    let expr = "a.b.c.d.e.f.g.h.i.j.k.l.m.n.o.p.q.r.s.t.u.v.w.x.y.z";
+    let expression = jmespath::Expression::new(expr).unwrap();
+    let json = Json::from_str("{\"a\":{\"b\":{\"c\":{\"d\":{\"e\":{\"f\":{\"g\":{\"h\":{\"i\":{\"j\":{\"k\":{\"l\":{\"m\":{\"n\":{\"o\":{\"p\":{\"q\":{\"r\":{\"s\":{\"t\":{\"u\":{\"v\":{\"w\":{\"x\":{\"y\":{\"z\":1}}}}}}}}}}}}}}}}}}}}}}}}}}").unwrap();
+    b.iter(|| expression.search(&json));
+}
