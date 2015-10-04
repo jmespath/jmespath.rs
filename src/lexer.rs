@@ -8,25 +8,12 @@ use self::rustc_serialize::json::Json;
 
 use self::Token::*;
 
-/// Tokenizes a JMESPath expression
-///
-/// This function returns a Lexer iterator that yields Tokens.
+/// Tokenizes a JMESPath expression.
 pub fn tokenize(expr: &str) -> Lexer {
     Lexer::new(expr)
 }
 
 /// Represents a lexical token of a JMESPath expression.
-///
-/// Each token is either a simple token that represents a known
-/// character span (e.g., Token::Dot), or a token that spans multiple
-/// characters. Tokens that span multiple characters are struct-like
-/// variants. Tokens that contain a variable number of characters
-/// that are not always equal to the token value contain a `span`
-/// attribute. This attribute represents the actual length of the
-/// matched lexeme.
-///
-/// The Identifier token does not need a lexme because the lexeme is
-/// exactly the same as the token value.
 #[derive(Clone, PartialEq, Debug)]
 pub enum Token {
     Identifier(String),
@@ -61,8 +48,6 @@ pub enum Token {
 }
 
 /// The lexer is used to tokenize JMESPath expressions.
-///
-/// A lexer implements Iterator and yields Tokens.
 pub struct Lexer<'a> {
     // Iterator over the characters in the string.
     iter: Peekable<CharIndices<'a>>,
@@ -73,7 +58,6 @@ pub struct Lexer<'a> {
 }
 
 impl<'a> Lexer<'a> {
-    // Constructs a new lexer using the given expression string.
     pub fn new(expr: &'a str) -> Lexer<'a> {
         Lexer {
             sent_eof: false,
@@ -111,13 +95,12 @@ impl<'a> Lexer<'a> {
     // Consume identifiers: ( ALPHA / "_" ) *( DIGIT / ALPHA / "_" )
     #[inline]
     fn consume_identifier(&mut self) -> Token {
-        let lexeme = self.consume_while(|c| {
+        Identifier(self.consume_while(|c| {
             match c {
-                'a' ... 'z' | 'A' ... 'Z' | '_' | '0' ... '9' => true,
+                'a' ... 'z' | '_' | 'A' ... 'Z' | '0' ... '9' => true,
                 _ => false
             }
-        });
-        Identifier(lexeme)
+        }))
     }
 
     // Consumes numbers: *"-" "0" / ( %x31-39 *DIGIT )
@@ -234,21 +217,14 @@ impl<'a> Iterator for Lexer<'a> {
         }
         loop {
             match self.iter.peek() {
-                None if self.sent_eof => return None,
-                None => { self.sent_eof = true; return Some((self.last_position, Eof)); },
                 Some(&(pos, ch)) => {
                     match ch {
-                        // Skip whitespace tokens
-                        ' ' | '\n' | '\t' | '\r' => {
-                            self.iter.next();
-                            continue;
-                        },
-                        '[' => tok!((pos, self.consume_lbracket())),
-                        '.' => tok!((pos, Dot)),
-                        '*' => tok!((pos, Star)),
-                        '|' => tok!((pos, self.alt(&'|', Or, Pipe))),
                         'a' ... 'z' | 'A' ... 'Z' | '_' =>
                             return Some((pos, self.consume_identifier())),
+                        '.' => tok!((pos, Dot)),
+                        '[' => tok!((pos, self.consume_lbracket())),
+                        '*' => tok!((pos, Star)),
+                        '|' => tok!((pos, self.alt(&'|', Or, Pipe))),
                         '@' => tok!((pos, At)),
                         ']' => tok!((pos, Rbracket)),
                         '{' => tok!((pos, Lbrace)),
@@ -261,17 +237,24 @@ impl<'a> Iterator for Lexer<'a> {
                         '"' => return Some((pos, self.consume_quoted_identifier())),
                         '\'' => return Some((pos, self.consume_raw_string())),
                         '`' => return Some((pos, self.consume_literal())),
-                        '>' => tok!((pos, self.alt(&'=', Gte, Gt))),
-                        '<' => tok!((pos, self.alt(&'=', Lte, Lt))),
-                        '!' => tok!((pos, self.alt(&'=', Ne, Not))),
                         '=' => tok!((pos, self.alt(&'=', Eq, Error {
                                 value: '='.to_string(),
                                 msg: "Did you mean \"==\"?".to_string() }))),
-                        '-' => return Some((pos, self.consume_negative_number())),
+                        '>' => tok!((pos, self.alt(&'=', Gte, Gt))),
+                        '<' => tok!((pos, self.alt(&'=', Lte, Lt))),
+                        '!' => tok!((pos, self.alt(&'=', Ne, Not))),
                         '0' ... '9' => return Some((pos, self.consume_number(false))),
+                        '-' => return Some((pos, self.consume_negative_number())),
+                        // Skip whitespace tokens
+                        ' ' | '\n' | '\t' | '\r' => {
+                            self.iter.next();
+                            continue;
+                        },
                         c @ _ => tok!((pos, Error { value: c.to_string(), msg: "".to_string() }))
                     }
-                }
+                },
+                None if self.sent_eof => return None,
+                None => { self.sent_eof = true; return Some((self.last_position, Eof)); }
             }
         }
     }

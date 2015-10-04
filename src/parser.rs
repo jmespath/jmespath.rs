@@ -8,7 +8,6 @@ use std::iter::Peekable;
 use ast::{Ast, KeyValuePair, Comparator};
 use lexer::{Lexer, Token};
 
-/// An alias for computations that can return an `Ast` or `ParseError`.
 pub type ParseResult = Result<Ast, ParseError>;
 type ParseStep = Result<Token, ParseError>;
 
@@ -208,7 +207,7 @@ enum ParserState {
     HasOperand
 }
 
-/// JMESPath parser. Returns an Ast
+/// JMESPath parser
 pub struct Parser<'a> {
     /// Token stream
     stream: Peekable<Lexer<'a>>,
@@ -225,7 +224,6 @@ pub struct Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
-    // Constructs a new lexer using the given expression string.
     pub fn new(expr: &'a str) -> Parser<'a> {
         Parser {
             stream: Lexer::new(expr).peekable(),
@@ -237,10 +235,9 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Parses the expression into result containing an AST or ParseError.
+    /// Parses a JMESPath expression.
     pub fn parse(&mut self) -> ParseResult {
         let mut token = self.advance();
-
         loop {
             token = match self.parser_state {
                 ParserState::NeedOperand => try!(self.need_operand_state(token)),
@@ -250,12 +247,10 @@ impl<'a> Parser<'a> {
                 break;
             }
         }
-
         // Pop and process any remaining operators on the stack.
         while !self.operator_stack.is_empty() {
             try!(self.pop_token());
         }
-
         if self.stream.next().is_some() {
             Err(self.err(None, &"Did not reach token stream EOF"))
         } else {
