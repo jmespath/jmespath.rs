@@ -1,8 +1,8 @@
 //! JMESPath AST
 
-extern crate rustc_serialize;
+use std::rc::Rc;
 
-use self::rustc_serialize::json::Json;
+use variable::Variable;
 
 /// Represents the abstract syntax tree of a JMESPath expression.
 #[derive(Clone, PartialEq, Debug)]
@@ -15,7 +15,7 @@ pub enum Ast {
     Function(String, Vec<Ast>),
     Identifier(String),
     Index(i32),
-    Literal(Json),
+    Literal(Rc<Variable>),
     MultiList(Vec<Ast>),
     MultiHash(Vec<KeyValuePair>),
     Projection(Box<Ast>, Box<Ast>),

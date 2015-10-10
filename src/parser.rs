@@ -266,8 +266,8 @@ impl<'a> Parser<'a> {
                 self.parser_state = ParserState::HasOperand;
                 Ok(self.advance())
             },
-            Token::Literal(value) => {
-                self.output_queue.push(Ast::Literal(value));
+            Token::Literal(ref value) => {
+                self.output_queue.push(Ast::Literal(value.clone()));
                 self.parser_state = ParserState::HasOperand;
                 Ok(self.advance())
             },

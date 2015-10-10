@@ -39,22 +39,21 @@
 //! let ast = jmespath::parse("foo.bar | baz");
 //! ```
 
-extern crate rustc_serialize;
-
 pub use parser::{parse, Parser, ParseResult, ParseError};
 pub use lexer::{tokenize, Token, Lexer};
 pub use ast::{Ast, KeyValuePair, Comparator};
+pub use variable::Variable;
 
 use std::fmt;
+use std::rc::Rc;
 
-use rustc_serialize::json::Json;
 use interpreter::interpret;
 
 mod ast;
 mod interpreter;
 mod lexer;
 mod parser;
-mod utils;
+mod variable;
 
 /// A compiled JMESPath expression.
 #[derive(Clone)]
@@ -73,7 +72,7 @@ impl Expression {
     }
 
     /// Returns the result of searching data with the compiled expression.
-    pub fn search(&self, data: &Json) -> Result<Json, String> {
+    pub fn search(&self, data: Rc<Variable>) -> Result<Rc<Variable>, String> {
         interpret(data, &self.ast)
     }
 
@@ -108,14 +107,7 @@ impl PartialEq for Expression {
 #[cfg(test)]
 mod test {
     use super::*;
-    extern crate rustc_serialize;
-    use self::rustc_serialize::json::Json;
-
-    #[test] fn can_evaluate_jmespath_expression() {
-        let expr = Expression::new("foo.bar").unwrap();
-        let json = Json::from_str("{\"foo\":{\"bar\":true}}").unwrap();
-        assert_eq!(Json::Boolean(true), expr.search(&json).unwrap());
-    }
+    use std::rc::Rc;
 
     #[test] fn formats_expression_as_string() {
         let expr = Expression::new("foo | baz").unwrap();
@@ -128,22 +120,9 @@ mod test {
         assert!(a == b);
     }
 
-    #[test] fn can_evaluate_wildcards() {
-        let expr = Expression::new("foo[*].bar").unwrap();
-        let json = Json::from_str("{\"foo\":[{\"bar\":true}]}").unwrap();
-        assert_eq!(Json::Array(vec![Json::Boolean(true)]), expr.search(&json).unwrap());
-    }
-
-    #[test] fn can_evaluate_or_with_current_node() {
-        let expr = Expression::new("a || @").unwrap();
-        let json = Json::from_str("true").unwrap();
-        assert_eq!(Json::Boolean(true), expr.search(&json).unwrap());
-    }
-
-    #[test] fn can_evaluate_flatten_projection() {
-        let expr = Expression::new("@[].b").unwrap();
-        let json = Json::from_str("[{\"b\": 1}, [{\"b\":2}]]").unwrap();
-        assert_eq!(Json::Array(vec!(Json::U64(1), Json::U64(2))),
-                   expr.search(&json).unwrap());
+    #[test] fn can_evaluate_jmespath_expression() {
+        let expr = Expression::new("foo.bar").unwrap();
+        let var = Rc::new(Variable::from_str("{\"foo\":{\"bar\":true}}").unwrap());
+        assert_eq!(Rc::new(Variable::Boolean(true)), expr.search(var).unwrap());
     }
 }

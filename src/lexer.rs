@@ -2,11 +2,13 @@
 
 extern crate rustc_serialize;
 
+use std::rc::Rc;
 use std::iter::Peekable;
 use std::str::CharIndices;
 use self::rustc_serialize::json::Json;
 
 use self::Token::*;
+use variable::Variable;
 
 /// Tokenizes a JMESPath expression.
 pub fn tokenize(expr: &str) -> Lexer {
@@ -19,7 +21,7 @@ pub enum Token {
     Identifier(String),
     QuotedIdentifier(String),
     Number(i32),
-    Literal(Json),
+    Literal(Rc<Variable>),
     Error { value: String, msg: String },
     Dot,
     Star,
@@ -179,7 +181,7 @@ impl<'a> Lexer<'a> {
 
     #[inline]
     fn consume_raw_string(&mut self) -> Token {
-        self.consume_inside('\'', |s| Literal(Json::String(s)))
+        self.consume_inside('\'', |s| Literal(Rc::new(Variable::String(s))))
     }
 
     // Consume and parse a literal JSON token.
@@ -187,7 +189,7 @@ impl<'a> Lexer<'a> {
     fn consume_literal(&mut self) -> Token {
         self.consume_inside('`', |s| {
             match Json::from_str(s.as_ref()) {
-                Ok(j) => Literal(j),
+                Ok(j) => Literal(Rc::new(Variable::from_json(&j))),
                 Err(err) => Error {
                     value: format!("`{}`", s),
                     msg: format!("Unable to parse literal JSON: {}", err)
@@ -262,9 +264,10 @@ impl<'a> Iterator for Lexer<'a> {
 
 #[cfg(test)]
 mod tests {
+    use std::rc::Rc;
     use super::*;
     use super::Token::*;
-    use super::rustc_serialize::json::Json;
+    use variable::Variable;
 
     #[test] fn tokenize_basic_test() {
         assert!(tokenize(".").next() == Some((0, Dot)));
@@ -354,11 +357,11 @@ mod tests {
 
     #[test] fn tokenize_raw_string_test() {
         assert_eq!(tokenize("'foo'").next(),
-                   Some((0, Literal(Json::String("foo".to_string())))));
+                   Some((0, Literal(Rc::new(Variable::String("foo".to_string()))))));
         assert_eq!(tokenize("''").next(),
-                   Some((0, Literal(Json::String("".to_string())))));
+                   Some((0, Literal(Rc::new(Variable::String("".to_string()))))));
         assert_eq!(tokenize("'a\\nb'").next(),
-                   Some((0, Literal(Json::String("a\\nb".to_string())))));
+                   Some((0, Literal(Rc::new(Variable::String("a\\nb".to_string()))))));
     }
 
     #[test] fn tokenize_literal_test() {
@@ -369,9 +372,9 @@ mod tests {
                        msg: "Unable to parse literal JSON: SyntaxError(\"invalid syntax\", 1, 1)"
                              .to_string() })));
         assert_eq!(tokenize("`\"a\"`").next(),
-                   Some((0, Literal(Json::String("a".to_string())))));
+                   Some((0, Literal(Rc::new(Variable::String("a".to_string()))))));
         assert_eq!(tokenize("`\"a b\"`").next(),
-                   Some((0, Literal(Json::String("a b".to_string())))));
+                   Some((0, Literal(Rc::new(Variable::String("a b".to_string()))))));
     }
 
     #[test] fn tokenize_number_test() {
@@ -397,7 +400,7 @@ mod tests {
         assert_eq!(tokens.next(), Some((3, Dot)));
         assert_eq!(tokens.next(), Some((4, Identifier("bar".to_string()))));
         assert_eq!(tokens.next(), Some((8, Or)));
-        assert_eq!(tokens.next(), Some((11, Literal(Json::String("a".to_string())))));
+        assert_eq!(tokens.next(), Some((11, Literal(Rc::new(Variable::String("a".to_string()))))));
         assert_eq!(tokens.next(), Some((17, Pipe)));
         assert_eq!(tokens.next(), Some((19, Number(10))));
         assert_eq!(tokens.next(), Some((21, Eof)));

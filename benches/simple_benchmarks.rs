@@ -5,6 +5,8 @@ extern crate jmespath;
 extern crate test;
 extern crate rustc_serialize;
 
+use jmespath::Variable;
+use std::rc::Rc;
 use rustc_serialize::json::Json;
 use test::Bencher;
 
@@ -21,18 +23,20 @@ fn bench_lexing_foo_bar_baz(b: &mut Bencher) {
 #[bench]
 fn bench_parse_and_interpret_foo_bar_baz(b: &mut Bencher) {
     let json = Json::from_str("{\"foo\":{\"bar\":{\"baz\":true}}}").unwrap();
+    let var = Rc::new(Variable::from_json(&json));
     b.iter(|| {
         let expr = jmespath::Expression::new("foo.bar.baz").unwrap();
-        expr.search(&json).unwrap();
+        expr.search(var.clone()).unwrap();
     });
 }
 
 #[bench]
 fn bench_full_or_branches(b: &mut Bencher) {
     let json = Json::from_str("{\"foo\":true}").unwrap();
+    let variable = Rc::new(Variable::from_json(&json));
     b.iter(|| {
         let expr = jmespath::Expression::new("bar || baz || bam || foo").unwrap();
-        expr.search(&json).unwrap();
+        expr.search(variable.clone()).unwrap();
     });
 }
 
@@ -114,15 +118,15 @@ fn bench_parse_and_interpret_seven_deep_subexpr(b: &mut Bencher) {
     let data = Json::from_str("{\"a\":{\"b\":{\"c\":{\"d\":{\"e\":{\"f\":{\"g\":true}}}}}}}")
         .unwrap();
     let expression = jmespath::Expression::new(expr).unwrap();
-    b.iter(|| {
-        expression.search(&data)
-    });
+    let var = Rc::new(Variable::from_json(&data));
+    b.iter(|| expression.search(var.clone()));
 }
 
 #[bench]
 fn bench_evaluate_deep(b: &mut Bencher) {
-    let expr = "a.b.c.d.e.f.g.h.i.j.k.l.m.n.o.p.q.r.s.t.u.v.w.x.y.z";
+    let expr = "a.b.c.d.e.f.g.h.i.j.k.l.m.n.o.p.q.r.s.t.u.v.w.x.y.z.a.b.c.d.e.f.g.h.i.j.k.l.m.n.o.p.q.r.s.t.u.v.w.x.y.z.a.b.c.d.e.f.g.h.i.j.k.l.m.n.o.p.q.r.s.t.u.v.w.x.y.z.a.b.c.d.e.f.g.h.i.j.k.l.m.n.o.p.q.r.s.t.u.v.w.x.y.z";
     let expression = jmespath::Expression::new(expr).unwrap();
-    let json = Json::from_str("{\"a\":{\"b\":{\"c\":{\"d\":{\"e\":{\"f\":{\"g\":{\"h\":{\"i\":{\"j\":{\"k\":{\"l\":{\"m\":{\"n\":{\"o\":{\"p\":{\"q\":{\"r\":{\"s\":{\"t\":{\"u\":{\"v\":{\"w\":{\"x\":{\"y\":{\"z\":1}}}}}}}}}}}}}}}}}}}}}}}}}}").unwrap();
-    b.iter(|| expression.search(&json));
+    let json = Json::from_str("{\"a\":{\"b\":{\"c\":{\"d\":{\"e\":{\"f\":{\"g\":{\"h\":{\"i\":{\"j\":{\"k\":{\"l\":{\"m\":{\"n\":{\"o\":{\"p\":{\"q\":{\"r\":{\"s\":{\"t\":{\"u\":{\"v\":{\"w\":{\"x\":{\"y\":{\"z\":{\"a\":{\"b\":{\"c\":{\"d\":{\"e\":{\"f\":{\"g\":{\"h\":{\"i\":{\"j\":{\"k\":{\"l\":{\"m\":{\"n\":{\"o\":{\"p\":{\"q\":{\"r\":{\"s\":{\"t\":{\"u\":{\"v\":{\"w\":{\"x\":{\"y\":{\"z\":{\"a\":{\"b\":{\"c\":{\"d\":{\"e\":{\"f\":{\"g\":{\"h\":{\"i\":{\"j\":{\"k\":{\"l\":{\"m\":{\"n\":{\"o\":{\"p\":{\"q\":{\"r\":{\"s\":{\"t\":{\"u\":{\"v\":{\"w\":{\"x\":{\"y\":{\"z\":{\"a\":{\"b\":{\"c\":{\"d\":{\"e\":{\"f\":{\"g\":{\"h\":{\"i\":{\"j\":{\"k\":{\"l\":{\"m\":{\"n\":{\"o\":{\"p\":{\"q\":{\"r\":{\"s\":{\"t\":{\"u\":{\"v\":{\"w\":{\"x\":{\"y\":{\"z\":1}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}").unwrap();
+    let variable = Rc::new(jmespath::Variable::from_json(&json));
+    b.iter(|| expression.search(variable.clone()));
 }
