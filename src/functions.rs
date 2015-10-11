@@ -178,8 +178,28 @@ impl FnDispatcher for BuiltinFunctions {
                 let search = args[1].as_string().unwrap();
                 Ok(Rc::new(Variable::Boolean(subject.starts_with(search))))
             },
+            "to_array" => {
+                try!(arity("to_array", 1, args));
+                match *args[0] {
+                    Variable::Array(_) => Ok(args[0].clone()),
+                    _ => Ok(Rc::new(Variable::Array(vec![args[0].clone()])))
+                }
+            },
+            "to_number" => {
+                try!(arity("to_number", 1, args));
+                match *args[0] {
+                    Variable::I64(_) | Variable::F64(_) | Variable::U64(_) => Ok(args[0].clone()),
+                    Variable::String(ref s) => {
+                        match s.parse::<f64>() {
+                            Ok(f)  => Ok(Rc::new(Variable::F64(f))),
+                            Err(_) => Ok(Rc::new(Variable::Null))
+                        }
+                    },
+                    _ => Ok(Rc::new(Variable::Null))
+                }
+            },
             "type" => {
-                validate!("type", args, jptype![any]);
+                try!(arity("type", 1, args));
                 Ok(Rc::new(Variable::String(args[0].get_type().to_string())))
             },
             "values" => {
