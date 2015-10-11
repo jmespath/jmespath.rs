@@ -6,112 +6,144 @@ use std::rc::Rc;
 use std::collections::BTreeMap;
 
 use ast::Ast;
+use functions::{FnDispatcher, BuiltinFunctions};
 use variable::Variable;
 
-pub fn interpret(data: Rc<Variable>, node: &Ast) -> Result<Rc<Variable>, String> {
-    match node {
-        &Ast::CurrentNode => Ok(data.clone()),
-        &Ast::Literal(ref json) => Ok(json.clone()),
-        &Ast::Subexpr(ref lhs, ref rhs) => interpret(try!(interpret(data, lhs)), rhs),
-        &Ast::Identifier(ref f) => Ok(data.get_value(f).unwrap_or(Rc::new(Variable::Null))),
-        &Ast::Index(ref i) => {
-            match if *i >= 0 {
-                data.get_index(*i as usize)
-            } else {
-                data.get_negative_index((-1 * i) as usize)
-            } {
-                Some(value) => Ok(value),
-                None => Ok(Rc::new(Variable::Null))
-            }
-        },
-        &Ast::Or(ref lhs, ref rhs) => {
-            let left = try!(interpret(data.clone(), lhs));
-            if left.is_truthy() {
-                Ok(left)
-            } else {
-                interpret(data, rhs)
-            }
-        },
-        // Returns the resut of RHS if cond yields truthy value.
-        &Ast::Condition(ref cond, ref cond_rhs) => {
-            let cond_result = try!(interpret(data.clone(), cond));
-            if cond_result.is_truthy() {
-                interpret(data, cond_rhs)
-            } else {
-                Ok(Rc::new(Variable::Null))
-            }
-        },
-        &Ast::Comparison(ref cmp, ref lhs, ref rhs) => {
-            let left = try!(interpret(data.clone(), lhs));
-            let right = try!(interpret(data, rhs));
-            Ok(left.compare(cmp, &*right).map_or(
-                Rc::new(Variable::Null),
-                |result| Rc::new(Variable::Boolean(result))))
-        },
-        // Converts an object into a JSON array of its values.
-        &Ast::ObjectValues(ref predicate) => {
-            Ok(match try!(interpret(data, predicate)).object_values_to_array() {
-                Some(values) => Rc::new(values),
-                None => Rc::new(Variable::Null)
-            })
-        },
-        // Passes the results of lhs into rhs if lhs yields an array and
-        // each node of lhs that passes through rhs yields a non-null value.
-        &Ast::Projection(ref lhs, ref rhs) => {
-            match try!(interpret(data, lhs)).as_array() {
-                None => Ok(Rc::new(Variable::Null)),
-                Some(left) => {
+pub type InterpretResult = Result<Rc<Variable>, String>;
+
+/// Creates a new TreeInterpreter and interprets data with a given AST.
+pub fn interpret(data: Rc<Variable>, ast: &Ast) -> InterpretResult {
+    TreeInterpreter::new(&BuiltinFunctions::new()).interpret(data, ast)
+}
+
+/// TreeInterpreter recursively extracts data using an AST.
+#[derive(Clone)]
+pub struct TreeInterpreter<'a> {
+    /// Handles interpreting built-in functions from the AST.
+    fn_dispatcher: &'a FnDispatcher
+}
+
+impl<'a> TreeInterpreter<'a> {
+    /// Creates a new TreeInterpreter using the given function dispatcher.
+    pub fn new(fn_dispatcher: &'a FnDispatcher) -> TreeInterpreter<'a> {
+        TreeInterpreter {
+            fn_dispatcher: fn_dispatcher
+        }
+    }
+
+    /// Interprets the given data using an AST node.
+    pub fn interpret(&self, data: Rc<Variable>, node: &Ast) -> InterpretResult {
+        match node {
+            &Ast::CurrentNode => Ok(data.clone()),
+            &Ast::Literal(ref json) => Ok(json.clone()),
+            &Ast::Subexpr(ref lhs, ref rhs) => self.interpret(try!(interpret(data, lhs)), rhs),
+            &Ast::Identifier(ref f) => Ok(data.get_value(f).unwrap_or(Rc::new(Variable::Null))),
+            &Ast::Index(ref i) => {
+                match if *i >= 0 {
+                    data.get_index(*i as usize)
+                } else {
+                    data.get_negative_index((-1 * i) as usize)
+                } {
+                    Some(value) => Ok(value),
+                    None => Ok(Rc::new(Variable::Null))
+                }
+            },
+            &Ast::Or(ref lhs, ref rhs) => {
+                let left = try!(self.interpret(data.clone(), lhs));
+                if left.is_truthy() {
+                    Ok(left)
+                } else {
+                    self.interpret(data, rhs)
+                }
+            },
+            // Returns the resut of RHS if cond yields truthy value.
+            &Ast::Condition(ref cond, ref cond_rhs) => {
+                let cond_result = try!(self.interpret(data.clone(), cond));
+                if cond_result.is_truthy() {
+                    self.interpret(data, cond_rhs)
+                } else {
+                    Ok(Rc::new(Variable::Null))
+                }
+            },
+            &Ast::Comparison(ref cmp, ref lhs, ref rhs) => {
+                let left = try!(self.interpret(data.clone(), lhs));
+                let right = try!(self.interpret(data, rhs));
+                Ok(left.compare(cmp, &*right).map_or(
+                    Rc::new(Variable::Null),
+                    |result| Rc::new(Variable::Boolean(result))))
+            },
+            // Converts an object into a JSON array of its values.
+            &Ast::ObjectValues(ref predicate) => {
+                Ok(match try!(self.interpret(data, predicate)).object_values_to_array() {
+                    Some(values) => Rc::new(values),
+                    None => Rc::new(Variable::Null)
+                })
+            },
+            // Passes the results of lhs into rhs if lhs yields an array and
+            // each node of lhs that passes through rhs yields a non-null value.
+            &Ast::Projection(ref lhs, ref rhs) => {
+                match try!(self.interpret(data, lhs)).as_array() {
+                    None => Ok(Rc::new(Variable::Null)),
+                    Some(left) => {
+                        let mut collected = vec!();
+                        for element in left {
+                            let current = try!(self.interpret(element.clone(), rhs));
+                            if !current.is_null() {
+                                collected.push(current);
+                            }
+                        }
+                        Ok(Rc::new(Variable::Array(collected)))
+                    }
+                }
+            },
+            &Ast::Flatten(ref node) => {
+                match try!(self.interpret(data, node)).as_array() {
+                    None => Ok(Rc::new(Variable::Null)),
+                    Some(a) => {
+                        let mut collected: Vec<Rc<Variable>> = vec!();
+                        for element in a {
+                            match element.as_array() {
+                                Some(array) => collected.extend(array.iter().cloned()),
+                                _ => collected.push(element.clone())
+                            }
+                        }
+                        Ok(Rc::new(Variable::Array(collected)))
+                    }
+                }
+            },
+            &Ast::MultiList(ref nodes) => {
+                if data.is_null() {
+                    Ok(Rc::new(Variable::Null))
+                } else {
                     let mut collected = vec!();
-                    for element in left {
-                        let current = try!(interpret(element.clone(), rhs));
-                        if !current.is_null() {
-                            collected.push(current);
-                        }
+                    for node in nodes {
+                        collected.push(try!(self.interpret(data.clone(), node)));
                     }
                     Ok(Rc::new(Variable::Array(collected)))
                 }
-            }
-        },
-        &Ast::Flatten(ref node) => {
-            match try!(interpret(data, node)).as_array() {
-                None => Ok(Rc::new(Variable::Null)),
-                Some(a) => {
-                    let mut collected: Vec<Rc<Variable>> = vec!();
-                    for element in a {
-                        match element.as_array() {
-                            Some(array) => collected.extend(array.iter().cloned()),
-                            _ => collected.push(element.clone())
-                        }
+            },
+            &Ast::MultiHash(ref kvp_list) => {
+                if data.is_null() {
+                    Ok(Rc::new(Variable::Null))
+                } else {
+                    let mut collected = BTreeMap::new();
+                    for kvp in kvp_list {
+                        let key = try!(self.interpret(data.clone(), &kvp.key));
+                        let value = try!(self.interpret(data.clone(), &kvp.value));
+                        collected.insert(key.as_string().unwrap().to_string(), value);
                     }
-                    Ok(Rc::new(Variable::Array(collected)))
+                    Ok(Rc::new(Variable::Object(collected)))
                 }
-            }
-        },
-        &Ast::MultiList(ref nodes) => {
-            if data.is_null() {
-                Ok(Rc::new(Variable::Null))
-            } else {
-                let mut collected = vec!();
-                for node in nodes {
-                    collected.push(try!(interpret(data.clone(), node)));
+            },
+            &Ast::Function(ref fn_name, ref arg_nodes) => {
+                let mut args: Vec<Rc<Variable>> = vec![];
+                for arg in arg_nodes {
+                    args.push(try!(self.interpret(data.clone(), arg)));
                 }
-                Ok(Rc::new(Variable::Array(collected)))
-            }
-        },
-        &Ast::MultiHash(ref kvp_list) => {
-            if data.is_null() {
-                Ok(Rc::new(Variable::Null))
-            } else {
-                let mut collected = BTreeMap::new();
-                for kvp in kvp_list {
-                    let key = try!(interpret(data.clone(), &kvp.key));
-                    let value = try!(interpret(data.clone(), &kvp.value));
-                    collected.insert(key.as_string().unwrap().to_string(), value);
-                }
-                Ok(Rc::new(Variable::Object(collected)))
-            }
-        },
-        ref node @ _ => panic!(format!("not implemented yet: {:?}", node))
+                self.fn_dispatcher.call(fn_name, &args)
+            },
+            ref node @ _ => panic!(format!("not implemented yet: {:?}", node))
+        }
     }
 }
 
@@ -315,5 +347,11 @@ mod tests {
         assert_eq!(
             Rc::new(Variable::from_json(&Json::from_str("{\"a\": 1, \"b\": 2}").unwrap())),
             interpret(data, &ast).unwrap());
+    }
+
+    #[test] fn calls_functions() {
+        let data = Rc::new(Variable::from_str("[1, 2, 3]").unwrap());
+        let ast = Ast::Function("length".to_string(), vec![Ast::CurrentNode]);
+        assert_eq!(Rc::new(Variable::U64(3)), interpret(data, &ast).unwrap());
     }
 }

@@ -5,25 +5,6 @@
 //! Use the `jmespath::Expression` struct to compile and execute JMESPath
 //! expressions. The `Expression` struct can be used multiple times.
 //!
-//! # Lexer
-//!
-//! Use the `tokenize()` function to tokenize JMESPath expressions into a
-//! stream of `jmespath::lexer::Token` variants.
-//!
-//! ## Examples
-//!
-//! The following example tokenizes a JMESPath expression and iterates over
-//! each token. Tokens have a `token_name()`, `lbp()`, `is_whitespace()`
-//! and `span()` method.
-//!
-//! ```
-//! use jmespath;
-//!
-//! for token in jmespath::tokenize("foo.bar") {
-//!     // Do something with the token.
-//! }
-//! ```
-//!
 //! # Parser
 //!
 //! Use the `parse()` function to parse a JMESPath expressions into an
@@ -39,27 +20,28 @@
 //! let ast = jmespath::parse("foo.bar | baz");
 //! ```
 
-pub use parser::{parse, Parser, ParseResult, ParseError};
-pub use lexer::{tokenize, Token, Lexer};
-pub use ast::{Ast, KeyValuePair, Comparator};
+pub use parser::parse;
 pub use variable::Variable;
 
 use std::fmt;
 use std::rc::Rc;
 
+use ast::Ast;
+use parser::ParseError;
 use interpreter::interpret;
 
-mod ast;
-mod interpreter;
-mod lexer;
-mod parser;
+pub mod ast;
+pub mod functions;
+pub mod interpreter;
+pub mod lexer;
+pub mod parser;
 mod variable;
 
 /// A compiled JMESPath expression.
 #[derive(Clone)]
 pub struct Expression {
     ast: Ast,
-    original: String,
+    original: String
 }
 
 impl Expression {
