@@ -95,9 +95,9 @@ impl Variable {
 
     /// If the value is a String, returns the associated str.
     /// Returns None otherwise.
-    pub fn as_string(&self) -> Option<String> {
+    pub fn as_string(&self) -> Option<&String> {
         match *self {
-            Variable::String(ref s) => Some(s.clone()),
+            Variable::String(ref s) => Some(s),
             _ => None
         }
     }
@@ -233,6 +233,14 @@ impl Variable {
         self.as_object().map(|map| Variable::Array(map.values().cloned().collect()))
     }
 
+    /// Converts a Variable::Object to a Variable::Array containing object keys.
+    /// None is returned if the Variable is not an object.
+    pub fn object_keys_to_array(&self) -> Option<Variable> {
+        self.as_object()
+            .map(|map| Variable::Array(map.keys()
+                .map(|key| Rc::new(Variable::String(key.to_string()))).collect()))
+    }
+
     /// Returns true or false based on if the Variable value is considered truthy.
     pub fn is_truthy(&self) -> bool {
         match self {
@@ -344,6 +352,14 @@ mod tests {
     }
 
     #[test]
+    fn test_object_keys_to_array() {
+        let good = Variable::from_str(&"{\"foo\": \"bar\"}").unwrap();
+        assert_eq!(good.object_keys_to_array(), Some(Variable::from_str(&"[\"foo\"]").unwrap()));
+        let bad = Variable::from_str(&"[\"foo\", \"bar\", \"baz\", \"bam\"]").unwrap();
+        assert_eq!(None, bad.object_keys_to_array());
+    }
+
+    #[test]
     fn test_eq_ne_compare() {
         let l = Variable::String("foo".to_string());
         let r = Variable::String("foo".to_string());
@@ -439,7 +455,7 @@ mod tests {
 
     #[test]
     fn option_of_string() {
-        assert_eq!(Some("foo".to_string()), Variable::String("foo".to_string()).as_string());
+        assert_eq!(Some(&"foo".to_string()), Variable::String("foo".to_string()).as_string());
         assert_eq!(None, Variable::Null.as_string());
     }
 
