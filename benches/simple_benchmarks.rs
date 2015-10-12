@@ -6,6 +6,7 @@ extern crate test;
 extern crate rustc_serialize;
 
 use jmespath::Variable;
+use jmespath::lexer::tokenize;
 use std::rc::Rc;
 use rustc_serialize::json::Json;
 use test::Bencher;
@@ -17,7 +18,7 @@ fn bench_parsing_foo_bar_baz(b: &mut Bencher) {
 
 #[bench]
 fn bench_lexing_foo_bar_baz(b: &mut Bencher) {
-    b.iter(|| for _ in jmespath::tokenize("foo.bar.baz") {});
+    b.iter(|| for _ in tokenize("foo.bar.baz") {});
 }
 
 #[bench]
