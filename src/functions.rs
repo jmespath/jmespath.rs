@@ -198,6 +198,13 @@ impl FnDispatcher for BuiltinFunctions {
                 validate!("floor", args, jptype![number]);
                 Ok(Rc::new(Variable::F64(args[0].as_f64().unwrap().floor())))
             },
+            "join" => {
+                validate!("join", args, jptype![string], homogeneous![string]);
+                Ok(Rc::new(Variable::String(args.iter().skip(1)
+                    .map(|ref v| v.as_string().unwrap().clone())
+                    .collect::<Vec<String>>()
+                    .join(args[0].as_string().unwrap()))))
+            },
             "keys" => {
                 validate!("keys", args, jptype![object]);
                 Ok(Rc::new(args[0].object_keys_to_array().unwrap()))
