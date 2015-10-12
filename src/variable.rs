@@ -60,6 +60,44 @@ impl Variable {
             .or_else(|err| Err(format!("{:?}", err).to_string()))
     }
 
+    /// Converts the Variable value to a JSON value.
+    /// If any value in the Variable is an Expref, None is returned.
+    pub fn to_json(&self) -> Option<Json> {
+        match self {
+            &Variable::Null => Some(Json::Null),
+            &Variable::Boolean(value) => Some(Json::Boolean(value)),
+            &Variable::String(ref s) => Some(Json::String(s.to_string())),
+            &Variable::I64(i) => Some(Json::I64(i)),
+            &Variable::F64(f) => Some(Json::F64(f)),
+            &Variable::U64(u) => Some(Json::U64(u)),
+            &Variable::Array(ref array) => {
+                let mut result: Vec<Json> = vec![];
+                for value in array.iter() {
+                    let json_value = Variable::to_json(value);
+                    if json_value.is_none() { return None };
+                    result.push(json_value.unwrap());
+                }
+                Some(Json::Array(result))
+            },
+            &Variable::Object(ref map) => {
+                let mut result: BTreeMap<String, Json> = BTreeMap::new();
+                for (key, value) in map.iter() {
+                    let json_value = Variable::to_json(value);
+                    if json_value.is_none() { return None };
+                    result.insert(key.clone(), json_value.unwrap());
+                }
+                Some(Json::Object(result))
+            },
+            &Variable::Expref => None
+        }
+    }
+
+    /// Converts the Variable value to a JSON encoded string value.
+    /// If any value in the Variable is an Expref, None is returned.
+    pub fn to_string(&self) -> Option<String> {
+        self.to_json().map(|v| v.to_string())
+    }
+
     /// Returns true if the Variable is an Array. Returns false otherwise.
     pub fn is_array<'a>(&'a self) -> bool {
         self.as_array().is_some()
@@ -546,5 +584,27 @@ mod tests {
         let array = value.as_array();
         let expected_length = 3;
         assert!(array.is_some() && array.unwrap().len() == expected_length);
+    }
+
+    #[test]
+    fn test_converts_to_json() {
+        let test_cases = vec![
+            "true", "false", "{}", "[]", "0", "null",
+            "[1,2,3]", "{\"foo\":[true,false,10,1.1,-5],\"bar\":null}"];
+        for case in test_cases {
+            let var = Variable::from_str(case).unwrap();
+            assert_eq!(Json::from_str(case).unwrap(), var.to_json().unwrap());
+        }
+    }
+
+    #[test]
+    fn test_converting_to_json_with_expref_returns_none() {
+        let var = Variable::Expref;
+        assert!(var.to_json().is_none());
+    }
+
+    #[test]
+    fn test_converts_to_string() {
+        assert_eq!("true", Variable::Boolean(true).to_string().unwrap());
     }
 }

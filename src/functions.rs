@@ -295,6 +295,10 @@ impl FnDispatcher for BuiltinFunctions {
                     _ => Ok(Rc::new(Variable::Null))
                 }
             },
+            "to_string" => {
+                validate!("to_string", args, jptype![object|array|boolean|number|string|null]);
+                Ok(Rc::new(Variable::String(args[0].to_string().unwrap())))
+            },
             "type" => {
                 try!(arity("type", 1, args));
                 Ok(Rc::new(Variable::String(args[0].get_type().to_string())))
