@@ -1,5 +1,6 @@
 use std::rc::Rc;
 
+use std::cmp::{max, min, Ordering};
 use interpreter::InterpretResult;
 use variable::Variable;
 
@@ -28,6 +29,19 @@ fn arity(fn_name: &str, arity: usize, args: &Vec<Rc<Variable>>) -> Result<(), St
     } else {
         Ok(())
     }
+}
+
+fn homogeneous_array(valid_types: Vec<&str>, array: &Vec<Rc<Variable>>) -> bool {
+    let matched_type = array[0].get_type();
+    if !valid_types.contains(&matched_type) {
+        return false;
+    }
+    for a in array {
+        if a.get_type() != matched_type {
+            return false;
+        }
+    }
+    return true;
 }
 
 /// Macro used to format a type error.
@@ -69,6 +83,19 @@ macro_rules! validate {
     );
 }
 
+macro_rules! homogeneous {
+    ($($x:ident)|*) => [
+        Box::new(move |arg: &Rc<Variable>| -> Result<(), String> {
+            let valid_types = vec![$(stringify!($x)), *];
+            match **arg {
+                Variable::Array(ref array) if array.is_empty() => Ok(()),
+                Variable::Array(ref array) if homogeneous_array(valid_types, array) => Ok(()),
+                _ => Err(format!("type array[{}]", valid_types.join("|")))
+            }
+        })
+    ];
+}
+
 /// Creates a closure used to validate the type of the given variable.
 macro_rules! jptype {
     // Validate a type against a single acceptable type.
@@ -96,6 +123,27 @@ macro_rules! jptype {
             })
         }
     ];
+}
+
+/// Macro used to implement min and max functions.
+macro_rules! min_max {
+    ($operator:ident, $args:expr) => (
+        match *$args[0] {
+            Variable::Array(ref array) if array.is_empty() => Ok(Rc::new(Variable::Null)),
+            Variable::Array(ref array) => {
+                if array[0].is_string() {
+                    Ok(Rc::new(Variable::String(array.iter().fold(
+                        array[0].as_string().unwrap().clone(),
+                        |acc, item| $operator(acc, item.as_string().unwrap().clone())))))
+                } else {
+                    Ok(Rc::new(Variable::F64(array.iter().fold(
+                        array[0].as_f64().unwrap(),
+                        |acc, item| acc.$operator(item.as_f64().unwrap())))))
+                }
+            },
+            _ => panic!() // never encountered due to previous validation
+        }
+    )
 }
 
 impl FnDispatcher for BuiltinFunctions {
@@ -163,6 +211,14 @@ impl FnDispatcher for BuiltinFunctions {
                     _ => panic!() // never encountered due to previous validation
                 }
             },
+            "max" => {
+                validate!("max", args, homogeneous![string|number]);
+                min_max!(max, args)
+            },
+            "min" => {
+                validate!("min", args, homogeneous![string|number]);
+                min_max!(min, args)
+            },
             "not_null" => {
                 validate!("not_null", args, jptype![any] ...jptype![any]);
                 for arg in args {
@@ -172,11 +228,30 @@ impl FnDispatcher for BuiltinFunctions {
                 }
                 Ok(Rc::new(Variable::Null))
             },
+            "sort" => {
+                validate!("sort", args, homogeneous![string|number]);
+                let mut values: Vec<Rc<Variable>> = args[0].as_array().unwrap().clone();
+                if values[0].is_string() {
+                    values.sort_by(|a, b| a.as_string().unwrap().cmp(b.as_string().unwrap()));
+                } else {
+                    values.sort_by(|a, b| a.as_f64().unwrap()
+                        .partial_cmp(&b.as_f64().unwrap())
+                        .unwrap_or(Ordering::Equal));
+                }
+                Ok(Rc::new(Variable::Array(values)))
+            },
             "starts_with" => {
                 validate!("starts_with", args, jptype![string], jptype![string]);
                 let subject = args[0].as_string().unwrap();
                 let search = args[1].as_string().unwrap();
                 Ok(Rc::new(Variable::Boolean(subject.starts_with(search))))
+            },
+            "sum" => {
+                validate!("sum", args, homogeneous![number]);
+                let array = args[0].as_array().unwrap();
+                Ok(Rc::new(Variable::F64(array.iter().fold(
+                    array[0].as_f64().unwrap().clone(),
+                    |acc, item| acc.max(item.as_f64().unwrap())))))
             },
             "to_array" => {
                 try!(arity("to_array", 1, args));
