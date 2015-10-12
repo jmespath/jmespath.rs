@@ -1,5 +1,6 @@
 use std::rc::Rc;
 
+use std::collections::BTreeMap;
 use std::cmp::{max, min, Ordering};
 use interpreter::InterpretResult;
 use variable::Variable;
@@ -222,6 +223,14 @@ impl FnDispatcher for BuiltinFunctions {
                 validate!("max", args, homogeneous![string|number]);
                 min_max!(max, args)
             },
+            "merge" => {
+                validate!("merge", args, jptype![object] ...jptype![object]);
+                let mut result = args[0].as_object().unwrap().clone();
+                for arg in args.iter().skip(1) {
+                    result.extend(arg.as_object().unwrap().clone());
+                }
+                Ok(Rc::new(Variable::Object(result)))
+            },
             "min" => {
                 validate!("min", args, homogeneous![string|number]);
                 min_max!(min, args)
@@ -234,6 +243,12 @@ impl FnDispatcher for BuiltinFunctions {
                     }
                 }
                 Ok(Rc::new(Variable::Null))
+            },
+            "reverse" => {
+                validate!("reverse", args, jptype![array]);
+                let mut values = args.clone();
+                values.reverse();
+                Ok(Rc::new(Variable::Array(values)))
             },
             "sort" => {
                 validate!("sort", args, homogeneous![string|number]);
