@@ -1,6 +1,5 @@
 use std::rc::Rc;
 
-use std::collections::BTreeMap;
 use std::cmp::{max, min, Ordering};
 use interpreter::InterpretResult;
 use variable::Variable;
@@ -32,6 +31,8 @@ fn arity(fn_name: &str, arity: usize, args: &Vec<Rc<Variable>>) -> Result<(), St
     }
 }
 
+/// Validates that an array contains only a single allowed type.
+#[inline]
 fn homogeneous_array(valid_types: Vec<&str>, array: &Vec<Rc<Variable>>) -> bool {
     let matched_type = array[0].get_type();
     if !valid_types.contains(&matched_type) {
@@ -43,13 +44,6 @@ fn homogeneous_array(valid_types: Vec<&str>, array: &Vec<Rc<Variable>>) -> bool 
         }
     }
     return true;
-}
-
-/// Macro used to format a type error.
-macro_rules! type_err {
-    ($f:expr, $position:expr, $expected:expr, $given:expr) => {
-        format!("{} expects arg {} to be {}. Given {:?}", $f, $position, $expected, $given)
-    }
 }
 
 /// Macro used to variadically validate validate Variable and argument arity.
@@ -84,7 +78,8 @@ macro_rules! validate {
     );
 }
 
-macro_rules! homogeneous {
+/// Validates that a vector contains a homogeneous array of a specific type(s).
+macro_rules! array {
     ($($x:ident)|*) => [
         Box::new(move |arg: &Rc<Variable>| -> Result<(), String> {
             let valid_types = vec![$(stringify!($x)), *];
@@ -98,28 +93,16 @@ macro_rules! homogeneous {
 }
 
 /// Creates a closure used to validate the type of the given variable.
-macro_rules! jptype {
-    // Validate a type against a single acceptable type.
-    ($type_name:ident) => [
-        Box::new(move |arg: &Rc<Variable>| -> Result<(), String> {
-            let arg_type = arg.get_type();
-            if arg_type != "any" && arg_type != stringify!($type_name) {
-                Err(format!("type {}", stringify!($type_name)))
-            } else {
-                Ok(())
-            }
-        })
-    ];
-    // Validate a type against multiple acceptable types
+macro_rules! types {
     ($($x:ident)|*) => [
         {
             Box::new(move |arg: &Rc<Variable>| -> Result<(), String> {
                 let valid_types = vec![$(stringify!($x)), *];
                 let arg_type = arg.get_type();
-                if arg_type != "any" && !valid_types.contains(&arg_type) {
-                    Err(format!("type {}", valid_types.join("|")))
-                } else {
+                if arg_type == "any" || valid_types.contains(&arg_type) {
                     Ok(())
+                } else {
+                    Err(format!("type {}", valid_types.join("|")))
                 }
             })
         }
@@ -151,32 +134,21 @@ impl FnDispatcher for BuiltinFunctions {
     fn call(&self, fn_name: &str, args: &Vec<Rc<Variable>>) -> InterpretResult {
         match fn_name {
             "abs" => {
-                validate!("abs", args, jptype![number]);
+                validate!("abs", args, types![number]);
                 Ok(Rc::new(Variable::F64(args[0].as_f64().unwrap().abs())))
             },
             "avg" => {
-                try!(arity("avg", 1, args));
-                args[0].as_array()
-                    .and_then(|array| {
-                        let mut total = 0f64;
-                        for value in array {
-                            match **value {
-                                Variable::I64(n) => total += n as f64,
-                                Variable::U64(n) => total += n as f64,
-                                Variable::F64(n) => total += n,
-                                _ => return None
-                            }
-                        }
-                        Some(Rc::new(Variable::F64(total / array.len() as f64)))
-                    })
-                    .ok_or(type_err!("avg", 0, "array[number]", args[0]))
+                validate!("avg", args, array!(number));
+                let array = args[0].as_array().unwrap();
+                let sum = array.iter().fold(0f64, |a, ref b| a + b.as_f64().unwrap());
+                Ok(Rc::new(Variable::F64(sum / (array.len() as f64))))
             },
             "ceil" => {
-                validate!("ceil", args, jptype![number]);
+                validate!("ceil", args, types![number]);
                 Ok(Rc::new(Variable::F64(args[0].as_f64().unwrap().ceil())))
             },
             "contains" => {
-                validate!("contains", args, jptype![array|string], jptype![any]);
+                validate!("contains", args, types![array|string], types![any]);
                 match *args[0] {
                     Variable::Array(ref a) => Ok(Rc::new(Variable::Boolean(a.contains(&args[1])))),
                     Variable::String(ref subj) => {
@@ -190,28 +162,28 @@ impl FnDispatcher for BuiltinFunctions {
                 }
             },
             "ends_with" => {
-                validate!("ends_with", args, jptype![string], jptype![string]);
+                validate!("ends_with", args, types![string], types![string]);
                 let subject = args[0].as_string().unwrap();
                 let search = args[1].as_string().unwrap();
                 Ok(Rc::new(Variable::Boolean(subject.ends_with(search))))
             },
             "floor" => {
-                validate!("floor", args, jptype![number]);
+                validate!("floor", args, types![number]);
                 Ok(Rc::new(Variable::F64(args[0].as_f64().unwrap().floor())))
             },
             "join" => {
-                validate!("join", args, jptype![string], homogeneous![string]);
+                validate!("join", args, types![string], array![string]);
                 Ok(Rc::new(Variable::String(args.iter().skip(1)
                     .map(|ref v| v.as_string().unwrap().clone())
                     .collect::<Vec<String>>()
                     .join(args[0].as_string().unwrap()))))
             },
             "keys" => {
-                validate!("keys", args, jptype![object]);
+                validate!("keys", args, types![object]);
                 Ok(Rc::new(args[0].object_keys_to_array().unwrap()))
             },
             "length" => {
-                validate!("length", args, jptype![array|object|string]);
+                validate!("length", args, types![array|object|string]);
                 match *args[0] {
                     Variable::Array(ref a) => Ok(Rc::new(Variable::U64(a.len() as u64))),
                     Variable::Object(ref m) => Ok(Rc::new(Variable::U64(m.len() as u64))),
@@ -220,11 +192,11 @@ impl FnDispatcher for BuiltinFunctions {
                 }
             },
             "max" => {
-                validate!("max", args, homogeneous![string|number]);
+                validate!("max", args, array![string|number]);
                 min_max!(max, args)
             },
             "merge" => {
-                validate!("merge", args, jptype![object] ...jptype![object]);
+                validate!("merge", args, types![object] ...types![object]);
                 let mut result = args[0].as_object().unwrap().clone();
                 for arg in args.iter().skip(1) {
                     result.extend(arg.as_object().unwrap().clone());
@@ -232,11 +204,11 @@ impl FnDispatcher for BuiltinFunctions {
                 Ok(Rc::new(Variable::Object(result)))
             },
             "min" => {
-                validate!("min", args, homogeneous![string|number]);
+                validate!("min", args, array![string|number]);
                 min_max!(min, args)
             },
             "not_null" => {
-                validate!("not_null", args, jptype![any] ...jptype![any]);
+                validate!("not_null", args, types![any] ...types![any]);
                 for arg in args {
                     if **arg != Variable::Null {
                         return Ok(arg.clone());
@@ -245,13 +217,13 @@ impl FnDispatcher for BuiltinFunctions {
                 Ok(Rc::new(Variable::Null))
             },
             "reverse" => {
-                validate!("reverse", args, jptype![array]);
+                validate!("reverse", args, types![array]);
                 let mut values = args.clone();
                 values.reverse();
                 Ok(Rc::new(Variable::Array(values)))
             },
             "sort" => {
-                validate!("sort", args, homogeneous![string|number]);
+                validate!("sort", args, array![string|number]);
                 let mut values: Vec<Rc<Variable>> = args[0].as_array().unwrap().clone();
                 if values[0].is_string() {
                     values.sort_by(|a, b| a.as_string().unwrap().cmp(b.as_string().unwrap()));
@@ -263,13 +235,13 @@ impl FnDispatcher for BuiltinFunctions {
                 Ok(Rc::new(Variable::Array(values)))
             },
             "starts_with" => {
-                validate!("starts_with", args, jptype![string], jptype![string]);
+                validate!("starts_with", args, types![string], types![string]);
                 let subject = args[0].as_string().unwrap();
                 let search = args[1].as_string().unwrap();
                 Ok(Rc::new(Variable::Boolean(subject.starts_with(search))))
             },
             "sum" => {
-                validate!("sum", args, homogeneous![number]);
+                validate!("sum", args, array![number]);
                 let array = args[0].as_array().unwrap();
                 Ok(Rc::new(Variable::F64(array.iter().fold(
                     array[0].as_f64().unwrap().clone(),
@@ -296,7 +268,7 @@ impl FnDispatcher for BuiltinFunctions {
                 }
             },
             "to_string" => {
-                validate!("to_string", args, jptype![object|array|boolean|number|string|null]);
+                validate!("to_string", args, types![object|array|boolean|number|string|null]);
                 Ok(Rc::new(Variable::String(args[0].to_string().unwrap())))
             },
             "type" => {
@@ -304,7 +276,7 @@ impl FnDispatcher for BuiltinFunctions {
                 Ok(Rc::new(Variable::String(args[0].get_type().to_string())))
             },
             "values" => {
-                validate!("values", args, jptype![object]);
+                validate!("values", args, types![object]);
                 Ok(Rc::new(args[0].object_values_to_array().unwrap()))
             },
             _ => Err(format!("Unknown function: {}", fn_name))
