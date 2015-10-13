@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use std::iter::Iterator;
 use self::rustc_serialize::json::Json;
 
-use ast::Comparator;
+use ast::{Ast, Comparator};
 
 /// JMESPath variable.
 ///
@@ -23,7 +23,7 @@ pub enum Variable {
     F64(f64),
     Array(Vec<Rc<Variable>>),
     Object(BTreeMap<String, Rc<Variable>>),
-    Expref
+    Expref(Ast)
 }
 
 impl Variable {
@@ -88,7 +88,7 @@ impl Variable {
                 }
                 Some(Json::Object(result))
             },
-            &Variable::Expref => None
+            &Variable::Expref(_) => None
         }
     }
 
@@ -300,7 +300,7 @@ impl Variable {
             &Variable::Array(_) => "array",
             &Variable::Object(_) => "object",
             &Variable::Null => "null",
-            &Variable::Expref => "expref"
+            &Variable::Expref(_) => "expref"
         }
     }
 
@@ -328,7 +328,7 @@ mod tests {
     use self::rustc_serialize::json::Json;
 
     use super::*;
-    use ast::Comparator;
+    use ast::{Ast, Comparator};
 
     #[test]
     fn creates_variable_from_json() {
@@ -599,7 +599,7 @@ mod tests {
 
     #[test]
     fn test_converting_to_json_with_expref_returns_none() {
-        let var = Variable::Expref;
+        let var = Variable::Expref(Ast::CurrentNode);
         assert!(var.to_json().is_none());
     }
 

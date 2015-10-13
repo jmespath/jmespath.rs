@@ -142,6 +142,7 @@ impl<'a> TreeInterpreter<'a> {
                 }
                 self.fn_dispatcher.call(fn_name, &args)
             },
+            &Ast::Expref(ref ast) => Ok(Rc::new(Variable::Expref(*ast.clone()))),
             ref node @ _ => panic!(format!("not implemented yet: {:?}", node))
         }
     }

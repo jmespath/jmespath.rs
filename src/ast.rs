@@ -5,7 +5,7 @@ use std::rc::Rc;
 use variable::Variable;
 
 /// Represents the abstract syntax tree of a JMESPath expression.
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, PartialOrd, Debug)]
 pub enum Ast {
     Comparison(Comparator, Box<Ast>, Box<Ast>),
     Condition(Box<Ast>, Box<Ast>),
@@ -26,12 +26,12 @@ pub enum Ast {
 }
 
 /// Represents a key value pair in a multi-hash
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, PartialOrd, Debug)]
 pub struct KeyValuePair {
     pub key: Ast,
     pub value: Ast
 }
 
 /// Comparators (i.e., less than, greater than, etc.)
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, PartialOrd, Debug)]
 pub enum Comparator { Eq, Lt, Lte, Ne, Gte, Gt }
