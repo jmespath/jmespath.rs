@@ -1,6 +1,6 @@
 extern crate rustc_serialize;
 
-use std::cmp;
+use std::cmp::{max, Ordering};
 use std::i64;
 use std::rc::Rc;
 use std::collections::BTreeMap;
@@ -24,6 +24,26 @@ pub enum Variable {
     Array(Vec<Rc<Variable>>),
     Object(BTreeMap<String, Rc<Variable>>),
     Expref(Ast)
+}
+
+impl Eq for Variable {}
+
+impl Ord for Variable {
+    fn cmp(&self, other: &Self) -> Ordering {
+        let var_type = self.get_type();
+        // Variables of different types are considered equal.
+        if var_type != other.get_type() {
+            Ordering::Equal
+        } else {
+            match var_type {
+                "string" => self.as_string().unwrap().cmp(other.as_string().unwrap()),
+                "number" => self.as_f64().unwrap()
+                    .partial_cmp(&other.as_f64().unwrap())
+                    .unwrap_or(Ordering::Less),
+                _ => Ordering::Equal
+            }
+        }
+    }
 }
 
 impl Variable {
@@ -232,6 +252,21 @@ impl Variable {
         }
     }
 
+    /// Returns true if the value is an expression reference.
+    /// Returns false otherwise.
+    pub fn is_expref(&self) -> bool {
+        self.as_expref().is_some()
+    }
+
+    /// If the value is an expression reference, returns the associated Ast node.
+    /// Returns None otherwise.
+    pub fn as_expref(&self) -> Option<&Ast> {
+        match self {
+            &Variable::Expref(ref ast) => Some(ast),
+            _ => None
+        }
+    }
+
     /// Retrieves an index from the Variable if the Variable is an array.
     /// Returns None if not an array or if the index is not present.
     pub fn get_index(&self, index: usize) -> Option<Rc<Variable>> {
@@ -247,7 +282,7 @@ impl Variable {
     pub fn get_negative_index(&self, index: usize) -> Option<Rc<Variable>> {
         self.as_array()
             .and_then(|array| {
-                let adjusted_index = cmp::max(index, 1);
+                let adjusted_index = max(index, 1);
                 if array.len() < adjusted_index {
                     None
                 } else {
@@ -606,5 +641,11 @@ mod tests {
     #[test]
     fn test_converts_to_string() {
         assert_eq!("true", Variable::Boolean(true).to_string().unwrap());
+    }
+
+    #[test]
+    fn test_is_expref() {
+        assert_eq!(true, Variable::Expref(Ast::CurrentNode).is_expref());
+        assert_eq!(&Ast::CurrentNode, Variable::Expref(Ast::CurrentNode).as_expref().unwrap());
     }
 }

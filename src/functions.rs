@@ -1,24 +1,14 @@
 use std::rc::Rc;
 
 use std::cmp::{max, min, Ordering};
-use interpreter::InterpretResult;
+use interpreter::{TreeInterpreter, InterpretResult};
 use variable::Variable;
 
 /// Handles the dispatching of named functions using an array of arguments.
 pub trait FnDispatcher {
     /// Dispatches and interprets a function by name.
-    fn call(&self, fn_name: &str, args: &Vec<Rc<Variable>>) -> InterpretResult;
-}
-
-/// Built-in function implementations.
-#[derive(Clone)]
-pub struct BuiltinFunctions;
-
-impl BuiltinFunctions {
-    /// Creates a new Builtins function dispatcher.
-    pub fn new() -> BuiltinFunctions {
-        BuiltinFunctions
-    }
+    fn call(&self, fn_name: &str, args: &Vec<Rc<Variable>>, intr: &TreeInterpreter)
+        -> InterpretResult;
 }
 
 /// Validates the arity of a function.
@@ -130,8 +120,21 @@ macro_rules! min_max {
     )
 }
 
+/// Built-in function implementations.
+#[derive(Clone)]
+pub struct BuiltinFunctions;
+
+impl BuiltinFunctions {
+    /// Creates a new Builtins function dispatcher.
+    pub fn new() -> BuiltinFunctions {
+        BuiltinFunctions
+    }
+}
+
 impl FnDispatcher for BuiltinFunctions {
-    fn call(&self, fn_name: &str, args: &Vec<Rc<Variable>>) -> InterpretResult {
+    fn call(&self, fn_name: &str, args: &Vec<Rc<Variable>>, intr: &TreeInterpreter)
+        -> InterpretResult
+    {
         match fn_name {
             "abs" => {
                 validate!("abs", args, types![number]);
@@ -194,6 +197,38 @@ impl FnDispatcher for BuiltinFunctions {
             "max" => {
                 validate!("max", args, array![string|number]);
                 min_max!(max, args)
+            },
+            "max_by" => {
+                validate!("max_by", args, types![array], types![expref]);
+                let vals = args[0].as_array().expect("Expected array");
+                let ast = args[1].as_expref().expect("Expected expref");
+                if vals.is_empty() { return Ok(Rc::new(Variable::Null)); }
+                let mut acc = try!(intr.interpret(args[0].clone(), ast));
+                let iter = vals.iter().skip(1).map(|v| intr.interpret(v.clone(), ast));
+                match acc.get_type() {
+                    "string" => {
+                        for item in iter {
+                            match item {
+                                Err(_) => return item,
+                                Ok(ref v) if v.is_string() => acc = max(acc, v.clone()),
+                                _ => return Err(format!("max_by: expected string from expref. \
+                                                         Found {:?}", item))
+                            }
+                        }
+                    },
+                    "number" => {
+                        for item in iter {
+                            match item {
+                                Err(_) => return item,
+                                Ok(ref v) if v.is_number() => acc = max(acc, v.clone()),
+                                _ => return Err(format!("max_by: expected number from expref. \
+                                                         Found {:?}", item))
+                            }
+                        }
+                    },
+                    _ => return Err("max_by: expected string or number from expref".to_string())
+                }
+                Ok(acc)
             },
             "merge" => {
                 validate!("merge", args, types![object] ...types![object]);

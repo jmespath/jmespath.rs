@@ -140,7 +140,7 @@ impl<'a> TreeInterpreter<'a> {
                 for arg in arg_nodes {
                     args.push(try!(self.interpret(data.clone(), arg)));
                 }
-                self.fn_dispatcher.call(fn_name, &args)
+                self.fn_dispatcher.call(fn_name, &args, &self)
             },
             &Ast::Expref(ref ast) => Ok(Rc::new(Variable::Expref(*ast.clone()))),
             ref node @ _ => panic!(format!("not implemented yet: {:?}", node))
