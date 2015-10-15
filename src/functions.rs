@@ -1,6 +1,6 @@
 use std::rc::Rc;
-
 use std::cmp::{max, min, Ordering};
+
 use interpreter::{TreeInterpreter, InterpretResult};
 use variable::Variable;
 
@@ -115,7 +115,33 @@ macro_rules! min_max {
                         |acc, item| acc.$operator(item.as_f64().unwrap())))))
                 }
             },
-            _ => panic!() // never encountered due to previous validation
+            _ => unreachable!()
+        }
+    )
+}
+
+/// Macro used to implement max_by and min_by functions.
+macro_rules! max_by_min_by {
+    ($operator:ident, $args:expr, $interpreter:expr) => (
+        {
+            let vals = $args[0].as_array().expect("Expected array");
+            let ast = $args[1].as_expref().expect("Expected expref");
+            let initial = try!($interpreter.interpret(vals[0].clone(), ast));
+            let entered_type = initial.get_type();
+            if entered_type != "string" && entered_type != "number" {
+                return Err(format!("{}_by expref expects string|number, found {}",
+                                   stringify!($operator), entered_type));
+            }
+            vals.iter().skip(1).map(|v| $interpreter.interpret(v.clone(), ast))
+                .fold(Ok(initial.clone()), |a, b| {
+                    let (a_val, b_val) = (try!(a), try!(b));
+                    if b_val.get_type() != entered_type {
+                        Err(format!("{}_by expref expects {}, found {:?}",
+                                    stringify!($operator), entered_type, b_val))
+                    } else {
+                        Ok($operator(a_val, b_val))
+                    }
+                })
         }
     )
 }
@@ -156,12 +182,11 @@ impl FnDispatcher for BuiltinFunctions {
                     Variable::Array(ref a) => Ok(Rc::new(Variable::Boolean(a.contains(&args[1])))),
                     Variable::String(ref subj) => {
                         match args[1].as_string() {
-                            Some(search) => Ok(Rc::new(Variable::Boolean(subj.contains(search)))),
-                            None => Err(format!("contains found {:?} for string search arg",
-                                                args[1]))
+                            None => Ok(Rc::new(Variable::Boolean(false))),
+                            Some(s) => Ok(Rc::new(Variable::Boolean(subj.contains(s))))
                         }
                     },
-                    _ => panic!() // never encountered due to previous validation
+                    _ => unreachable!()
                 }
             },
             "ends_with" => {
@@ -191,44 +216,24 @@ impl FnDispatcher for BuiltinFunctions {
                     Variable::Array(ref a) => Ok(Rc::new(Variable::U64(a.len() as u64))),
                     Variable::Object(ref m) => Ok(Rc::new(Variable::U64(m.len() as u64))),
                     Variable::String(ref s) => Ok(Rc::new(Variable::U64(s.len() as u64))),
-                    _ => panic!() // never encountered due to previous validation
+                    _ => unreachable!()
                 }
             },
             "max" => {
                 validate!("max", args, array![string|number]);
                 min_max!(max, args)
             },
+            "min" => {
+                validate!("min", args, array![string|number]);
+                min_max!(min, args)
+            },
             "max_by" => {
                 validate!("max_by", args, types![array], types![expref]);
-                let vals = args[0].as_array().expect("Expected array");
-                let ast = args[1].as_expref().expect("Expected expref");
-                if vals.is_empty() { return Ok(Rc::new(Variable::Null)); }
-                let mut acc = try!(intr.interpret(args[0].clone(), ast));
-                let iter = vals.iter().skip(1).map(|v| intr.interpret(v.clone(), ast));
-                match acc.get_type() {
-                    "string" => {
-                        for item in iter {
-                            match item {
-                                Err(_) => return item,
-                                Ok(ref v) if v.is_string() => acc = max(acc, v.clone()),
-                                _ => return Err(format!("max_by: expected string from expref. \
-                                                         Found {:?}", item))
-                            }
-                        }
-                    },
-                    "number" => {
-                        for item in iter {
-                            match item {
-                                Err(_) => return item,
-                                Ok(ref v) if v.is_number() => acc = max(acc, v.clone()),
-                                _ => return Err(format!("max_by: expected number from expref. \
-                                                         Found {:?}", item))
-                            }
-                        }
-                    },
-                    _ => return Err("max_by: expected string or number from expref".to_string())
-                }
-                Ok(acc)
+                max_by_min_by!(max, args, intr)
+            },
+            "min_by" => {
+                validate!("min_by", args, types![array], types![expref]);
+                max_by_min_by!(min, args, intr)
             },
             "merge" => {
                 validate!("merge", args, types![object] ...types![object]);
@@ -237,10 +242,6 @@ impl FnDispatcher for BuiltinFunctions {
                     result.extend(arg.as_object().unwrap().clone());
                 }
                 Ok(Rc::new(Variable::Object(result)))
-            },
-            "min" => {
-                validate!("min", args, array![string|number]);
-                min_max!(min, args)
             },
             "not_null" => {
                 validate!("not_null", args, types![any] ...types![any]);
