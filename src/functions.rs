@@ -262,6 +262,7 @@ impl FnDispatcher for BuiltinFunctions {
                 }
                 Ok(Rc::new(Variable::Array(values)))
             },
+            "sort_by" => sort_by(args, intr),
             "starts_with" => {
                 validate!("starts_with", args, types![string], types![string]);
                 let subject = args[0].as_string().unwrap();
@@ -309,5 +310,66 @@ impl FnDispatcher for BuiltinFunctions {
             },
             _ => Err(format!("Unknown function: {}", fn_name))
         }
+    }
+}
+
+enum SortByState {
+    Initial,
+    FoundString,
+    FoundNumber,
+    Error(String)
+}
+
+fn sort_by(args: &Vec<Rc<Variable>>, intr: &TreeInterpreter) -> InterpretResult {
+    validate!("sort_by", args, types![array], types![expref]);
+    let mut state = SortByState::Initial;
+    let mut vals = args[0].as_array().expect("Expected array").clone();
+    let ast = args[1].as_expref().expect("Expected expref");
+
+    vals.sort_by(|ref lhs, ref rhs| {
+        if let SortByState::Error(_) = state {
+            return Ordering::Equal;
+        }
+        let a = match intr.interpret((*lhs).clone(), ast) {
+            Ok(result) => result,
+            Err(e) => {
+                state = SortByState::Error(e);
+                return Ordering::Equal
+            }
+        };
+        let b = match intr.interpret((*rhs).clone(), ast) {
+            Ok(result) => result,
+            Err(e) => {
+                state = SortByState::Error(e);
+                return Ordering::Equal
+            }
+        };
+        let a_type = a.get_type();
+        let b_type = b.get_type();
+        match state {
+            SortByState::Initial if a_type == "string" && b_type == a_type => {
+                state = SortByState::FoundString;
+                a.as_string().unwrap().cmp(b.as_string().unwrap())
+            },
+            SortByState::Initial if a_type == "number" && b_type == a_type => {
+                state = SortByState::FoundNumber;
+                a.as_f64().unwrap().partial_cmp(&b.as_f64().unwrap()).unwrap()
+            },
+            SortByState::FoundString if a_type == "string" && b_type == "string" =>
+                a.as_string().unwrap().cmp(b.as_string().unwrap()),
+            SortByState::FoundNumber if a_type == "number" && b_type == "number" =>
+                a.as_f64().unwrap().partial_cmp(&b.as_f64().unwrap()).unwrap(),
+            _ => {
+                state = SortByState::Error("sort_by expref is expected to return all strings \
+                                           or all numbers".to_string());
+                Ordering::Equal
+            }
+        }
+    });
+
+    match state {
+        SortByState::Initial => Ok(Rc::new(Variable::Array(vec![]))),
+        SortByState::Error(e) => Err(e),
+        _ => Ok(Rc::new(Variable::Array(vals)))
     }
 }
