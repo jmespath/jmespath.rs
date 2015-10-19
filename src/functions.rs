@@ -102,20 +102,23 @@ macro_rules! types {
 /// Macro used to implement min and max functions.
 macro_rules! min_max {
     ($operator:ident, $args:expr) => (
-        match *$args[0] {
-            Variable::Array(ref array) if array.is_empty() => Ok(Rc::new(Variable::Null)),
-            Variable::Array(ref array) => {
-                if array[0].is_string() {
-                    Ok(Rc::new(Variable::String(array.iter().fold(
-                        array[0].as_string().unwrap().clone(),
-                        |acc, item| $operator(acc, item.as_string().unwrap().clone())))))
-                } else {
-                    Ok(Rc::new(Variable::F64(array.iter().fold(
-                        array[0].as_f64().unwrap(),
-                        |acc, item| acc.$operator(item.as_f64().unwrap())))))
-                }
-            },
-            _ => unreachable!()
+        {
+            validate!(stringify!($operator), $args, array![string|number]);
+            match *$args[0] {
+                Variable::Array(ref array) if array.is_empty() => Ok(Rc::new(Variable::Null)),
+                Variable::Array(ref array) => {
+                    if array[0].is_string() {
+                        Ok(Rc::new(Variable::String(array.iter().fold(
+                            array[0].as_string().unwrap().clone(),
+                            |acc, item| $operator(acc, item.as_string().unwrap().clone())))))
+                    } else {
+                        Ok(Rc::new(Variable::F64(array.iter().fold(
+                            array[0].as_f64().unwrap(),
+                            |acc, item| acc.$operator(item.as_f64().unwrap())))))
+                    }
+                },
+                _ => unreachable!()
+            }
         }
     )
 }
@@ -124,6 +127,7 @@ macro_rules! min_max {
 macro_rules! max_by_min_by {
     ($operator:ident, $args:expr, $interpreter:expr) => (
         {
+            validate!(stringify!($operator), $args, types![array], types![expref]);
             let vals = $args[0].as_array().expect("Expected array");
             let ast = $args[1].as_expref().expect("Expected expref");
             let initial = try!($interpreter.interpret(vals[0].clone(), ast));
@@ -219,22 +223,10 @@ impl FnDispatcher for BuiltinFunctions {
                     _ => unreachable!()
                 }
             },
-            "max" => {
-                validate!("max", args, array![string|number]);
-                min_max!(max, args)
-            },
-            "min" => {
-                validate!("min", args, array![string|number]);
-                min_max!(min, args)
-            },
-            "max_by" => {
-                validate!("max_by", args, types![array], types![expref]);
-                max_by_min_by!(max, args, intr)
-            },
-            "min_by" => {
-                validate!("min_by", args, types![array], types![expref]);
-                max_by_min_by!(min, args, intr)
-            },
+            "max" => min_max!(max, args),
+            "min" => min_max!(min, args),
+            "max_by" => max_by_min_by!(max, args, intr),
+            "min_by" => max_by_min_by!(min, args, intr),
             "merge" => {
                 validate!("merge", args, types![object] ...types![object]);
                 let mut result = args[0].as_object().unwrap().clone();
