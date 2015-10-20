@@ -223,6 +223,15 @@ impl FnDispatcher for BuiltinFunctions {
                     _ => unreachable!()
                 }
             },
+            "map" => {
+                validate!("length", args, types![expref], types![array]);
+                let ast = args[0].as_expref().expect("Expected expref argument");
+                let mut results = vec![];
+                for value in args[1].as_array().expect("Expected array argument") {
+                    results.push(try!(intr.interpret((*value).clone(), ast)));
+                }
+                Ok(Rc::new(Variable::Array(results)))
+            },
             "max" => min_max!(max, args),
             "min" => min_max!(min, args),
             "max_by" => max_by_min_by!(max, args, intr),
