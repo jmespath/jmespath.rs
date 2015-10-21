@@ -71,6 +71,7 @@ enum Operator {
     SliceProjection(bool, Option<i32>, Option<i32>, Option<i32>),
     Lparen,
     Dot,
+    And,
     Or,
     Pipe,
     Star,
@@ -97,6 +98,7 @@ impl Operator {
             &Operator::Gte => 2,
             &Operator::Lt => 2,
             &Operator::Lte => 2,
+            &Operator::And => 3,
             &Operator::Or => 5,
             &Operator::Flatten => 6,
             &Operator::Star
@@ -184,6 +186,7 @@ impl fmt::Display for Operator {
             &Operator::Flatten => write!(f, "[]"),
             &Operator::Not => write!(f, "!"),
             &Operator::Ampersand => write!(f, "&"),
+            &Operator::And => write!(f, "&&"),
             &Operator::Eq => write!(f, "=="),
             &Operator::Ne => write!(f, "!="),
             &Operator::Gt => write!(f, ">"),
@@ -340,6 +343,7 @@ impl<'a> Parser<'a> {
             Token::Filter => self.open_filter(),
             Token::Lbracket => self.open_lbracket(false),
             Token::Or => self.push_need_operand_operator(Operator::Or),
+            Token::And => self.push_need_operand_operator(Operator::And),
             Token::Pipe => self.push_need_operand_operator(Operator::Pipe),
             Token::Lt => self.push_need_operand_operator(Operator::Lt),
             Token::Lte => self.push_need_operand_operator(Operator::Lte),
@@ -564,7 +568,7 @@ impl<'a> Parser<'a> {
                 self.push_operator(token, parent_operator)
             },
             // Projection tokens require the current node and then the operator push.
-            Token::Pipe | Token::Or | Token::Flatten => {
+            Token::Pipe | Token::Or | Token::And | Token::Flatten => {
                 self.output_queue.push(Ast::CurrentNode);
                 self.parser_state = ParserState::HasOperand;
                 self.push_operator(token, parent_operator)
@@ -726,6 +730,8 @@ impl<'a> Parser<'a> {
                     Ast::Subexpr(Box::new(lhs), Box::new(rhs))),
                 Operator::Or => self.output_queue.push(
                     Ast::Or(Box::new(lhs), Box::new(rhs))),
+                Operator::And => self.output_queue.push(
+                    Ast::And(Box::new(lhs), Box::new(rhs))),
                 Operator::Pipe => self.output_queue.push(
                     Ast::Subexpr(Box::new(lhs), Box::new(rhs))),
                 Operator::Star => self.output_queue.push(
@@ -826,6 +832,13 @@ mod test {
         assert_eq!("Or(Subexpr(Identifier(\"foo\"), Identifier(\"baz\")), \
                        Subexpr(Identifier(\"bar\"), Identifier(\"bam\")))",
                    format!("{:?}", ast));
+    }
+
+    #[test] fn test_parse_or_with_and_and_subexpr_with_precedence() {
+        let ast = parse("a.b || c.d && e").unwrap();
+        assert_eq!("And(Or(Subexpr(Identifier(\"a\"), Identifier(\"b\")), \
+                           Subexpr(Identifier(\"c\"), Identifier(\"d\"))), \
+                        Identifier(\"e\"))", format!("{:?}", ast));
     }
 
     #[test] fn test_parse_or_and_pipe_with_precedence() {

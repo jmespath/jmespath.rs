@@ -26,6 +26,7 @@ pub enum Token {
     Dot,
     Star,
     Flatten,
+    And,
     Or,
     Pipe,
     Filter,
@@ -231,7 +232,7 @@ impl<'a> Iterator for Lexer<'a> {
                         ']' => tok!((pos, Rbracket)),
                         '{' => tok!((pos, Lbrace)),
                         '}' => tok!((pos, Rbrace)),
-                        '&' => tok!((pos, Ampersand)),
+                        '&' => tok!((pos, self.alt(&'&', And, Ampersand))),
                         '(' => tok!((pos, Lparen)),
                         ')' => tok!((pos, Rparen)),
                         ',' => tok!((pos, Comma)),
@@ -290,6 +291,11 @@ mod tests {
     #[test] fn tokenize_pipe_test() {
         assert!(tokenize("|").next() == Some((0, Pipe)));
         assert!(tokenize("||").next() == Some((0, Or)));
+    }
+
+    #[test] fn tokenize_and_ampersand_test() {
+        assert!(tokenize("&").next() == Some((0, Ampersand)));
+        assert!(tokenize("&&").next() == Some((0, And)));
     }
 
     #[test] fn tokenize_lt_gt_test() {

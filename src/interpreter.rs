@@ -56,6 +56,14 @@ impl<'a> TreeInterpreter<'a> {
                     self.interpret(data, rhs)
                 }
             },
+            &Ast::And(ref lhs, ref rhs) => {
+                let left = try!(self.interpret(data.clone(), lhs));
+                if !left.is_truthy() {
+                    Ok(left)
+                } else {
+                    self.interpret(data, rhs)
+                }
+            },
             // Returns the resut of RHS if cond yields truthy value.
             &Ast::Condition(ref cond, ref cond_rhs) => {
                 let cond_result = try!(self.interpret(data.clone(), cond));
@@ -187,20 +195,6 @@ mod tests {
         assert_eq!(Rc::new(Variable::String("baz".to_string())), interpret(data, &ast).unwrap());
     }
 
-    #[test] fn interprets_or() {
-        let data = Rc::new(Variable::Array(vec![
-            Rc::new(Variable::Boolean(false)),
-            Rc::new(Variable::Boolean(true))]));
-        assert_eq!(Rc::new(Variable::Boolean(true)),
-                   interpret(data.clone(), &Ast::Index(-1)).unwrap());
-        assert_eq!(Rc::new(Variable::Boolean(false)),
-                   interpret(data.clone(), &Ast::Index(-2)).unwrap());
-        assert_eq!(Rc::new(Variable::Boolean(false)),
-                   interpret(data.clone(), &Ast::Index(0)).unwrap());
-        assert_eq!(Rc::new(Variable::Boolean(true)),
-                   interpret(data.clone(), &Ast::Index(1)).unwrap());
-    }
-
     #[test] fn interprets_index() {
         let data = Rc::new(Variable::Array(vec![
             Rc::new(Variable::Boolean(false)),
@@ -226,6 +220,15 @@ mod tests {
                           Box::new(Ast::Identifier("foo".to_string())));
         let data = Rc::new(Variable::from_str("{\"foo\":true}").unwrap());
         assert_eq!(Rc::new(Variable::Boolean(true)), interpret(data, &ast).unwrap());
+    }
+
+    #[test] fn interprets_and_expr() {
+        let ast = Ast::And(Box::new(Ast::Identifier("bar".to_string())),
+                           Box::new(Ast::Identifier("foo".to_string())));
+        let data = Rc::new(Variable::from_str("{\"foo\":true, \"bar\":true}").unwrap());
+        assert_eq!(Rc::new(Variable::Boolean(true)), interpret(data, &ast).unwrap());
+        let data = Rc::new(Variable::from_str("{\"foo\":true}").unwrap());
+        assert_eq!(Rc::new(Variable::Null), interpret(data, &ast).unwrap());
     }
 
     #[test] fn interprets_cond_expr() {

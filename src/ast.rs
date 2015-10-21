@@ -20,6 +20,7 @@ pub enum Ast {
     MultiHash(Vec<KeyValuePair>),
     Projection(Box<Ast>, Box<Ast>),
     ObjectValues(Box<Ast>),
+    And(Box<Ast>, Box<Ast>),
     Or(Box<Ast>, Box<Ast>),
     Slice(Option<i32>, Option<i32>, Option<i32>),
     Subexpr(Box<Ast>, Box<Ast>),
