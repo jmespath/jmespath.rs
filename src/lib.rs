@@ -31,8 +31,8 @@ use parser::ParseError;
 use interpreter::interpret;
 
 pub mod ast;
-pub mod functions;
-pub mod interpreter;
+mod functions;
+mod interpreter;
 pub mod lexer;
 pub mod parser;
 mod variable;
