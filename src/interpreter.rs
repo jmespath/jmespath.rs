@@ -64,6 +64,10 @@ impl<'a> TreeInterpreter<'a> {
                     self.interpret(data, rhs)
                 }
             },
+            &Ast::Not(ref expr) => {
+                let result = try!(self.interpret(data.clone(), expr));
+                Ok(Rc::new(Variable::Boolean(!result.is_truthy())))
+            },
             // Returns the resut of RHS if cond yields truthy value.
             &Ast::Condition(ref cond, ref cond_rhs) => {
                 let cond_result = try!(self.interpret(data.clone(), cond));
@@ -229,6 +233,16 @@ mod tests {
         assert_eq!(Rc::new(Variable::Boolean(true)), interpret(data, &ast).unwrap());
         let data = Rc::new(Variable::from_str("{\"foo\":true}").unwrap());
         assert_eq!(Rc::new(Variable::Null), interpret(data, &ast).unwrap());
+    }
+
+    #[test] fn interprets_not_expr() {
+        let data = Rc::new(Variable::from_str("{\"a\":true,\"b\":0,\"c\":false}").unwrap());
+        let ast = Ast::Not(Box::new(Ast::Identifier("a".to_string())));
+        assert_eq!(Rc::new(Variable::Boolean(false)), interpret(data.clone(), &ast).unwrap());
+        let ast = Ast::Not(Box::new(Ast::Identifier("b".to_string())));
+        assert_eq!(Rc::new(Variable::Boolean(false)), interpret(data.clone(), &ast).unwrap());
+        let ast = Ast::Not(Box::new(Ast::Identifier("c".to_string())));
+        assert_eq!(Rc::new(Variable::Boolean(true)), interpret(data.clone(), &ast).unwrap());
     }
 
     #[test] fn interprets_cond_expr() {

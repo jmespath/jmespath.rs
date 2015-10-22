@@ -1,5 +1,4 @@
 //! JMESPath AST
-
 use std::rc::Rc;
 
 use variable::Variable;
@@ -18,6 +17,7 @@ pub enum Ast {
     Literal(Rc<Variable>),
     MultiList(Vec<Ast>),
     MultiHash(Vec<KeyValuePair>),
+    Not(Box<Ast>),
     Projection(Box<Ast>, Box<Ast>),
     ObjectValues(Box<Ast>),
     And(Box<Ast>, Box<Ast>),

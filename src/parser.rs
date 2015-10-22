@@ -91,7 +91,6 @@ impl Operator {
     pub fn precedence(&self) -> usize {
         match self {
             &Operator::Pipe => 1,
-            &Operator::Not => 2,
             &Operator::Eq => 2,
             &Operator::Ne => 2,
             &Operator::Gt => 2,
@@ -106,6 +105,7 @@ impl Operator {
                 | &Operator::FilterProjection(Some(_))
                 | &Operator::SliceProjection(_, _, _, _) => 20,
             &Operator::Dot => 40,
+            &Operator::Not => 45,
             &Operator::MultiHash(_) => 50,
             &Operator::MultiList(_) => 55,
             _ => 0 // Note: 0 precedence should never be popped from operator stack.
@@ -129,11 +129,12 @@ impl Operator {
     #[inline]
     fn is_right_associative(&self) -> bool {
         match self {
-            // Projections are right associative.
+            // Projections and Not are right associative.
             &Operator::Star
                 | &Operator::ArrayProjection
                 | &Operator::SliceProjection(_, _, _, _)
-                | &Operator::FilterProjection(_) => true,
+                | &Operator::FilterProjection(_)
+                | &Operator::Not => true,
             // Left associative.
             _ => false
         }
@@ -311,6 +312,10 @@ impl<'a> Parser<'a> {
             Token::Ampersand => {
                 let next_token = self.advance();
                 self.push_operator(next_token, Operator::Ampersand)
+            },
+            Token::Not => {
+                let next_token = self.advance();
+                self.push_operator(next_token, Operator::Not)
             },
             ref tok @ _ => Err(self.err(Some(tok), &format!("Unexpected prefix token: {:?}", tok)))
         }
@@ -705,7 +710,7 @@ impl<'a> Parser<'a> {
 
     // Ensures that the operator is something that can be popped otherwise it's unclosed.
     #[inline]
-    fn assert_not_unclosed(&mut self, operator: &Operator) -> Result<(), ParseError> {
+    fn assert_operator_not_unclosed(&mut self, operator: &Operator) -> Result<(), ParseError> {
         match operator {
             &Operator::Function(_, _) => Err(self.err(None, "Unclosed function")),
             &Operator::MultiHash(_) => Err(self.err(None, "Unclosed multi-hash '{'")),
@@ -715,15 +720,24 @@ impl<'a> Parser<'a> {
         }
     }
 
+    // Ensures that the operator has access to the correct number of operands.
+    #[inline]
+    fn assert_correct_operand_count(&self, operator: &Operator) -> Result<(), ParseError> {
+        let required_operands = if operator.is_binary() { 2 } else { 1 };
+        if self.output_queue.len() < required_operands {
+            Err(self.err(None, &format!("Missing right hand side of '{}'", operator)))
+        } else {
+            Ok(())
+        }
+    }
+
     #[inline]
     fn pop_token(&mut self) -> Result<(), ParseError> {
         let operator = self.operator_stack.pop().unwrap();
-        try!(self.assert_not_unclosed(&operator));
+        try!(self.assert_operator_not_unclosed(&operator));
+        try!(self.assert_correct_operand_count(&operator));
+        let rhs = self.output_queue.pop().unwrap();
         if operator.is_binary() {
-            if self.output_queue.len() < 2 {
-                return Err(self.err(None, &format!("Missing right side of '{}'", operator)));
-            }
-            let rhs = self.output_queue.pop().unwrap();
             let lhs = self.output_queue.pop().unwrap();
             match operator {
                 Operator::Dot => self.output_queue.push(
@@ -763,16 +777,15 @@ impl<'a> Parser<'a> {
                     Ast::Subexpr(Box::new(lhs),
                                  Box::new(Ast::Projection(
                                      Box::new(Ast::Slice(start, stop, step)), Box::new(rhs))))),
-                _ => return Err(self.err(None, &format!("Unexpected binary operator: {:?}",
-                                                        operator)))
+                _ => unreachable!()
             };
         } else {
-            let node = self.output_queue.pop().unwrap();
             match operator {
-                Operator::Ampersand => self.output_queue.push(Ast::Expref(Box::new(node))),
+                Operator::Ampersand => self.output_queue.push(Ast::Expref(Box::new(rhs))),
                 Operator::SliceProjection(_, start, stop, step) => self.output_queue.push(
-                    Ast::Projection(Box::new(Ast::Slice(start, stop, step)), Box::new(node))),
-                _ => return Err(self.err(None, &"Unexpected unary operator"))
+                    Ast::Projection(Box::new(Ast::Slice(start, stop, step)), Box::new(rhs))),
+                Operator::Not => self.output_queue.push(Ast::Not(Box::new(rhs))),
+                _ => unreachable!()
             }
         }
         Ok(())
@@ -845,6 +858,17 @@ mod test {
         let ast = parse("foo || bar | baz").unwrap();
         assert_eq!("Subexpr(Or(Identifier(\"foo\"), Identifier(\"bar\")), \
                             Identifier(\"baz\"))", format!("{:?}", ast));
+    }
+
+    #[test] fn test_parse_not() {
+        let ast = parse("!foo || bar").unwrap();
+        assert_eq!("Or(Not(Identifier(\"foo\")), Identifier(\"bar\"))", format!("{:?}", ast));
+    }
+
+    #[test] fn test_not_requires_operand() {
+        assert_eq!("Err(ParseError { msg: \"Parse error at line 0, col 1; Missing right hand \
+                   side of \\\'!\\\'\\n!\\n ^\\n\", line: 0, col: 1 })",
+                   format!("{:?}", parse("!")));
     }
 
     #[test] fn test_comparator() {
@@ -1074,8 +1098,8 @@ mod test {
 
     #[test] fn test_does_not_blow_up_on_bad_binary() {
         let result = parse("foo |");
-        assert_eq!("Err(ParseError { msg: \"Parse error at line 0, col 5; Missing right side \
-                   of \\\'|\\\'\\nfoo |\\n     ^\\n\", line: 0, col: 5 })",
+        assert_eq!("Err(ParseError { msg: \"Parse error at line 0, col 5; Missing right hand \
+                   side of \\\'|\\\'\\nfoo |\\n     ^\\n\", line: 0, col: 5 })",
                    format!("{:?}", result));
     }
 
