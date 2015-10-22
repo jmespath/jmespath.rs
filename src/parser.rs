@@ -145,6 +145,7 @@ impl Operator {
         match self {
             &Operator::Ampersand => false,
             &Operator::Not => false,
+            &Operator::Lparen => false,
             &Operator::SliceProjection(is_binary, _, _, _) => is_binary,
             _ => true
         }
@@ -317,7 +318,11 @@ impl<'a> Parser<'a> {
                 let next_token = self.advance();
                 self.push_operator(next_token, Operator::Not)
             },
-            ref tok @ _ => Err(self.err(Some(tok), &format!("Unexpected prefix token: {:?}", tok)))
+            Token::Lparen => {
+                let next_token = self.advance();
+                self.push_operator(next_token, Operator::Lparen)
+            },
+            ref tok @ _ => Err(self.err(Some(tok), &format!("Unexpected token: {:?}", tok)))
         }
     }
 
@@ -365,12 +370,12 @@ impl<'a> Parser<'a> {
             },
             Token::Rparen => self.closing_token(token, |p: &mut Self, op: Operator| {
                 match op {
+                    Operator::Lparen => Some(Ok(p.advance())),
                     Operator::Function(name, mut args) => {
                         args.push(p.output_queue.pop().unwrap());
                         p.output_queue.push(Ast::Function(name, args));
                         Some(Ok(p.advance()))
                     },
-                    // TODO: Implement simple precedence parens? Needs a JEP.
                     _ => None
                 }
             }),
@@ -623,16 +628,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-    // Returns true if the last operator is "closed by" the provided token.
-    // Note: This is only its own method to play nice with the borrow checker.
-    #[inline]
-    fn does_last_operator_close(&self, token: &Token) -> bool {
-        match self.operator_stack.last() {
-            Some(operator) if operator.closes(token) => true,
-            _ => false
-        }
-    }
-
     // Returns true if the last operator is enumerated and supported token concatenation.
     // Note: This is only its own method to play nice with the borrow checker.
     #[inline]
@@ -668,16 +663,16 @@ impl<'a> Parser<'a> {
         where F: Fn(&mut Self, Operator) -> Option<ParseStep>
     {
         while !self.operator_stack.is_empty() {
-            if !self.does_last_operator_close(&token) {
+            if !self.operator_stack.last().unwrap().closes(&token) {
                 // Keep popping operators off the operator stack and onto output stack.
                 try!(self.pop_token());
             } else {
-                let last_operator = self.operator_stack.pop().unwrap();
-                // Ensure that the operator that was popped is our desired match.
-                if let Some(t) = on_match(self, last_operator) {
-                    return t;
+                // Stop popping if the operator that was popped is our desired match.
+                let operator = self.operator_stack.pop().unwrap();
+                match on_match(self, operator) {
+                    Some(t) => return t,
+                    None => break
                 }
-                break;
             }
         }
         Err(self.err(Some(&token), &format!("Unbalanced {:?}", token)))
@@ -708,18 +703,6 @@ impl<'a> Parser<'a> {
         Err(self.err(Some(&token), &format!("Misplaced {:?}", token)))
     }
 
-    // Ensures that the operator is something that can be popped otherwise it's unclosed.
-    #[inline]
-    fn assert_operator_not_unclosed(&mut self, operator: &Operator) -> Result<(), ParseError> {
-        match operator {
-            &Operator::Function(_, _) => Err(self.err(None, "Unclosed function")),
-            &Operator::MultiHash(_) => Err(self.err(None, "Unclosed multi-hash '{'")),
-            &Operator::MultiList(_) => Err(self.err(None, "Unclosed multi-list '['")),
-            &Operator::FilterProjection(None) => Err(self.err(None, "Unclosed filter")),
-            _ => Ok(())
-        }
-    }
-
     // Ensures that the operator has access to the correct number of operands.
     #[inline]
     fn assert_correct_operand_count(&self, operator: &Operator) -> Result<(), ParseError> {
@@ -734,8 +717,14 @@ impl<'a> Parser<'a> {
     #[inline]
     fn pop_token(&mut self) -> Result<(), ParseError> {
         let operator = self.operator_stack.pop().unwrap();
-        try!(self.assert_operator_not_unclosed(&operator));
-        try!(self.assert_correct_operand_count(&operator));
+        match operator {
+            Operator::Lparen => return Err(self.err(None, "Unclosed \"(\"")),
+            Operator::Function(_, _) => return Err(self.err(None, "Unclosed function")),
+            Operator::MultiHash(_) => return Err(self.err(None, "Unclosed multi-hash '{'")),
+            Operator::MultiList(_) => return Err(self.err(None, "Unclosed multi-list '['")),
+            Operator::FilterProjection(None) => return Err(self.err(None, "Unclosed filter")),
+            _ => try!(self.assert_correct_operand_count(&operator))
+        };
         let rhs = self.output_queue.pop().unwrap();
         if operator.is_binary() {
             let lhs = self.output_queue.pop().unwrap();
@@ -1038,7 +1027,7 @@ mod test {
 
     #[test] fn test_ensures_filters_are_not_empty() {
         let result = parse("prefix[?].bar");
-        assert_eq!("ParseError { msg: \"Parse error at line 0, col 8; Unexpected prefix \
+        assert_eq!("ParseError { msg: \"Parse error at line 0, col 8; Unexpected \
                     token: Rbracket\\nprefix[?].bar\\n        ^\\n\", line: 0, col: 8 }",
                    format!("{:?}", result.unwrap_err()));
     }
@@ -1076,7 +1065,7 @@ mod test {
     }
 
     #[test] fn test_ensures_multi_hash_colon_has_value() {
-        assert_eq!("ParseError { msg: \"Parse error at line 0, col 9; Unexpected prefix \
+        assert_eq!("ParseError { msg: \"Parse error at line 0, col 9; Unexpected \
                     token: Rbrace\\nfoo.{bar:}\\n         ^\\n\", line: 0, col: 9 }",
                    format!("{:?}", parse("foo.{bar:}").unwrap_err()));
     }
@@ -1114,5 +1103,40 @@ mod test {
                    format!("{}", Operator::FilterProjection(Some(Ast::CurrentNode))));
         assert_eq!("slice-projection".to_string(),
                    format!("{}", Operator::SliceProjection(true, None, None, None)));
+    }
+
+    #[test] fn test_parses_precedence_with_parens() {
+        let ast = parse("(foo | bar) || baz").unwrap();
+        assert_eq!("Or(Subexpr(Identifier(\"foo\"), Identifier(\"bar\")), \
+                    Identifier(\"baz\"))",
+                   format!("{:?}", ast));
+    }
+
+    #[test] fn test_parses_parens_at_end() {
+        let ast = parse("(foo || bar)").unwrap();
+        assert_eq!("Or(Identifier(\"foo\"), Identifier(\"bar\"))", format!("{:?}", ast));
+    }
+
+    #[test] fn test_parses_superfluous_parens() {
+        let ast = parse("(foo)").unwrap();
+        assert_eq!("Identifier(\"foo\")", format!("{:?}", ast));
+    }
+
+    #[test] fn test_requires_opening_paren() {
+        let ast = parse(")");
+        assert_eq!("Err(ParseError { msg: \"Parse error at line 0, col 0; Unexpected \
+                    token: Rparen\\n)\\n^\\n\", line: 0, col: 0 })",
+                   format!("{:?}", ast));
+        let ast = parse("(foo))");
+        assert_eq!("Err(ParseError { msg: \"Parse error at line 0, col 5; Unbalanced \
+                    Rparen\\n(foo))\\n     ^\\n\", line: 0, col: 5 })",
+                   format!("{:?}", ast));
+    }
+
+    #[test] fn test_requires_paren_is_closed() {
+        let ast = parse("(");
+        assert_eq!("Err(ParseError { msg: \"Parse error at line 0, col 1; Unclosed \
+                    \\\"(\\\"\\n(\\n ^\\n\", line: 0, col: 1 })",
+                   format!("{:?}", ast));
     }
 }
