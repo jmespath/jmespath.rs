@@ -866,9 +866,10 @@ mod test {
     }
 
     #[test] fn test_not_requires_operand() {
-        assert_eq!("Err(ParseError { msg: \"Parse error at line 0, col 1; Missing right hand \
-                   side of \\\'!\\\'\\n!\\n ^\\n\", line: 0, col: 1 })",
-                   format!("{:?}", parse("!")));
+        let result = parse("!");
+        assert_eq!("ParseError { msg: \"Parse error at line 0, col 1; Missing right hand \
+                    side of \\\'!\\\'\\n!\\n ^\\n\", line: 0, col: 1 }",
+                   format!("{:?}", result.unwrap_err()));
     }
 
     #[test] fn test_comparator() {
@@ -960,16 +961,16 @@ mod test {
 
     #[test] fn test_ensures_functions_are_closed() {
         let result = parse("foo(bar");
-        assert_eq!("Err(ParseError { msg: \"Parse error at line 0, col 7; Unclosed function\\n\
-                   foo(bar\\n       ^\\n\", line: 0, col: 7 })",
-                   format!("{:?}", result));
+        assert_eq!("ParseError { msg: \"Parse error at line 0, col 7; Unclosed function\\n\
+                    foo(bar\\n       ^\\n\", line: 0, col: 7 }",
+                   format!("{:?}", result.unwrap_err()));
     }
 
     #[test] fn test_ensures_functions_with_no_args_are_closed() {
         let result = parse("foo(");
-        assert_eq!("Err(ParseError { msg: \"Parse error at line 0, col 4; Unclosed function\\n\
-                   foo(\\n    ^\\n\", line: 0, col: 4 })",
-                   format!("{:?}", result));
+        assert_eq!("ParseError { msg: \"Parse error at line 0, col 4; Unclosed function\\n\
+                    foo(\\n    ^\\n\", line: 0, col: 4 }",
+                   format!("{:?}", result.unwrap_err()));
     }
 
     #[test] fn test_parse_functions_with_multiple_args() {
@@ -989,10 +990,10 @@ mod test {
 
     #[test] fn test_ensures_multi_list_are_closed() {
         let result = parse("foo.[bar, baz");
-        assert_eq!("Err(ParseError { msg: \"Parse error at line 0, col 13; \
-                   Unclosed multi-list \\\'[\\\'\\n\
-                   foo.[bar, baz\\n             ^\\n\", line: 0, col: 13 })",
-                   format!("{:?}", result));
+        assert_eq!("ParseError { msg: \"Parse error at line 0, col 13; \
+                    Unclosed multi-list \\\'[\\\'\\n\
+                    foo.[bar, baz\\n             ^\\n\", line: 0, col: 13 }",
+                   format!("{:?}", result.unwrap_err()));
     }
 
     #[test] fn test_parse_postfix_slice_projections() {
@@ -1011,10 +1012,10 @@ mod test {
 
     #[test] fn test_ensures_slices_are_closed() {
         let result = parse("[0::1");
-        assert_eq!("Err(ParseError { msg: \"Parse error at line 0, col 5; \
-                   Expected number, \\\':\\\', or \\\']\\\'\\n\
-                   [0::1\\n     ^\\n\", line: 0, col: 5 })",
-                   format!("{:?}", result));
+        assert_eq!("ParseError { msg: \"Parse error at line 0, col 5; \
+                    Expected number, \\\':\\\', or \\\']\\\'\\n\
+                    [0::1\\n     ^\\n\", line: 0, col: 5 }",
+                   format!("{:?}", result.unwrap_err()));
     }
 
     #[test] fn test_parses_nud_filter_projections() {
@@ -1037,16 +1038,16 @@ mod test {
 
     #[test] fn test_ensures_filters_are_not_empty() {
         let result = parse("prefix[?].bar");
-        assert_eq!("Err(ParseError { msg: \"Parse error at line 0, col 8; Unexpected prefix \
-                   token: Rbracket\\nprefix[?].bar\\n        ^\\n\", line: 0, col: 8 })",
-                   format!("{:?}", result));
+        assert_eq!("ParseError { msg: \"Parse error at line 0, col 8; Unexpected prefix \
+                    token: Rbracket\\nprefix[?].bar\\n        ^\\n\", line: 0, col: 8 }",
+                   format!("{:?}", result.unwrap_err()));
     }
 
     #[test] fn test_ensures_filters_are_closed() {
         let result = parse("prefix[?baz");
-        assert_eq!("Err(ParseError { msg: \"Parse error at line 0, col 11; Unclosed filter\\n\
-                   prefix[?baz\\n           ^\\n\", line: 0, col: 11 })",
-                   format!("{:?}", result));
+        assert_eq!("ParseError { msg: \"Parse error at line 0, col 11; Unclosed filter\\n\
+                    prefix[?baz\\n           ^\\n\", line: 0, col: 11 }",
+                   format!("{:?}", result.unwrap_err()));
     }
 
     #[test] fn test_parse_multi_hash() {
@@ -1069,38 +1070,37 @@ mod test {
 
     #[test] fn test_ensures_multi_hash_are_closed() {
         let result = parse("foo.{bar: baz");
-        assert_eq!("Err(ParseError { msg: \"Parse error at line 0, col 13; Unclosed multi-hash \
-                   \\\'{\\\'\\nfoo.{bar: baz\\n             ^\\n\", line: 0, col: 13 })",
-                   format!("{:?}", result));
+        assert_eq!("ParseError { msg: \"Parse error at line 0, col 13; Unclosed multi-hash \
+                    \\\'{\\\'\\nfoo.{bar: baz\\n             ^\\n\", line: 0, col: 13 }",
+                   format!("{:?}", result.unwrap_err()));
     }
 
     #[test] fn test_ensures_multi_hash_colon_has_value() {
-        let result = parse("foo.{bar:}");
-        assert_eq!("Err(ParseError { msg: \"Parse error at line 0, col 9; Unexpected prefix \
-                   token: Rbrace\\nfoo.{bar:}\\n         ^\\n\", line: 0, col: 9 })",
-                   format!("{:?}", result));
+        assert_eq!("ParseError { msg: \"Parse error at line 0, col 9; Unexpected prefix \
+                    token: Rbrace\\nfoo.{bar:}\\n         ^\\n\", line: 0, col: 9 }",
+                   format!("{:?}", parse("foo.{bar:}").unwrap_err()));
     }
 
     #[test] fn test_ensures_multi_hash_comma_followed_by_expr() {
         let result = parse("foo.{bar: baz, }");
-        assert_eq!("Err(ParseError { msg: \"Parse error at line 0, col 15; Expected identifier \
-                   for multi-hash key\\nfoo.{bar: baz, }\\n               ^\\n\", \
-                   line: 0, col: 15 })",
-                   format!("{:?}", result));
+        assert_eq!("ParseError { msg: \"Parse error at line 0, col 15; Expected identifier \
+                    for multi-hash key\\nfoo.{bar: baz, }\\n               ^\\n\", \
+                    line: 0, col: 15 }",
+                   format!("{:?}", result.unwrap_err()));
     }
 
     #[test] fn test_ensures_multi_hash_comma_followed_by_key() {
         let result = parse("{&bar: bam}");
-        assert_eq!("Err(ParseError { msg: \"Parse error at line 0, col 1; Expected identifier \
-                   for multi-hash key\\n{&bar: bam}\\n ^\\n\", line: 0, col: 1 })",
-                   format!("{:?}", result));
+        assert_eq!("ParseError { msg: \"Parse error at line 0, col 1; Expected identifier \
+                    for multi-hash key\\n{&bar: bam}\\n ^\\n\", line: 0, col: 1 }",
+                   format!("{:?}", result.unwrap_err()));
     }
 
     #[test] fn test_does_not_blow_up_on_bad_binary() {
         let result = parse("foo |");
-        assert_eq!("Err(ParseError { msg: \"Parse error at line 0, col 5; Missing right hand \
-                   side of \\\'|\\\'\\nfoo |\\n     ^\\n\", line: 0, col: 5 })",
-                   format!("{:?}", result));
+        assert_eq!("ParseError { msg: \"Parse error at line 0, col 5; Missing right hand \
+                    side of \\\'|\\\'\\nfoo |\\n     ^\\n\", line: 0, col: 5 }",
+                   format!("{:?}", result.unwrap_err()));
     }
 
     #[test] fn test_displays_operators() {
