@@ -686,17 +686,6 @@ impl<'a> Parser<'a> {
         Err(self.err(Some(&token), &format!("Misplaced {:?} separator", token)))
     }
 
-    // Ensures that the operator has access to the correct number of operands.
-    #[inline]
-    fn assert_correct_operand_count(&self, operator: &Operator) -> Result<(), ParseError> {
-        let required_operands = if operator.is_binary() { 2 } else { 1 };
-        if self.output_queue.len() < required_operands {
-            Err(self.err(None, &format!("Missing right hand side of '{}'", operator)))
-        } else {
-            Ok(())
-        }
-    }
-
     #[inline]
     fn pop_token(&mut self) -> Result<(), ParseError> {
         let operator = self.operator_stack.pop().unwrap();
@@ -706,8 +695,11 @@ impl<'a> Parser<'a> {
             Operator::MultiHash(_) => return Err(self.err(None, "Unclosed multi-hash '{'")),
             Operator::MultiList(_) => return Err(self.err(None, "Unclosed multi-list '['")),
             Operator::FilterProjection(None) => return Err(self.err(None, "Unclosed filter")),
-            _ => try!(self.assert_correct_operand_count(&operator))
+            _ => ()
         };
+        if self.output_queue.is_empty() || operator.is_binary() && self.output_queue.len() < 2 {
+            return Err(self.err(None, &format!("Incomplete '{}' expression", operator)));
+        }
         let rhs = self.output_queue.pop().unwrap();
         if operator.is_binary() {
             let lhs = self.output_queue.pop().unwrap();
@@ -839,8 +831,8 @@ mod test {
 
     #[test] fn test_not_requires_operand() {
         let result = parse("!");
-        assert_eq!("ParseError { msg: \"Parse error at line 0, col 1; Missing right hand \
-                    side of \\\'!\\\'\\n!\\n ^\\n\", line: 0, col: 1 }",
+        assert_eq!("ParseError { msg: \"Parse error at line 0, col 1; Incomplete \
+                    \\\'!\\\' expression\\n!\\n ^\\n\", line: 0, col: 1 }",
                    format!("{:?}", result.unwrap_err()));
     }
 
@@ -1070,8 +1062,8 @@ mod test {
 
     #[test] fn test_does_not_blow_up_on_bad_binary() {
         let result = parse("foo |");
-        assert_eq!("ParseError { msg: \"Parse error at line 0, col 5; Missing right hand \
-                    side of \\\'|\\\'\\nfoo |\\n     ^\\n\", line: 0, col: 5 }",
+        assert_eq!("ParseError { msg: \"Parse error at line 0, col 5; Incomplete \
+                    \\\'|\\\' expression\\nfoo |\\n     ^\\n\", line: 0, col: 5 }",
                    format!("{:?}", result.unwrap_err()));
     }
 
