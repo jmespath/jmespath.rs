@@ -151,9 +151,9 @@ impl Operator {
         }
     }
 
-    // Returns true if the token closes the passed in token.
+    // Returns true if the opeartor is closed by the passed in token.
     #[inline]
-    pub fn closes(&self, token: &Token) -> bool {
+    pub fn is_closed_by_token(&self, token: &Token) -> bool {
         match self {
             &Operator::Lparen => token == &Token::Rparen,
             &Operator::Function(_, _) => token == &Token::Rparen,
@@ -617,26 +617,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-    // Returns true if the last operator has a greater precedence than the provided token.
-    #[inline]
-    fn does_last_have_greater_precedence(&self, op: &Operator) -> bool {
-        if let Some(last) = self.operator_stack.last() {
-            last != &Operator::Lparen && op.has_lower_precedence(last.precedence())
-        } else {
-            false
-        }
-    }
-
-    // Returns true if the last operator is enumerated and supported token concatenation.
-    // Note: This is only its own method to play nice with the borrow checker.
-    #[inline]
-    fn does_last_support(&self, token: &Token) -> bool {
-        match self.operator_stack.last() {
-            Some(operator) if operator.supports_separator(token) => true,
-            _ => false
-        }
-    }
-
     // Adds an operator to the operator_stack.
     //
     // Any operators that have a greater precedence than the provided operator are popped from
@@ -645,7 +625,11 @@ impl<'a> Parser<'a> {
     #[inline]
     fn push_operator(&mut self, token: Token, operator: Operator) -> ParseStep {
         // Pop things from the top of the operator stack that have a higher precedence.
-        while self.does_last_have_greater_precedence(&operator) {
+        while match self.operator_stack.last() {
+            Some(&Operator::Lparen) => false,
+            Some(ref last) if operator.has_lower_precedence(last.precedence()) => true,
+            _ => false
+        } {
             try!(self.pop_token());
         }
         self.operator_stack.push(operator);
@@ -662,17 +646,16 @@ impl<'a> Parser<'a> {
         where F: Fn(&mut Self, Operator) -> Option<ParseStep>
     {
         while !self.operator_stack.is_empty() {
-            if !self.operator_stack.last().unwrap().closes(&token) {
-                // Keep popping operators off the operator stack and onto output stack.
-                try!(self.pop_token());
-            } else {
+            if self.operator_stack.last().unwrap().is_closed_by_token(&token) {
                 // Stop popping if the operator that was popped is our desired match.
-                let operator = self.operator_stack.pop().unwrap();
-                match on_match(self, operator) {
+                let last_operator = self.operator_stack.pop().unwrap();
+                match on_match(self, last_operator) {
                     Some(t) => return t,
                     None => break
                 }
             }
+            // Keep popping operators off the operator stack and onto output stack.
+            try!(self.pop_token());
         }
         Err(self.err(Some(&token), &format!("Unbalanced {:?}", token)))
     }
@@ -686,20 +669,21 @@ impl<'a> Parser<'a> {
     fn separator_token<F>(&mut self, token: Token, on_match: F) -> ParseStep
         where F: Fn(&mut Self, Operator) -> Option<ParseStep>
     {
+        // Hitting a separator tokens means that we need an operand to follow.
         self.parser_state = ParserState::NeedOperand;
         while !self.operator_stack.is_empty() {
-            if !self.does_last_support(&token) {
-                try!(self.pop_token());
-            } else {
+            if self.operator_stack.last().unwrap().supports_separator(&token) {
                 let last_operator = self.operator_stack.pop().unwrap();
                 // Ensure that the operator that was popped is our desired match.
-                if let Some(t) = on_match(self, last_operator) {
-                    return t;
+                match on_match(self, last_operator) {
+                    Some(t) => return t,
+                    None => break
                 }
-                break;
             }
+            // Keep popping operators off the operator stack and onto output stack.
+            try!(self.pop_token());
         }
-        Err(self.err(Some(&token), &format!("Misplaced {:?}", token)))
+        Err(self.err(Some(&token), &format!("Misplaced {:?} separator", token)))
     }
 
     // Ensures that the operator has access to the correct number of operands.
