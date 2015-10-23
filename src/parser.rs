@@ -112,7 +112,7 @@ impl Operator {
         }
     }
 
-    /// Returns true if the current operator has a precedence < give.
+    /// Returns true if the current operator has a precedence < given.
     /// This function takes operator associativity into account. Left
     /// associative operators check with <, while right associative check
     /// with <=.
@@ -169,8 +169,7 @@ impl Operator {
     pub fn supports_separator(&self, token: &Token) -> bool {
         match self {
             // Functions and multi-list support commas.
-            &Operator::Function(_, _)
-                | &Operator::MultiList(_) => token == &Token::Comma,
+            &Operator::Function(_, _) | &Operator::MultiList(_) => token == &Token::Comma,
             // Multi-hash supports commas and colons.
             &Operator::MultiHash(_) => token == &Token::Comma || token == &Token::Colon,
             _ => false
@@ -619,12 +618,12 @@ impl<'a> Parser<'a> {
     }
 
     // Returns true if the last operator has a greater precedence than the provided token.
-    // Note: This is only its own method to play nice with the borrow checker.
     #[inline]
     fn does_last_have_greater_precedence(&self, op: &Operator) -> bool {
-        match self.operator_stack.last() {
-            Some(operator) if op.has_lower_precedence(operator.precedence()) => true,
-            _ => false
+        if let Some(last) = self.operator_stack.last() {
+            last != &Operator::Lparen && op.has_lower_precedence(last.precedence())
+        } else {
+            false
         }
     }
 
@@ -1119,6 +1118,8 @@ mod test {
 
     #[test] fn test_parses_superfluous_parens() {
         let ast = parse("(foo)").unwrap();
+        assert_eq!("Identifier(\"foo\")", format!("{:?}", ast));
+        let ast = parse("(((foo)))").unwrap();
         assert_eq!("Identifier(\"foo\")", format!("{:?}", ast));
     }
 
