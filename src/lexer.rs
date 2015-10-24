@@ -1,11 +1,7 @@
 //! Module for tokenizing JMESPath expression.
-
-extern crate rustc_serialize;
-
 use std::rc::Rc;
 use std::iter::Peekable;
 use std::str::CharIndices;
-use self::rustc_serialize::json::Json;
 
 use self::Token::*;
 use variable::Variable;
@@ -169,7 +165,7 @@ impl<'a> Lexer<'a> {
     fn consume_quoted_identifier(&mut self) -> Token {
         self.consume_inside('"', |s| {
             // JSON decode the string to expand escapes
-            match Json::from_str(format!(r##""{}""##, s).as_ref()) {
+            match Variable::from_str(format!(r##""{}""##, s).as_ref()) {
                 // Convert the JSON value into a string literal.
                 Ok(j) => QuotedIdentifier(j.as_string().unwrap().to_string()),
                 Err(e) => Error {
@@ -189,8 +185,8 @@ impl<'a> Lexer<'a> {
     #[inline]
     fn consume_literal(&mut self) -> Token {
         self.consume_inside('`', |s| {
-            match Json::from_str(s.as_ref()) {
-                Ok(j) => Literal(Rc::new(Variable::from_json(&j))),
+            match Variable::from_str(s.as_ref()) {
+                Ok(j) => Literal(Rc::new(j)),
                 Err(err) => Error {
                     value: format!("`{}`", s),
                     msg: format!("Unable to parse literal JSON: {}", err)
