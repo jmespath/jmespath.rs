@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use ast::Ast;
 use functions::{FnDispatcher, BuiltinFunctions};
-use variable::Variable;
+use variable::{Variable, VariableArena};
 
 pub type InterpretResult = Result<Rc<Variable>, String>;
 
@@ -17,14 +17,17 @@ pub fn interpret(data: Rc<Variable>, ast: &Ast) -> InterpretResult {
 #[derive(Clone)]
 pub struct TreeInterpreter<'a> {
     /// Handles interpreting built-in functions from the AST.
-    fn_dispatcher: &'a FnDispatcher
+    fn_dispatcher: &'a FnDispatcher,
+    /// Allocates runtime variables.
+    pub arena: VariableArena
 }
 
 impl<'a> TreeInterpreter<'a> {
     /// Creates a new TreeInterpreter using the given function dispatcher.
     pub fn new(fn_dispatcher: &'a FnDispatcher) -> TreeInterpreter<'a> {
         TreeInterpreter {
-            fn_dispatcher: fn_dispatcher
+            fn_dispatcher: fn_dispatcher,
+            arena: VariableArena::new()
         }
     }
 
@@ -33,7 +36,7 @@ impl<'a> TreeInterpreter<'a> {
         match node {
             &Ast::Subexpr(ref lhs, ref rhs) =>
                 self.interpret(try!(self.interpret(data, lhs)), rhs),
-            &Ast::Identifier(ref f) => Ok(data.get_value(f).unwrap_or(Rc::new(Variable::Null))),
+            &Ast::Identifier(ref f) => Ok(data.get_value(f).unwrap_or(self.arena.alloc_null())),
             &Ast::CurrentNode => Ok(data.clone()),
             &Ast::Literal(ref json) => Ok(json.clone()),
             &Ast::Index(ref i) => {
@@ -43,7 +46,7 @@ impl<'a> TreeInterpreter<'a> {
                     data.get_negative_index((-1 * i) as usize)
                 } {
                     Some(value) => Ok(value),
-                    None => Ok(Rc::new(Variable::Null))
+                    None => Ok(self.arena.alloc_null())
                 }
             },
             &Ast::Or(ref lhs, ref rhs) => {
@@ -64,7 +67,7 @@ impl<'a> TreeInterpreter<'a> {
             },
             &Ast::Not(ref expr) => {
                 let result = try!(self.interpret(data.clone(), expr));
-                Ok(Rc::new(Variable::Boolean(!result.is_truthy())))
+                Ok(self.arena.alloc_bool(!result.is_truthy()))
             },
             // Returns the resut of RHS if cond yields truthy value.
             &Ast::Condition(ref cond, ref cond_rhs) => {
@@ -72,28 +75,28 @@ impl<'a> TreeInterpreter<'a> {
                 if cond_result.is_truthy() {
                     self.interpret(data, cond_rhs)
                 } else {
-                    Ok(Rc::new(Variable::Null))
+                    Ok(self.arena.alloc_null())
                 }
             },
             &Ast::Comparison(ref cmp, ref lhs, ref rhs) => {
                 let left = try!(self.interpret(data.clone(), lhs));
                 let right = try!(self.interpret(data, rhs));
                 Ok(left.compare(cmp, &*right).map_or(
-                    Rc::new(Variable::Null),
-                    |result| Rc::new(Variable::Boolean(result))))
+                    self.arena.alloc_null(),
+                    |result| self.arena.alloc_bool(result)))
             },
             // Converts an object into a JSON array of its values.
             &Ast::ObjectValues(ref predicate) => {
-                Ok(match try!(self.interpret(data, predicate)).object_values_to_array() {
-                    Some(values) => Rc::new(values),
-                    None => Rc::new(Variable::Null)
+                Ok(match try!(self.interpret(data, predicate)).object_values() {
+                    Some(values) => self.arena.alloc_array(values),
+                    None => self.arena.alloc_null()
                 })
             },
             // Passes the results of lhs into rhs if lhs yields an array and
             // each node of lhs that passes through rhs yields a non-null value.
             &Ast::Projection(ref lhs, ref rhs) => {
                 match try!(self.interpret(data, lhs)).as_array() {
-                    None => Ok(Rc::new(Variable::Null)),
+                    None => Ok(self.arena.alloc_null()),
                     Some(left) => {
                         let mut collected = vec!();
                         for element in left {
@@ -102,13 +105,13 @@ impl<'a> TreeInterpreter<'a> {
                                 collected.push(current);
                             }
                         }
-                        Ok(Rc::new(Variable::Array(collected)))
+                        Ok(self.arena.alloc_array(collected))
                     }
                 }
             },
             &Ast::Flatten(ref node) => {
                 match try!(self.interpret(data, node)).as_array() {
-                    None => Ok(Rc::new(Variable::Null)),
+                    None => Ok(self.arena.alloc_null()),
                     Some(a) => {
                         let mut collected: Vec<Rc<Variable>> = vec!();
                         for element in a {
@@ -117,24 +120,24 @@ impl<'a> TreeInterpreter<'a> {
                                 _ => collected.push(element.clone())
                             }
                         }
-                        Ok(Rc::new(Variable::Array(collected)))
+                        Ok(self.arena.alloc_array(collected))
                     }
                 }
             },
             &Ast::MultiList(ref nodes) => {
                 if data.is_null() {
-                    Ok(Rc::new(Variable::Null))
+                    Ok(self.arena.alloc_null())
                 } else {
                     let mut collected = vec!();
                     for node in nodes {
                         collected.push(try!(self.interpret(data.clone(), node)));
                     }
-                    Ok(Rc::new(Variable::Array(collected)))
+                    Ok(self.arena.alloc_array(collected))
                 }
             },
             &Ast::MultiHash(ref kvp_list) => {
                 if data.is_null() {
-                    Ok(Rc::new(Variable::Null))
+                    Ok(self.arena.alloc_null())
                 } else {
                     let mut collected = BTreeMap::new();
                     for kvp in kvp_list {
@@ -142,7 +145,7 @@ impl<'a> TreeInterpreter<'a> {
                         let value = try!(self.interpret(data.clone(), &kvp.value));
                         collected.insert(key.as_string().unwrap().to_string(), value);
                     }
-                    Ok(Rc::new(Variable::Object(collected)))
+                    Ok(self.arena.alloc_object(collected))
                 }
             },
             &Ast::Function(ref fn_name, ref arg_nodes) => {
@@ -152,7 +155,7 @@ impl<'a> TreeInterpreter<'a> {
                 }
                 self.fn_dispatcher.call(fn_name, &args, &self)
             },
-            &Ast::Expref(ref ast) => Ok(Rc::new(Variable::Expref(*ast.clone()))),
+            &Ast::Expref(ref ast) => Ok(self.arena.alloc_expref(*ast.clone())),
             ref node @ _ => panic!(format!("not implemented yet: {:?}", node))
         }
     }

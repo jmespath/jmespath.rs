@@ -300,18 +300,17 @@ impl Variable {
             .map(|value| value.clone().clone())
     }
 
-    /// Converts a Variable::Object to a Variable::Array containing object values.
+    /// Gets a vector of object values where each value is an Rc clone.
     /// None is returned if the Variable is not an object.
-    pub fn object_values_to_array(&self) -> Option<Variable> {
-        self.as_object().map(|map| Variable::Array(map.values().cloned().collect()))
+    pub fn object_values(&self) -> Option<Vec<Rc<Variable>>> {
+        self.as_object().map(|map| map.values().cloned().collect())
     }
 
     /// Converts a Variable::Object to a Variable::Array containing object keys.
     /// None is returned if the Variable is not an object.
-    pub fn object_keys_to_array(&self) -> Option<Variable> {
+    pub fn object_keys(&self) -> Option<Vec<&String>> {
         self.as_object()
-            .map(|map| Variable::Array(map.keys()
-                .map(|key| Rc::new(Variable::String(key.to_string()))).collect()))
+            .map(|map| map.keys().collect())
     }
 
     /// Returns true or false based on if the Variable value is considered truthy.
@@ -350,6 +349,117 @@ impl Variable {
             &Comparator::Gte if self.is_number() && value.is_number() => Some(*self >= *value),
             _ => None
         }
+    }
+}
+
+/// Handles the allocation of runtime Variables.
+/// Currently only used for common static values like null, true, false, etc.
+/// TODO: test out and benchmark interned object key strings.
+#[derive(Clone)]
+pub struct VariableArena {
+    true_bool: Rc<Variable>,
+    false_bool: Rc<Variable>,
+    null: Rc<Variable>,
+    empty_array: Rc<Variable>,
+    empty_object: Rc<Variable>
+}
+
+/// Trait used to convert a rust value into a Variable.
+trait IntoVariable {
+    fn into_variable(self) -> Variable;
+}
+
+impl IntoVariable for usize {
+    fn into_variable(self) -> Variable {
+        Variable::U64(self as u64)
+    }
+}
+
+impl IntoVariable for u64 {
+    fn into_variable(self) -> Variable {
+        Variable::U64(self)
+    }
+}
+
+impl IntoVariable for f64 {
+    fn into_variable(self) -> Variable {
+        Variable::F64(self)
+    }
+}
+
+impl IntoVariable for i64 {
+    fn into_variable(self) -> Variable {
+        Variable::I64(self)
+    }
+}
+
+impl VariableArena {
+    /// Create a new variable arena.
+    pub fn new() -> VariableArena {
+        VariableArena {
+            true_bool: Rc::new(Variable::Boolean(true)),
+            false_bool: Rc::new(Variable::Boolean(false)),
+            null: Rc::new(Variable::Null),
+            empty_array: Rc::new(Variable::Array(vec![])),
+            empty_object: Rc::new(Variable::Object(BTreeMap::new()))
+        }
+    }
+
+    /// Allocate a boolean value using one of the shared references.
+    #[inline]
+    pub fn alloc_bool(&self, value: bool) -> Rc<Variable> {
+        match value {
+            true => self.true_bool.clone(),
+            false => self.false_bool.clone()
+        }
+    }
+
+    /// Allocate a null value (uses the shared null value reference).
+    #[inline]
+    pub fn alloc_null(&self) -> Rc<Variable> {
+        self.null.clone()
+    }
+
+    /// Allocate a numeric value from f64, u64, usize, i64, etc...
+    #[inline]
+    pub fn alloc_number<S>(&self, s: S) -> Rc<Variable> where S: IntoVariable {
+        Rc::new(s.into_variable())
+    }
+
+    /// Allocate a string variable from a String, &str, or anything
+    /// implementing Into<String>.
+    #[inline]
+    pub fn alloc_string<S>(&self, s: S) -> Rc<Variable> where S: Into<String> {
+        Rc::new(Variable::String(s.into()))
+    }
+
+    /// Allocate an array value.
+    /// Empty values will use a shared reference.
+    #[inline]
+    pub fn alloc_array(&self, array: Vec<Rc<Variable>>) -> Rc<Variable> {
+        if array.is_empty() {
+            self.empty_array.clone()
+        } else {
+            Rc::new(Variable::Array(array))
+        }
+    }
+
+    /// Allocate an array value.
+    /// Empty values will use a shared reference.
+    #[inline]
+    pub fn alloc_object(&self, map: BTreeMap<String, Rc<Variable>>) -> Rc<Variable> {
+        if map.is_empty() {
+            self.empty_object.clone()
+        } else {
+            Rc::new(Variable::Object(map))
+        }
+    }
+
+    /// Allocate an expression reference.
+    /// This method is currently a simple pass-thru.
+    #[inline]
+    pub fn alloc_expref(&self, ast: Ast) -> Rc<Variable> {
+        Rc::new(Variable::Expref(ast))
     }
 }
 
@@ -419,17 +529,18 @@ mod tests {
     #[test]
     fn test_object_values_to_array() {
         let good = Variable::from_str(&"{\"foo\": \"bar\"}").unwrap();
-        assert_eq!(good.object_values_to_array(), Some(Variable::from_str(&"[\"bar\"]").unwrap()));
+        assert_eq!(good.object_values(),
+                   Some(vec![Rc::new(Variable::String("bar".to_string()))]));
         let bad = Variable::from_str(&"[\"foo\", \"bar\", \"baz\", \"bam\"]").unwrap();
-        assert_eq!(None, bad.object_values_to_array());
+        assert_eq!(None, bad.object_values());
     }
 
     #[test]
     fn test_object_keys_to_array() {
         let good = Variable::from_str(&"{\"foo\": \"bar\"}").unwrap();
-        assert_eq!(good.object_keys_to_array(), Some(Variable::from_str(&"[\"foo\"]").unwrap()));
+        assert_eq!(good.object_keys(), Some(vec![&"foo".to_string()]));
         let bad = Variable::from_str(&"[\"foo\", \"bar\", \"baz\", \"bam\"]").unwrap();
-        assert_eq!(None, bad.object_keys_to_array());
+        assert_eq!(None, bad.object_keys());
     }
 
     #[test]

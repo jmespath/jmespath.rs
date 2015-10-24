@@ -101,20 +101,22 @@ macro_rules! types {
 
 /// Macro used to implement min and max functions.
 macro_rules! min_max {
-    ($operator:ident, $args:expr) => (
+    ($operator:ident, $args:expr, $intr:expr) => (
         {
             validate!(stringify!($operator), $args, array![string|number]);
             match *$args[0] {
-                Variable::Array(ref array) if array.is_empty() => Ok(Rc::new(Variable::Null)),
+                Variable::Array(ref array) if array.is_empty() => Ok($intr.arena.alloc_null()),
                 Variable::Array(ref array) => {
                     if array[0].is_string() {
-                        Ok(Rc::new(Variable::String(array.iter().fold(
-                            array[0].as_string().unwrap().clone(),
-                            |acc, item| $operator(acc, item.as_string().unwrap().clone())))))
+                        Ok($intr.arena.alloc_string(
+                            array.iter().fold(
+                                array[0].as_string().unwrap().clone(),
+                                |acc, item| $operator(acc, item.as_string().unwrap().clone()))))
                     } else {
-                        Ok(Rc::new(Variable::F64(array.iter().fold(
-                            array[0].as_f64().unwrap(),
-                            |acc, item| acc.$operator(item.as_f64().unwrap())))))
+                        Ok($intr.arena.alloc_number(
+                            array.iter().fold(
+                                array[0].as_f64().unwrap(),
+                                |acc, item| acc.$operator(item.as_f64().unwrap()))))
                     }
                 },
                 _ => unreachable!()
@@ -168,26 +170,26 @@ impl FnDispatcher for BuiltinFunctions {
         match fn_name {
             "abs" => {
                 validate!("abs", args, types![number]);
-                Ok(Rc::new(Variable::F64(args[0].as_f64().unwrap().abs())))
+                Ok(intr.arena.alloc_number(args[0].as_f64().unwrap().abs()))
             },
             "avg" => {
                 validate!("avg", args, array!(number));
                 let array = args[0].as_array().unwrap();
                 let sum = array.iter().fold(0f64, |a, ref b| a + b.as_f64().unwrap());
-                Ok(Rc::new(Variable::F64(sum / (array.len() as f64))))
+                Ok(intr.arena.alloc_number(sum / (array.len() as f64)))
             },
             "ceil" => {
                 validate!("ceil", args, types![number]);
-                Ok(Rc::new(Variable::F64(args[0].as_f64().unwrap().ceil())))
+                Ok(intr.arena.alloc_number(args[0].as_f64().unwrap().ceil()))
             },
             "contains" => {
                 validate!("contains", args, types![array|string], types![any]);
                 match *args[0] {
-                    Variable::Array(ref a) => Ok(Rc::new(Variable::Boolean(a.contains(&args[1])))),
+                    Variable::Array(ref a) => Ok(intr.arena.alloc_bool(a.contains(&args[1]))),
                     Variable::String(ref subj) => {
                         match args[1].as_string() {
-                            None => Ok(Rc::new(Variable::Boolean(false))),
-                            Some(s) => Ok(Rc::new(Variable::Boolean(subj.contains(s))))
+                            None => Ok(intr.arena.alloc_bool(false)),
+                            Some(s) => Ok(intr.arena.alloc_bool(subj.contains(s)))
                         }
                     },
                     _ => unreachable!()
@@ -197,29 +199,34 @@ impl FnDispatcher for BuiltinFunctions {
                 validate!("ends_with", args, types![string], types![string]);
                 let subject = args[0].as_string().unwrap();
                 let search = args[1].as_string().unwrap();
-                Ok(Rc::new(Variable::Boolean(subject.ends_with(search))))
+                Ok(intr.arena.alloc_bool(subject.ends_with(search)))
             },
             "floor" => {
                 validate!("floor", args, types![number]);
-                Ok(Rc::new(Variable::F64(args[0].as_f64().unwrap().floor())))
+                Ok(intr.arena.alloc_number(args[0].as_f64().unwrap().floor()))
             },
             "join" => {
                 validate!("join", args, types![string], array![string]);
-                Ok(Rc::new(Variable::String(args.iter().skip(1)
-                    .map(|ref v| v.as_string().unwrap().clone())
-                    .collect::<Vec<String>>()
-                    .join(args[0].as_string().unwrap()))))
+                Ok(intr.arena.alloc_string(
+                    args.iter().skip(1)
+                        .map(|ref v| v.as_string().unwrap().clone())
+                        .collect::<Vec<String>>()
+                        .join(args[0].as_string().unwrap())))
             },
             "keys" => {
                 validate!("keys", args, types![object]);
-                Ok(Rc::new(args[0].object_keys_to_array().unwrap()))
+                let keys = args[0].object_keys().unwrap()
+                    .iter()
+                    .map(|k| intr.arena.alloc_string((*k).clone()))
+                    .collect::<Vec<Rc<Variable>>>();
+                Ok(intr.arena.alloc_array(keys))
             },
             "length" => {
                 validate!("length", args, types![array|object|string]);
                 match *args[0] {
-                    Variable::Array(ref a) => Ok(Rc::new(Variable::U64(a.len() as u64))),
-                    Variable::Object(ref m) => Ok(Rc::new(Variable::U64(m.len() as u64))),
-                    Variable::String(ref s) => Ok(Rc::new(Variable::U64(s.len() as u64))),
+                    Variable::Array(ref a) => Ok(intr.arena.alloc_number(a.len())),
+                    Variable::Object(ref m) => Ok(intr.arena.alloc_number(m.len())),
+                    Variable::String(ref s) => Ok(intr.arena.alloc_number(s.len())),
                     _ => unreachable!()
                 }
             },
@@ -230,10 +237,10 @@ impl FnDispatcher for BuiltinFunctions {
                 for value in args[1].as_array().expect("Expected array argument") {
                     results.push(try!(intr.interpret((*value).clone(), ast)));
                 }
-                Ok(Rc::new(Variable::Array(results)))
+                Ok(intr.arena.alloc_array(results))
             },
-            "max" => min_max!(max, args),
-            "min" => min_max!(min, args),
+            "max" => min_max!(max, args, intr),
+            "min" => min_max!(min, args, intr),
             "max_by" => max_by_min_by!(max, args, intr),
             "min_by" => max_by_min_by!(min, args, intr),
             "merge" => {
@@ -242,7 +249,7 @@ impl FnDispatcher for BuiltinFunctions {
                 for arg in args.iter().skip(1) {
                     result.extend(arg.as_object().unwrap().clone());
                 }
-                Ok(Rc::new(Variable::Object(result)))
+                Ok(intr.arena.alloc_object(result))
             },
             "not_null" => {
                 validate!("not_null", args, types![any] ...types![any]);
@@ -251,13 +258,13 @@ impl FnDispatcher for BuiltinFunctions {
                         return Ok(arg.clone());
                     }
                 }
-                Ok(Rc::new(Variable::Null))
+                Ok(intr.arena.alloc_null())
             },
             "reverse" => {
                 validate!("reverse", args, types![array]);
                 let mut values = args.clone();
                 values.reverse();
-                Ok(Rc::new(Variable::Array(values)))
+                Ok(intr.arena.alloc_array(values))
             },
             "sort" => {
                 validate!("sort", args, array![string|number]);
@@ -269,27 +276,27 @@ impl FnDispatcher for BuiltinFunctions {
                         .partial_cmp(&b.as_f64().unwrap())
                         .unwrap_or(Ordering::Equal));
                 }
-                Ok(Rc::new(Variable::Array(values)))
+                Ok(intr.arena.alloc_array(values))
             },
             "sort_by" => sort_by(args, intr),
             "starts_with" => {
                 validate!("starts_with", args, types![string], types![string]);
                 let subject = args[0].as_string().unwrap();
                 let search = args[1].as_string().unwrap();
-                Ok(Rc::new(Variable::Boolean(subject.starts_with(search))))
+                Ok(intr.arena.alloc_bool(subject.starts_with(search)))
             },
             "sum" => {
                 validate!("sum", args, array![number]);
                 let array = args[0].as_array().unwrap();
-                Ok(Rc::new(Variable::F64(array.iter().fold(
+                Ok(intr.arena.alloc_number(array.iter().fold(
                     array[0].as_f64().unwrap().clone(),
-                    |acc, item| acc.max(item.as_f64().unwrap())))))
+                    |acc, item| acc.max(item.as_f64().unwrap()))))
             },
             "to_array" => {
                 try!(arity("to_array", 1, args));
                 match *args[0] {
                     Variable::Array(_) => Ok(args[0].clone()),
-                    _ => Ok(Rc::new(Variable::Array(vec![args[0].clone()])))
+                    _ => Ok(intr.arena.alloc_array(vec![args[0].clone()]))
                 }
             },
             "to_number" => {
@@ -298,24 +305,24 @@ impl FnDispatcher for BuiltinFunctions {
                     Variable::I64(_) | Variable::F64(_) | Variable::U64(_) => Ok(args[0].clone()),
                     Variable::String(ref s) => {
                         match s.parse::<f64>() {
-                            Ok(f)  => Ok(Rc::new(Variable::F64(f))),
-                            Err(_) => Ok(Rc::new(Variable::Null))
+                            Ok(f)  => Ok(intr.arena.alloc_number(f)),
+                            Err(_) => Ok(intr.arena.alloc_null())
                         }
                     },
-                    _ => Ok(Rc::new(Variable::Null))
+                    _ => Ok(intr.arena.alloc_null())
                 }
             },
             "to_string" => {
                 validate!("to_string", args, types![object|array|boolean|number|string|null]);
-                Ok(Rc::new(Variable::String(args[0].to_string().unwrap())))
+                Ok(intr.arena.alloc_string(args[0].to_string().unwrap()))
             },
             "type" => {
                 try!(arity("type", 1, args));
-                Ok(Rc::new(Variable::String(args[0].get_type().to_string())))
+                Ok(intr.arena.alloc_string(args[0].get_type().to_string()))
             },
             "values" => {
                 validate!("values", args, types![object]);
-                Ok(Rc::new(args[0].object_values_to_array().unwrap()))
+                Ok(intr.arena.alloc_array(args[0].object_values().unwrap()))
             },
             _ => Err(format!("Unknown function: {}", fn_name))
         }
@@ -377,8 +384,8 @@ fn sort_by(args: &Vec<Rc<Variable>>, intr: &TreeInterpreter) -> InterpretResult 
     });
 
     match state {
-        SortByState::Initial => Ok(Rc::new(Variable::Array(vec![]))),
+        SortByState::Initial => Ok(intr.arena.alloc_array(vec![])),
         SortByState::Error(e) => Err(e),
-        _ => Ok(Rc::new(Variable::Array(vals)))
+        _ => Ok(intr.arena.alloc_array(vals))
     }
 }
