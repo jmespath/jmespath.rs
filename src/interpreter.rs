@@ -31,10 +31,11 @@ impl<'a> TreeInterpreter<'a> {
     /// Interprets the given data using an AST node.
     pub fn interpret(&self, data: Rc<Variable>, node: &Ast) -> InterpretResult {
         match node {
+            &Ast::Subexpr(ref lhs, ref rhs) =>
+                self.interpret(try!(self.interpret(data, lhs)), rhs),
+            &Ast::Identifier(ref f) => Ok(data.get_value(f).unwrap_or(Rc::new(Variable::Null))),
             &Ast::CurrentNode => Ok(data.clone()),
             &Ast::Literal(ref json) => Ok(json.clone()),
-            &Ast::Subexpr(ref lhs, ref rhs) => self.interpret(try!(interpret(data, lhs)), rhs),
-            &Ast::Identifier(ref f) => Ok(data.get_value(f).unwrap_or(Rc::new(Variable::Null))),
             &Ast::Index(ref i) => {
                 match if *i >= 0 {
                     data.get_index(*i as usize)
