@@ -1,7 +1,4 @@
 //! Module for parsing JMESPath expressions into an AST.
-
-extern crate rustc_serialize;
-
 use std::fmt;
 use std::iter::Peekable;
 

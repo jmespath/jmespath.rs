@@ -1,7 +1,4 @@
 //! Extracts JSON data by interpreting a JMESPath AST
-
-extern crate rustc_serialize;
-
 use std::rc::Rc;
 use std::collections::BTreeMap;
 
@@ -163,12 +160,8 @@ impl<'a> TreeInterpreter<'a> {
 
 #[cfg(test)]
 mod tests {
-    extern crate rustc_serialize;
-
     use std::rc::Rc;
     use std::collections::BTreeMap;
-
-    use self::rustc_serialize::json::Json;
 
     use super::*;
     use ast::{Ast, Comparator, KeyValuePair};
@@ -275,11 +268,11 @@ mod tests {
                 ">" => Comparator::Gt,
                 _ => Comparator::Lt,
             };
-            let lhs = Rc::new(Variable::from_json(&Json::from_str(test_case[0]).unwrap()));
-            let rhs = Rc::new(Variable::from_json(&Json::from_str(test_case[1]).unwrap()));
+            let lhs = Rc::new(Variable::from_str(test_case[0]).unwrap());
+            let rhs = Rc::new(Variable::from_str(test_case[1]).unwrap());
             let ast = Ast::Comparison(
                 cmp, Box::new(Ast::Literal(lhs)), Box::new(Ast::Literal(rhs)));
-            let result = Variable::from_json(&Json::from_str(test_case[2]).unwrap());
+            let result = Variable::from_str(test_case[2]).unwrap();
             assert_eq!(Rc::new(result), interpret(Rc::new(Variable::Null), &ast).unwrap());
         }
     }
@@ -295,7 +288,7 @@ mod tests {
         let ast = Ast::ObjectValues(Box::new(Ast::Literal(var)));
         let data = Rc::new(Variable::Null);
         assert_eq!(
-            Rc::new(Variable::from_json(&Json::from_str("[\"bar\"]").unwrap())),
+            Rc::new(Variable::from_str("[\"bar\"]").unwrap()),
             interpret(data, &ast).unwrap());
     }
 
@@ -313,7 +306,7 @@ mod tests {
             Box::new(Ast::Identifier("a".to_string())),
             Box::new(Ast::Identifier("b".to_string())));
         assert_eq!(
-            Rc::new(Variable::from_json(&Json::from_str("[1, 2]").unwrap())),
+            Rc::new(Variable::from_str("[1, 2]").unwrap()),
             interpret(data, &ast).unwrap());
     }
 
@@ -327,7 +320,7 @@ mod tests {
         let data = Rc::new(Variable::from_str("{\"a\": [1, [2, 3], 4, [[5]]]}").unwrap());
         let ast = Ast::Flatten(Box::new(Ast::Identifier("a".to_string())));
         assert_eq!(
-            Rc::new(Variable::from_json(&Json::from_str("[1, 2, 3, 4, [5]]").unwrap())),
+            Rc::new(Variable::from_str("[1, 2, 3, 4, [5]]").unwrap()),
             interpret(data, &ast).unwrap());
     }
 
@@ -341,7 +334,7 @@ mod tests {
         let ast = Ast::MultiList(vec![Ast::Identifier("a".to_string()),
                                       Ast::Identifier("b".to_string())]);
         assert_eq!(
-            Rc::new(Variable::from_json(&Json::from_str("[1, 2]").unwrap())),
+            Rc::new(Variable::from_str("[1, 2]").unwrap()),
             interpret(data, &ast).unwrap());
     }
 
@@ -363,7 +356,7 @@ mod tests {
             }
         ]);
         assert_eq!(
-            Rc::new(Variable::from_json(&Json::from_str("{\"a\": 1, \"b\": 2}").unwrap())),
+            Rc::new(Variable::from_str("{\"a\": 1, \"b\": 2}").unwrap()),
             interpret(data, &ast).unwrap());
     }
 
