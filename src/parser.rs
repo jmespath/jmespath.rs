@@ -65,7 +65,7 @@ enum Operator {
     MultiHash(Vec<Ast>),
     ArrayProjection,
     FilterProjection(Option<Ast>),
-    SliceProjection(bool, Option<i32>, Option<i32>, Option<i32>),
+    SliceProjection(bool, Option<i32>, Option<i32>, i32),
     Lparen,
     Dot,
     And,
@@ -559,7 +559,8 @@ impl<'a> Parser<'a> {
         }
         let next_token = self.advance();
         self.projection_rhs(
-            next_token, Operator::SliceProjection(is_binary, parts[0], parts[1], parts[2]))
+            next_token,
+            Operator::SliceProjection(is_binary, parts[0], parts[1], parts[2].unwrap_or(1)))
     }
 
     // Prepares the parser for the right hand side of a projection.
@@ -960,14 +961,14 @@ mod test {
     #[test] fn test_parse_postfix_slice_projections() {
         let ast = parse("foo[0::-1].bar").unwrap();
         assert_eq!("Subexpr(Identifier(\"foo\"), \
-                            Projection(Slice(Some(0), None, Some(-1)), \
+                            Projection(Slice(Some(0), None, -1), \
                                        Identifier(\"bar\")))",
                    format!("{:?}", ast));
     }
 
     #[test] fn test_parse_prefix_slice_projections() {
         let ast = parse("[0::-1].bar").unwrap();
-        assert_eq!("Projection(Slice(Some(0), None, Some(-1)), Identifier(\"bar\"))",
+        assert_eq!("Projection(Slice(Some(0), None, -1), Identifier(\"bar\"))",
                    format!("{:?}", ast));
     }
 
@@ -1074,7 +1075,7 @@ mod test {
         assert_eq!("filter-projection".to_string(),
                    format!("{}", Operator::FilterProjection(Some(Ast::CurrentNode))));
         assert_eq!("slice-projection".to_string(),
-                   format!("{}", Operator::SliceProjection(true, None, None, None)));
+                   format!("{}", Operator::SliceProjection(true, None, None, 1)));
     }
 
     #[test] fn test_parses_precedence_with_parens() {

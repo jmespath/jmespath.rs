@@ -156,8 +156,66 @@ impl<'a> TreeInterpreter<'a> {
                 self.fn_dispatcher.call(fn_name, &args, &self)
             },
             &Ast::Expref(ref ast) => Ok(self.arena.alloc_expref(*ast.clone())),
-            ref node @ _ => panic!(format!("not implemented yet: {:?}", node))
+            &Ast::Slice(ref a, ref b, c) => {
+                match data.as_array() {
+                    Some(ref array) => Ok(self.arena.alloc_array(slice(array, a, b, c))),
+                    None => Ok(self.arena.alloc_null())
+                }
+            }
         }
+    }
+}
+
+fn slice(array: &Vec<Rc<Variable>>, start: &Option<i32>, stop: &Option<i32>, step: i32)
+    -> Vec<Rc<Variable>>
+{
+    let mut result = vec![];
+    let len = array.len() as i32;
+    if len == 0 {
+        return result;
+    }
+    let a: i32 = match start {
+        &Some(starting_index) => adjust_slice_endpoint(len, starting_index, step),
+        _ if step < 0 => len - 1,
+        _ => 0
+    };
+    let b: i32 = match stop {
+        &Some(ending_index) => adjust_slice_endpoint(len, ending_index, step),
+        _ if step < 0 => -1,
+        _ => len
+    };
+    let mut i = a;
+    if step > 0 {
+        while i < b {
+            result.push(array[i as usize].clone());
+            i += step;
+        }
+    } else {
+        while i > b {
+            result.push(array[i as usize].clone());
+            i += step;
+        }
+    }
+    result
+}
+
+#[inline]
+fn adjust_slice_endpoint(len: i32, mut endpoint: i32, step: i32) -> i32 {
+    if endpoint < 0 {
+        endpoint += len;
+        if endpoint >= 0 {
+            endpoint
+        } else if step < 0 {
+            -1
+        } else {
+            0
+        }
+    } else if endpoint < len {
+        endpoint
+    } else if step < 0 {
+        len - 1
+    } else {
+        len
     }
 }
 
@@ -368,5 +426,19 @@ mod tests {
         let data = Rc::new(Variable::from_str("[1, 2, 3]").unwrap());
         let ast = Ast::Function("length".to_string(), vec![Ast::CurrentNode]);
         assert_eq!(Rc::new(Variable::U64(3)), interpret(data, &ast).unwrap());
+    }
+
+    #[test] fn slices_arrays() {
+        let data = Rc::new(Variable::from_str("[0, 1, 2, 3, 4]").unwrap());
+        let ast = Ast::Slice(Some(1), Some(3), 1);
+        assert_eq!(Rc::new(Variable::from_str("[1, 2]").unwrap()),
+                   interpret(data, &ast).unwrap());
+    }
+
+    #[test] fn slices_arrays_with_negative_index() {
+        let data = Rc::new(Variable::from_str("[0, 1, 2, 3, 4, 5, 6]").unwrap());
+        let ast = Ast::Slice(Some(-1), Some(3), -1);
+        assert_eq!(Rc::new(Variable::from_str("[6, 5, 4]").unwrap()),
+                   interpret(data, &ast).unwrap());
     }
 }

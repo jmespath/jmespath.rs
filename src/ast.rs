@@ -22,7 +22,7 @@ pub enum Ast {
     ObjectValues(Box<Ast>),
     And(Box<Ast>, Box<Ast>),
     Or(Box<Ast>, Box<Ast>),
-    Slice(Option<i32>, Option<i32>, Option<i32>),
+    Slice(Option<i32>, Option<i32>, i32),
     Subexpr(Box<Ast>, Box<Ast>),
 }
 
