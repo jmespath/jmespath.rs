@@ -91,18 +91,21 @@ mod test {
     use super::*;
     use std::rc::Rc;
 
-    #[test] fn formats_expression_as_string() {
+    #[test]
+    fn formats_expression_as_string() {
         let expr = Expression::new("foo | baz").unwrap();
         assert_eq!("foo | baz/foo | baz", format!("{}/{:?}", expr, expr));
     }
 
-    #[test] fn implements_partial_eq() {
+    #[test]
+    fn implements_partial_eq() {
         let a = Expression::new("@").unwrap();
         let b = Expression::new("@").unwrap();
         assert!(a == b);
     }
 
-    #[test] fn can_evaluate_jmespath_expression() {
+    #[test]
+    fn can_evaluate_jmespath_expression() {
         let expr = Expression::new("foo.bar").unwrap();
         let var = Rc::new(Variable::from_str("{\"foo\":{\"bar\":true}}").unwrap());
         assert_eq!(Rc::new(Variable::Boolean(true)), expr.search(var).unwrap());

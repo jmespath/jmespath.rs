@@ -266,7 +266,8 @@ mod tests {
     use super::Token::*;
     use variable::Variable;
 
-    #[test] fn tokenize_basic_test() {
+    #[test]
+    fn tokenize_basic_test() {
         assert!(tokenize(".").next() == Some((0, Dot)));
         assert!(tokenize("*").next() == Some((0, Star)));
         assert!(tokenize("@").next() == Some((0, At)));
@@ -278,30 +279,35 @@ mod tests {
         assert!(tokenize(",").next() == Some((0, Comma)));
     }
 
-    #[test] fn tokenize_lbracket_test() {
+    #[test]
+    fn tokenize_lbracket_test() {
         assert_eq!(tokenize("[").next(), Some((0, Lbracket)));
         assert_eq!(tokenize("[]").next(), Some((0, Flatten)));
         assert_eq!(tokenize("[?").next(), Some((0, Filter)));
     }
 
-    #[test] fn tokenize_pipe_test() {
+    #[test]
+    fn tokenize_pipe_test() {
         assert!(tokenize("|").next() == Some((0, Pipe)));
         assert!(tokenize("||").next() == Some((0, Or)));
     }
 
-    #[test] fn tokenize_and_ampersand_test() {
+    #[test]
+    fn tokenize_and_ampersand_test() {
         assert!(tokenize("&").next() == Some((0, Ampersand)));
         assert!(tokenize("&&").next() == Some((0, And)));
     }
 
-    #[test] fn tokenize_lt_gt_test() {
+    #[test]
+    fn tokenize_lt_gt_test() {
         assert!(tokenize("<").next() == Some((0, Lt)));
         assert!(tokenize("<=").next() == Some((0, Lte)));
         assert!(tokenize(">").next() == Some((0, Gt)));
         assert!(tokenize(">=").next() == Some((0, Gte)));
     }
 
-    #[test] fn tokenize_eq_ne_test() {
+    #[test]
+    fn tokenize_eq_ne_test() {
         assert_eq!(tokenize("=").next(),
                    Some((0, Error {
                        value: "=".to_string(),
@@ -311,20 +317,23 @@ mod tests {
         assert!(tokenize("!=").next() == Some((0, Ne)));
     }
 
-    #[test] fn skips_whitespace() {
+    #[test]
+    fn skips_whitespace() {
         let mut tokens = tokenize(" \t\n\r\t. (");
         assert_eq!(tokens.next(), Some((5, Dot)));
         assert_eq!(tokens.next(), Some((7, Lparen)));
     }
 
-    #[test] fn tokenize_single_error_test() {
+    #[test]
+    fn tokenize_single_error_test() {
         assert_eq!(tokenize("~").next(),
                    Some((0, Error {
                        value: "~".to_string(),
                        msg: "".to_string() })));
     }
 
-    #[test] fn tokenize_unclosed_errors_test() {
+    #[test]
+    fn tokenize_unclosed_errors_test() {
         assert_eq!(tokenize("\"foo").next(),
                    Some((0, Error {
                        value: "\"foo".to_string(),
@@ -335,7 +344,8 @@ mod tests {
                        msg: "Unclosed ` delimiter".to_string() })));
     }
 
-    #[test] fn tokenize_identifier_test() {
+    #[test]
+    fn tokenize_identifier_test() {
         assert_eq!(tokenize("foo_bar").next(),
                    Some((0, Identifier("foo_bar".to_string()))));
         assert_eq!(tokenize("a").next(),
@@ -344,7 +354,8 @@ mod tests {
                    Some((0, Identifier("_a".to_string()))));
     }
 
-    #[test] fn tokenize_quoted_identifier_test() {
+    #[test]
+    fn tokenize_quoted_identifier_test() {
         assert_eq!(tokenize("\"foo\"").next(),
                    Some((0, QuotedIdentifier("foo".to_string()))));
         assert_eq!(tokenize("\"\"").next(),
@@ -357,7 +368,8 @@ mod tests {
                    Some((0, QuotedIdentifier("a\\nb".to_string()))));
     }
 
-    #[test] fn tokenize_raw_string_test() {
+    #[test]
+    fn tokenize_raw_string_test() {
         assert_eq!(tokenize("'foo'").next(),
                    Some((0, Literal(Rc::new(Variable::String("foo".to_string()))))));
         assert_eq!(tokenize("''").next(),
@@ -366,7 +378,8 @@ mod tests {
                    Some((0, Literal(Rc::new(Variable::String("a\\nb".to_string()))))));
     }
 
-    #[test] fn tokenize_literal_test() {
+    #[test]
+    fn tokenize_literal_test() {
         // Must enclose in quotes. See JEP 12.
         assert_eq!(tokenize("`a`").next(),
                    Some((0, Error {
@@ -379,23 +392,27 @@ mod tests {
                    Some((0, Literal(Rc::new(Variable::String("a b".to_string()))))));
     }
 
-    #[test] fn tokenize_number_test() {
+    #[test]
+    fn tokenize_number_test() {
         assert_eq!(tokenize("0").next(), Some((0, Number(0))));
         assert_eq!(tokenize("1").next(), Some((0, Number(1))));
         assert_eq!(tokenize("123").next(), Some((0, Number(123))));
     }
 
-    #[test] fn tokenize_negative_number_test() {
+    #[test]
+    fn tokenize_negative_number_test() {
         assert_eq!(tokenize("-10").next(), Some((0, Number(-10))));
     }
 
-    #[test] fn tokenize_negative_number_test_failure() {
+    #[test]
+    fn tokenize_negative_number_test_failure() {
         assert_eq!(tokenize("-01").next(), Some((0, Error {
             value: "-".to_string(),
             msg: "Negative sign must be followed by numbers 1-9".to_string() })));
     }
 
-    #[test] fn tokenize_successive_test() {
+    #[test]
+    fn tokenize_successive_test() {
         let expr = "foo.bar || `\"a\"` | 10";
         let mut tokens = tokenize(expr);
         assert_eq!(tokens.next(), Some((0, Identifier("foo".to_string()))));
@@ -409,7 +426,8 @@ mod tests {
         assert_eq!(tokens.next(), None);
     }
 
-    #[test] fn tokenizes_slices() {
+    #[test]
+    fn tokenizes_slices() {
         let tokens: Vec<(usize, Token)> = tokenize("foo[0::-1]").collect();
         assert_eq!("[(0, Identifier(\"foo\")), (3, Lbracket), (4, Number(0)), (5, Colon), \
                      (6, Colon), (7, Number(-1)), (9, Rbracket), (10, Eof)]",

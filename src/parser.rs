@@ -785,56 +785,65 @@ mod test {
     use super::Operator;
     use ast::Ast;
 
-    #[test] fn test_parse_nud() {
+    #[test]
+    fn test_parse_nud() {
         let ast = parse("foo").unwrap();
         assert_eq!("Identifier(\"foo\")", format!("{:?}", ast));
     }
 
-    #[test] fn test_parse_subexpr() {
+    #[test]
+    fn test_parse_subexpr() {
         let ast = parse("foo.bar.baz").unwrap();
         assert_eq!("Subexpr(Subexpr(Identifier(\"foo\"), Identifier(\"bar\")), \
                             Identifier(\"baz\"))",
                    format!("{:?}", ast));
     }
 
-    #[test] fn test_parse_or() {
+    #[test]
+    fn test_parse_or() {
         let ast = parse("foo || bar").unwrap();
         assert_eq!("Or(Identifier(\"foo\"), Identifier(\"bar\"))", format!("{:?}", ast));
     }
 
-    #[test] fn test_parse_or_and_subexpr_with_precedence() {
+    #[test]
+    fn test_parse_or_and_subexpr_with_precedence() {
         let ast = parse("foo.baz || bar.bam").unwrap();
         assert_eq!("Or(Subexpr(Identifier(\"foo\"), Identifier(\"baz\")), \
                        Subexpr(Identifier(\"bar\"), Identifier(\"bam\")))",
                    format!("{:?}", ast));
     }
 
-    #[test] fn test_parse_or_with_and_and_subexpr_with_precedence() {
+    #[test]
+    fn test_parse_or_with_and_and_subexpr_with_precedence() {
         let ast = parse("a.b || c.d && e").unwrap();
         assert_eq!("And(Or(Subexpr(Identifier(\"a\"), Identifier(\"b\")), \
                            Subexpr(Identifier(\"c\"), Identifier(\"d\"))), \
                         Identifier(\"e\"))", format!("{:?}", ast));
     }
 
-    #[test] fn test_parse_or_and_pipe_with_precedence() {
+    #[test]
+    fn test_parse_or_and_pipe_with_precedence() {
         let ast = parse("foo || bar | baz").unwrap();
         assert_eq!("Subexpr(Or(Identifier(\"foo\"), Identifier(\"bar\")), \
                             Identifier(\"baz\"))", format!("{:?}", ast));
     }
 
-    #[test] fn test_parse_not() {
+    #[test]
+    fn test_parse_not() {
         let ast = parse("!foo || bar").unwrap();
         assert_eq!("Or(Not(Identifier(\"foo\")), Identifier(\"bar\"))", format!("{:?}", ast));
     }
 
-    #[test] fn test_not_requires_operand() {
+    #[test]
+    fn test_not_requires_operand() {
         let result = parse("!");
         assert_eq!("ParseError { msg: \"Parse error at line 0, col 1; Incomplete \
                     \\\'!\\\' expression\\n!\\n ^\\n\", line: 0, col: 1 }",
                    format!("{:?}", result.unwrap_err()));
     }
 
-    #[test] fn test_comparator() {
+    #[test]
+    fn test_comparator() {
         let ast = parse("foo.bar == baz || bam").unwrap();
         assert_eq!(
             "Comparison(Eq, Subexpr(Identifier(\"foo\"), Identifier(\"bar\")), \
@@ -842,61 +851,71 @@ mod test {
             format!("{:?}", ast));
     }
 
-    #[test] fn test_parse_wildcard_values() {
+    #[test]
+    fn test_parse_wildcard_values() {
         let ast = parse("foo.*.baz").unwrap();
         assert_eq!("Projection(ObjectValues(Identifier(\"foo\")), Identifier(\"baz\"))",
                    format!("{:?}", ast));
     }
 
-    #[test] fn test_parse_nud_wildcard_values() {
+    #[test]
+    fn test_parse_nud_wildcard_values() {
         let ast = parse("*.baz").unwrap();
         assert_eq!("Projection(ObjectValues(CurrentNode), Identifier(\"baz\"))",
                    format!("{:?}", ast));
     }
 
-    #[test] fn test_parse_nud_wildcard_values_with_no_rhs() {
+    #[test]
+    fn test_parse_nud_wildcard_values_with_no_rhs() {
         let ast = parse("* | baz").unwrap();
         assert_eq!("Subexpr(Projection(ObjectValues(CurrentNode), CurrentNode), \
                             Identifier(\"baz\"))",
                    format!("{:?}", ast));
     }
 
-    #[test] fn test_parse_flatten() {
+    #[test]
+    fn test_parse_flatten() {
         let ast = parse("foo[].baz").unwrap();
         assert_eq!("Projection(Flatten(Identifier(\"foo\")), Identifier(\"baz\"))",
                    format!("{:?}", ast));
     }
 
-    #[test] fn test_parse_nud_flatten() {
+    #[test]
+    fn test_parse_nud_flatten() {
         let ast = parse("[].baz").unwrap();
         assert_eq!("Projection(Flatten(CurrentNode), Identifier(\"baz\"))",
                    format!("{:?}", ast));
     }
 
-    #[test] fn test_parse_wildcard_index() {
+    #[test]
+    fn test_parse_wildcard_index() {
         let ast = parse("foo[*].baz").unwrap();
         assert_eq!("Projection(Identifier(\"foo\"), Identifier(\"baz\"))",
                    format!("{:?}", ast));
     }
 
-    #[test] fn test_parse_number() {
+    #[test]
+    fn test_parse_number() {
         let ast = parse("foo[0]").unwrap();
         assert_eq!("Subexpr(Identifier(\"foo\"), Index(0))", format!("{:?}", ast));
     }
 
-    #[test] fn test_parse_number_with_subexpr() {
+    #[test]
+    fn test_parse_number_with_subexpr() {
         let ast = parse("foo[0].bar").unwrap();
         assert_eq!("Subexpr(Subexpr(Identifier(\"foo\"), Index(0)), Identifier(\"bar\"))",
                    format!("{:?}", ast));
     }
 
-    #[test] fn test_parse_number_in_projection() {
+    #[test]
+    fn test_parse_number_in_projection() {
         let ast = parse("foo.*[0]").unwrap();
         assert_eq!("Projection(ObjectValues(Identifier(\"foo\")), Index(0))",
                    format!("{:?}", ast));
     }
 
-    #[test] fn test_parse_complex_expression() {
+    #[test]
+    fn test_parse_complex_expression() {
         let ast = parse("foo.*.bar[*][0].baz || bam | boo").unwrap();
         assert_eq!("Subexpr(Or(Projection(ObjectValues(Identifier(\"foo\")), \
                                 Projection(Identifier(\"bar\"), \
@@ -905,37 +924,43 @@ mod test {
                    format!("{:?}", ast));
     }
 
-    #[test] fn test_parse_expression_reference() {
+    #[test]
+    fn test_parse_expression_reference() {
         let ast = parse("&foo.bar | [0]").unwrap();
         assert_eq!("Expref(Subexpr(Subexpr(Identifier(\"foo\"), Identifier(\"bar\")), Index(0)))",
                    format!("{:?}", ast));
     }
 
-    #[test] fn test_parse_empty_functions() {
+    #[test]
+    fn test_parse_empty_functions() {
         let ast = parse("foo()").unwrap();
         assert_eq!("Function(\"foo\", [])", format!("{:?}", ast));
     }
 
-    #[test] fn test_parse_functions_at_end() {
+    #[test]
+    fn test_parse_functions_at_end() {
         let ast = parse("foo(bar)").unwrap();
         assert_eq!("Function(\"foo\", [Identifier(\"bar\")])", format!("{:?}", ast));
     }
 
-    #[test] fn test_ensures_functions_are_closed() {
+    #[test]
+    fn test_ensures_functions_are_closed() {
         let result = parse("foo(bar");
         assert_eq!("ParseError { msg: \"Parse error at line 0, col 7; Unclosed function\\n\
                     foo(bar\\n       ^\\n\", line: 0, col: 7 }",
                    format!("{:?}", result.unwrap_err()));
     }
 
-    #[test] fn test_ensures_functions_with_no_args_are_closed() {
+    #[test]
+    fn test_ensures_functions_with_no_args_are_closed() {
         let result = parse("foo(");
         assert_eq!("ParseError { msg: \"Parse error at line 0, col 4; Unclosed function\\n\
                     foo(\\n    ^\\n\", line: 0, col: 4 }",
                    format!("{:?}", result.unwrap_err()));
     }
 
-    #[test] fn test_parse_functions_with_multiple_args() {
+    #[test]
+    fn test_parse_functions_with_multiple_args() {
         let ast = parse("foo(bar, baz.boo, bam || qux)").unwrap();
         assert_eq!("Function(\"foo\", [Identifier(\"bar\"), \
                                        Subexpr(Identifier(\"baz\"), Identifier(\"boo\")), \
@@ -943,14 +968,16 @@ mod test {
                    format!("{:?}", ast));
     }
 
-    #[test] fn test_parse_multi_list() {
+    #[test]
+    fn test_parse_multi_list() {
         let ast = parse("foo.[bar, baz]").unwrap();
         assert_eq!("Subexpr(Identifier(\"foo\"), \
                             MultiList([Identifier(\"bar\"), Identifier(\"baz\")]))",
                    format!("{:?}", ast));
     }
 
-    #[test] fn test_ensures_multi_list_are_closed() {
+    #[test]
+    fn test_ensures_multi_list_are_closed() {
         let result = parse("foo.[bar, baz");
         assert_eq!("ParseError { msg: \"Parse error at line 0, col 13; \
                     Unclosed multi-list \\\'[\\\'\\n\
@@ -958,7 +985,8 @@ mod test {
                    format!("{:?}", result.unwrap_err()));
     }
 
-    #[test] fn test_parse_postfix_slice_projections() {
+    #[test]
+    fn test_parse_postfix_slice_projections() {
         let ast = parse("foo[0::-1].bar").unwrap();
         assert_eq!("Subexpr(Identifier(\"foo\"), \
                             Projection(Slice(Some(0), None, -1), \
@@ -966,13 +994,15 @@ mod test {
                    format!("{:?}", ast));
     }
 
-    #[test] fn test_parse_prefix_slice_projections() {
+    #[test]
+    fn test_parse_prefix_slice_projections() {
         let ast = parse("[0::-1].bar").unwrap();
         assert_eq!("Projection(Slice(Some(0), None, -1), Identifier(\"bar\"))",
                    format!("{:?}", ast));
     }
 
-    #[test] fn test_ensures_slices_are_closed() {
+    #[test]
+    fn test_ensures_slices_are_closed() {
         let result = parse("[0::1");
         assert_eq!("ParseError { msg: \"Parse error at line 0, col 5; \
                     Expected number, \\\':\\\', or \\\']\\\'\\n\
@@ -980,7 +1010,8 @@ mod test {
                    format!("{:?}", result.unwrap_err()));
     }
 
-    #[test] fn test_parses_nud_filter_projections() {
+    #[test]
+    fn test_parses_nud_filter_projections() {
         let ast = parse("[?foo == bar].baz").unwrap();
         assert_eq!("Projection(CurrentNode, \
                                Condition(\
@@ -989,7 +1020,8 @@ mod test {
                    format!("{:?}", ast));
     }
 
-    #[test] fn test_parses_led_filter_projections() {
+    #[test]
+    fn test_parses_led_filter_projections() {
         let ast = parse("prefix[?foo == bar].baz.boo").unwrap();
         assert_eq!("Projection(Identifier(\"prefix\"), \
                                Condition(\
@@ -998,21 +1030,24 @@ mod test {
                    format!("{:?}", ast));
     }
 
-    #[test] fn test_ensures_filters_are_not_empty() {
+    #[test]
+    fn test_ensures_filters_are_not_empty() {
         let result = parse("prefix[?].bar");
         assert_eq!("ParseError { msg: \"Parse error at line 0, col 8; Unexpected \
                     token: Rbracket\\nprefix[?].bar\\n        ^\\n\", line: 0, col: 8 }",
                    format!("{:?}", result.unwrap_err()));
     }
 
-    #[test] fn test_ensures_filters_are_closed() {
+    #[test]
+    fn test_ensures_filters_are_closed() {
         let result = parse("prefix[?baz");
         assert_eq!("ParseError { msg: \"Parse error at line 0, col 11; Unclosed filter\\n\
                     prefix[?baz\\n           ^\\n\", line: 0, col: 11 }",
                    format!("{:?}", result.unwrap_err()));
     }
 
-    #[test] fn test_parse_multi_hash() {
+    #[test]
+    fn test_parse_multi_hash() {
         let ast = parse("foo.{bar: baz, bam: boo}.bam").unwrap();
         assert_eq!("Subexpr(Subexpr(Identifier(\"foo\"), \
                             MultiHash([KeyValuePair { key: Identifier(\"bar\"), \
@@ -1023,27 +1058,31 @@ mod test {
                    format!("{:?}", ast));
     }
 
-    #[test] fn test_parse_nud_multi_hash() {
+    #[test]
+    fn test_parse_nud_multi_hash() {
         let ast = parse("{bar: baz}").unwrap();
         assert_eq!("MultiHash([KeyValuePair { key: Identifier(\"bar\"), \
                                               value: Identifier(\"baz\") }])",
                    format!("{:?}", ast));
     }
 
-    #[test] fn test_ensures_multi_hash_are_closed() {
+    #[test]
+    fn test_ensures_multi_hash_are_closed() {
         let result = parse("foo.{bar: baz");
         assert_eq!("ParseError { msg: \"Parse error at line 0, col 13; Unclosed multi-hash \
                     \\\'{\\\'\\nfoo.{bar: baz\\n             ^\\n\", line: 0, col: 13 }",
                    format!("{:?}", result.unwrap_err()));
     }
 
-    #[test] fn test_ensures_multi_hash_colon_has_value() {
+    #[test]
+    fn test_ensures_multi_hash_colon_has_value() {
         assert_eq!("ParseError { msg: \"Parse error at line 0, col 9; Unexpected \
                     token: Rbrace\\nfoo.{bar:}\\n         ^\\n\", line: 0, col: 9 }",
                    format!("{:?}", parse("foo.{bar:}").unwrap_err()));
     }
 
-    #[test] fn test_ensures_multi_hash_comma_followed_by_expr() {
+    #[test]
+    fn test_ensures_multi_hash_comma_followed_by_expr() {
         let result = parse("foo.{bar: baz, }");
         assert_eq!("ParseError { msg: \"Parse error at line 0, col 15; Expected identifier \
                     for multi-hash key\\nfoo.{bar: baz, }\\n               ^\\n\", \
@@ -1051,21 +1090,24 @@ mod test {
                    format!("{:?}", result.unwrap_err()));
     }
 
-    #[test] fn test_ensures_multi_hash_comma_followed_by_key() {
+    #[test]
+    fn test_ensures_multi_hash_comma_followed_by_key() {
         let result = parse("{&bar: bam}");
         assert_eq!("ParseError { msg: \"Parse error at line 0, col 1; Expected identifier \
                     for multi-hash key\\n{&bar: bam}\\n ^\\n\", line: 0, col: 1 }",
                    format!("{:?}", result.unwrap_err()));
     }
 
-    #[test] fn test_does_not_blow_up_on_bad_binary() {
+    #[test]
+    fn test_does_not_blow_up_on_bad_binary() {
         let result = parse("foo |");
         assert_eq!("ParseError { msg: \"Parse error at line 0, col 5; Incomplete \
                     \\\'|\\\' expression\\nfoo |\\n     ^\\n\", line: 0, col: 5 }",
                    format!("{:?}", result.unwrap_err()));
     }
 
-    #[test] fn test_displays_operators() {
+    #[test]
+    fn test_displays_operators() {
         assert_eq!(".".to_string(), format!("{}", Operator::Dot));
         assert_eq!("foo()".to_string(),
                    format!("{}", Operator::Function("foo".to_string(), vec!())));
@@ -1078,26 +1120,30 @@ mod test {
                    format!("{}", Operator::SliceProjection(true, None, None, 1)));
     }
 
-    #[test] fn test_parses_precedence_with_parens() {
+    #[test]
+    fn test_parses_precedence_with_parens() {
         let ast = parse("(foo | bar) || baz").unwrap();
         assert_eq!("Or(Subexpr(Identifier(\"foo\"), Identifier(\"bar\")), \
                     Identifier(\"baz\"))",
                    format!("{:?}", ast));
     }
 
-    #[test] fn test_parses_parens_at_end() {
+    #[test]
+    fn test_parses_parens_at_end() {
         let ast = parse("(foo || bar)").unwrap();
         assert_eq!("Or(Identifier(\"foo\"), Identifier(\"bar\"))", format!("{:?}", ast));
     }
 
-    #[test] fn test_parses_superfluous_parens() {
+    #[test]
+    fn test_parses_superfluous_parens() {
         let ast = parse("(foo)").unwrap();
         assert_eq!("Identifier(\"foo\")", format!("{:?}", ast));
         let ast = parse("(((foo)))").unwrap();
         assert_eq!("Identifier(\"foo\")", format!("{:?}", ast));
     }
 
-    #[test] fn test_requires_opening_paren() {
+    #[test]
+    fn test_requires_opening_paren() {
         let ast = parse(")");
         assert_eq!("Err(ParseError { msg: \"Parse error at line 0, col 0; Unexpected \
                     token: Rparen\\n)\\n^\\n\", line: 0, col: 0 })",
@@ -1108,7 +1154,8 @@ mod test {
                    format!("{:?}", ast));
     }
 
-    #[test] fn test_requires_paren_is_closed() {
+    #[test]
+    fn test_requires_paren_is_closed() {
         let ast = parse("(");
         assert_eq!("Err(ParseError { msg: \"Parse error at line 0, col 1; Unclosed \
                     \\\"(\\\"\\n(\\n ^\\n\", line: 0, col: 1 })",

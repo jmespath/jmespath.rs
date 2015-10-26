@@ -229,32 +229,37 @@ mod tests {
     use ast::{Ast, Comparator, KeyValuePair};
     use variable::Variable;
 
-    #[test] fn interprets_identifier() {
+    #[test]
+    fn interprets_identifier() {
         let ast = Ast::Identifier("foo".to_string());
         let data = Rc::new(Variable::from_str("{\"foo\":\"baz\"}").unwrap());
         assert_eq!(Rc::new(Variable::String("baz".to_string())), interpret(data, &ast).unwrap());
     }
 
-    #[test] fn interprets_current_node() {
+    #[test]
+    fn interprets_current_node() {
         let ast = Ast::CurrentNode;
         let data = Rc::new(Variable::Boolean(true));
         assert_eq!(Rc::new(Variable::Boolean(true)), interpret(data, &ast).unwrap());
     }
 
-    #[test] fn interprets_literal() {
+    #[test]
+    fn interprets_literal() {
         let ast = Ast::Literal(Rc::new(Variable::Boolean(true)));
         let data = Rc::new(Variable::Object(BTreeMap::new()));
         assert_eq!(Rc::new(Variable::Boolean(true)), interpret(data, &ast).unwrap());
     }
 
-    #[test] fn interprets_subexpr() {
+    #[test]
+    fn interprets_subexpr() {
         let ast = Ast::Subexpr(Box::new(Ast::Identifier("foo".to_string())),
                                Box::new(Ast::Identifier("bar".to_string())));
         let data = Rc::new(Variable::from_str("{\"foo\":{\"bar\":\"baz\"}}").unwrap());
         assert_eq!(Rc::new(Variable::String("baz".to_string())), interpret(data, &ast).unwrap());
     }
 
-    #[test] fn interprets_index() {
+    #[test]
+    fn interprets_index() {
         let data = Rc::new(Variable::Array(vec![
             Rc::new(Variable::Boolean(false)),
             Rc::new(Variable::Boolean(true))]));
@@ -268,20 +273,23 @@ mod tests {
                    interpret(data.clone(), &Ast::Index(1)).unwrap());
     }
 
-    #[test] fn interprets_index_when_not_array_as_null() {
+    #[test]
+    fn interprets_index_when_not_array_as_null() {
         let ast = Ast::Index(1);
         let data = Rc::new(Variable::String("foo".to_string()));
         assert_eq!(Rc::new(Variable::Null), interpret(data, &ast).unwrap());
     }
 
-    #[test] fn interprets_or_expr() {
+    #[test]
+    fn interprets_or_expr() {
         let ast = Ast::Or(Box::new(Ast::Identifier("bar".to_string())),
                           Box::new(Ast::Identifier("foo".to_string())));
         let data = Rc::new(Variable::from_str("{\"foo\":true}").unwrap());
         assert_eq!(Rc::new(Variable::Boolean(true)), interpret(data, &ast).unwrap());
     }
 
-    #[test] fn interprets_and_expr() {
+    #[test]
+    fn interprets_and_expr() {
         let ast = Ast::And(Box::new(Ast::Identifier("bar".to_string())),
                            Box::new(Ast::Identifier("foo".to_string())));
         let data = Rc::new(Variable::from_str("{\"foo\":true, \"bar\":true}").unwrap());
@@ -290,7 +298,8 @@ mod tests {
         assert_eq!(Rc::new(Variable::Null), interpret(data, &ast).unwrap());
     }
 
-    #[test] fn interprets_not_expr() {
+    #[test]
+    fn interprets_not_expr() {
         let data = Rc::new(Variable::from_str("{\"a\":true,\"b\":0,\"c\":false}").unwrap());
         let ast = Ast::Not(Box::new(Ast::Identifier("a".to_string())));
         assert_eq!(Rc::new(Variable::Boolean(false)), interpret(data.clone(), &ast).unwrap());
@@ -300,7 +309,8 @@ mod tests {
         assert_eq!(Rc::new(Variable::Boolean(true)), interpret(data.clone(), &ast).unwrap());
     }
 
-    #[test] fn interprets_cond_expr() {
+    #[test]
+    fn interprets_cond_expr() {
         let ast = Ast::Condition(
             Box::new(Ast::Literal(Rc::new(Variable::Boolean(true)))),
             Box::new(Ast::Literal(Rc::new(Variable::String("foo".to_string())))));
@@ -308,7 +318,8 @@ mod tests {
         assert_eq!(Rc::new(Variable::String("foo".to_string())), interpret(data, &ast).unwrap());
     }
 
-    #[test] fn interprets_cond_expr_negative() {
+    #[test]
+    fn interprets_cond_expr_negative() {
         let ast = Ast::Condition(
             Box::new(Ast::Literal(Rc::new(Variable::Boolean(false)))),
             Box::new(Ast::Literal(Rc::new(Variable::String("foo".to_string())))));
@@ -316,7 +327,8 @@ mod tests {
         assert_eq!(Rc::new(Variable::Null), interpret(data, &ast).unwrap());
     }
 
-    #[test] fn interprets_comparison() {
+    #[test]
+    fn interprets_comparison() {
         // Left, right, result, comparator.
         let cases = vec![vec!["true", "true", "true", "=="],
                          vec!["true", "false", "false", "=="],
@@ -339,13 +351,15 @@ mod tests {
         }
     }
 
-    #[test] fn interprets_object_values_to_array_negative() {
+    #[test]
+    fn interprets_object_values_to_array_negative() {
         let ast = Ast::ObjectValues(Box::new(Ast::Literal(Rc::new(Variable::Boolean(false)))));
         let data = Rc::new(Variable::Null);
         assert_eq!(Rc::new(Variable::Null), interpret(data, &ast).unwrap());
     }
 
-    #[test] fn interprets_object_values_to_array_affirmative() {
+    #[test]
+    fn interprets_object_values_to_array_affirmative() {
         let var = Rc::new(Variable::from_str("{\"foo\": \"bar\"}").unwrap());
         let ast = Ast::ObjectValues(Box::new(Ast::Literal(var)));
         let data = Rc::new(Variable::Null);
@@ -354,7 +368,8 @@ mod tests {
             interpret(data, &ast).unwrap());
     }
 
-    #[test] fn projection_on_non_array_returns_null() {
+    #[test]
+    fn projection_on_non_array_returns_null() {
         let ast = Ast::Projection(
             Box::new(Ast::Identifier("a".to_string())),
             Box::new(Ast::Identifier("b".to_string())));
@@ -362,7 +377,8 @@ mod tests {
         assert_eq!(Rc::new(Variable::Null), interpret(data, &ast).unwrap());
     }
 
-    #[test] fn projection_applies_to_array() {
+    #[test]
+    fn projection_applies_to_array() {
         let data = Rc::new(Variable::from_str("{\"a\": [{\"b\":1},{\"b\":2}]}").unwrap());
         let ast = Ast::Projection(
             Box::new(Ast::Identifier("a".to_string())),
@@ -372,13 +388,15 @@ mod tests {
             interpret(data, &ast).unwrap());
     }
 
-    #[test] fn flatten_of_non_array_is_null() {
+    #[test]
+    fn flatten_of_non_array_is_null() {
         let data = Rc::new(Variable::from_str("{\"a\": true}").unwrap());
         let ast = Ast::Flatten(Box::new(Ast::Identifier("a".to_string())));
         assert_eq!(Rc::new(Variable::Null), interpret(data, &ast).unwrap());
     }
 
-    #[test] fn flattens_arrays() {
+    #[test]
+    fn flattens_arrays() {
         let data = Rc::new(Variable::from_str("{\"a\": [1, [2, 3], 4, [[5]]]}").unwrap());
         let ast = Ast::Flatten(Box::new(Ast::Identifier("a".to_string())));
         assert_eq!(
@@ -386,12 +404,14 @@ mod tests {
             interpret(data, &ast).unwrap());
     }
 
-    #[test] fn multi_list_on_null_is_null() {
+    #[test]
+    fn multi_list_on_null_is_null() {
         let ast = Ast::MultiList(vec!());
         assert_eq!(Rc::new(Variable::Null), interpret(Rc::new(Variable::Null), &ast).unwrap());
     }
 
-    #[test] fn multi_list_creates_array() {
+    #[test]
+    fn multi_list_creates_array() {
         let data = Rc::new(Variable::from_str("{\"a\": 1, \"b\": 2}").unwrap());
         let ast = Ast::MultiList(vec![Ast::Identifier("a".to_string()),
                                       Ast::Identifier("b".to_string())]);
@@ -400,12 +420,14 @@ mod tests {
             interpret(data, &ast).unwrap());
     }
 
-    #[test] fn multi_hash_on_null_is_null() {
+    #[test]
+    fn multi_hash_on_null_is_null() {
         let ast = Ast::MultiHash(vec![]);
         assert_eq!(Rc::new(Variable::Null), interpret(Rc::new(Variable::Null), &ast).unwrap());
     }
 
-    #[test] fn multi_hash_creates_object() {
+    #[test]
+    fn multi_hash_creates_object() {
         let data = Rc::new(Variable::from_str("{\"aye\": 1, \"bee\": 2}").unwrap());
         let ast = Ast::MultiHash(vec![
             KeyValuePair {
@@ -422,20 +444,23 @@ mod tests {
             interpret(data, &ast).unwrap());
     }
 
-    #[test] fn calls_functions() {
+    #[test]
+    fn calls_functions() {
         let data = Rc::new(Variable::from_str("[1, 2, 3]").unwrap());
         let ast = Ast::Function("length".to_string(), vec![Ast::CurrentNode]);
         assert_eq!(Rc::new(Variable::U64(3)), interpret(data, &ast).unwrap());
     }
 
-    #[test] fn slices_arrays() {
+    #[test]
+    fn slices_arrays() {
         let data = Rc::new(Variable::from_str("[0, 1, 2, 3, 4]").unwrap());
         let ast = Ast::Slice(Some(1), Some(3), 1);
         assert_eq!(Rc::new(Variable::from_str("[1, 2]").unwrap()),
                    interpret(data, &ast).unwrap());
     }
 
-    #[test] fn slices_arrays_with_negative_index() {
+    #[test]
+    fn slices_arrays_with_negative_index() {
         let data = Rc::new(Variable::from_str("[0, 1, 2, 3, 4, 5, 6]").unwrap());
         let ast = Ast::Slice(Some(-1), Some(3), -1);
         assert_eq!(Rc::new(Variable::from_str("[6, 5, 4]").unwrap()),
