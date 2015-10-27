@@ -19,22 +19,25 @@
 //!
 //! let ast = jmespath::parse("foo.bar | baz");
 //! ```
+extern crate rustc_serialize;
 
 pub use parser::parse;
 pub use variable::Variable;
 
+use std::collections::BTreeMap;
 use std::fmt;
 use std::rc::Rc;
+use self::rustc_serialize::json::Json;
 
 use ast::Ast;
-use parser::ParseError;
 use interpreter::interpret;
+use parser::ParseError;
 
 pub mod ast;
-mod functions;
-mod interpreter;
 pub mod lexer;
 pub mod parser;
+mod functions;
+mod interpreter;
 mod variable;
 
 /// A compiled JMESPath expression.
@@ -54,8 +57,9 @@ impl Expression {
     }
 
     /// Returns the result of searching data with the compiled expression.
-    pub fn search(&self, data: Rc<Variable>) -> Result<Rc<Variable>, String> {
-        interpret(data, &self.ast)
+    pub fn search<S>(&self, data: S) -> Result<Rc<Variable>, String>
+            where S: IntoJMESPath {
+        interpret(data.into_jmespath(), &self.ast)
     }
 
     /// Returns the original string of this JMESPath expression.
@@ -85,11 +89,108 @@ impl PartialEq for Expression {
     }
 }
 
+/// Converts a value into a reference-counted JMESPath Variable that
+/// can be used by the JMESPath runtime.
+pub trait IntoJMESPath {
+    fn into_jmespath(self) -> Rc<Variable>;
+}
+
+impl IntoJMESPath for Rc<Variable> {
+    fn into_jmespath(self) -> Rc<Variable> {
+        self
+    }
+}
+
+impl IntoJMESPath for Variable {
+    fn into_jmespath(self) -> Rc<Variable> {
+        Rc::new(self)
+    }
+}
+
+impl <'a> IntoJMESPath for &'a Json {
+    fn into_jmespath(self) -> Rc<Variable> {
+        Rc::new(Variable::from_json(self))
+    }
+}
+
+impl IntoJMESPath for bool {
+    fn into_jmespath(self) -> Rc<Variable> {
+        Rc::new(Variable::Boolean(self))
+    }
+}
+
+impl IntoJMESPath for usize {
+    fn into_jmespath(self) -> Rc<Variable> {
+        Rc::new(Variable::U64(self as u64))
+    }
+}
+
+impl IntoJMESPath for u64 {
+    fn into_jmespath(self) -> Rc<Variable> {
+        Rc::new(Variable::U64(self))
+    }
+}
+
+impl IntoJMESPath for f64 {
+    fn into_jmespath(self) -> Rc<Variable> {
+        Rc::new(Variable::F64(self))
+    }
+}
+
+impl IntoJMESPath for i64 {
+    fn into_jmespath(self) -> Rc<Variable> {
+        Rc::new(Variable::I64(self))
+    }
+}
+
+/// Creates a Variable::Null value.
+impl IntoJMESPath for () {
+    fn into_jmespath(self) -> Rc<Variable> {
+        Rc::new(Variable::Null)
+    }
+}
+
+impl IntoJMESPath for String {
+    fn into_jmespath(self) -> Rc<Variable> {
+        Rc::new(Variable::String(self))
+    }
+}
+
+impl <'a> IntoJMESPath for &'a str {
+    fn into_jmespath(self) -> Rc<Variable> {
+        Rc::new(Variable::String(self.to_string()))
+    }
+}
+
+/// Creates a Variable::Expref value.
+impl IntoJMESPath for Ast {
+    fn into_jmespath(self) -> Rc<Variable> {
+        Rc::new(Variable::Expref(self))
+    }
+}
+
+/// Creates a Variable::Array value.
+impl IntoJMESPath for Vec<Rc<Variable>> {
+    fn into_jmespath(self) -> Rc<Variable> {
+        Rc::new(Variable::Array(self))
+    }
+}
+
+/// Creates a Variable::Object value.
+impl IntoJMESPath for BTreeMap<String, Rc<Variable>> {
+    fn into_jmespath(self) -> Rc<Variable> {
+        Rc::new(Variable::Object(self))
+    }
+}
+
 
 #[cfg(test)]
 mod test {
+    extern crate rustc_serialize;
+
     use super::*;
     use std::rc::Rc;
+    use self::rustc_serialize::json::Json;
 
     #[test]
     fn formats_expression_as_string() {
@@ -107,7 +208,16 @@ mod test {
     #[test]
     fn can_evaluate_jmespath_expression() {
         let expr = Expression::new("foo.bar").unwrap();
-        let var = Rc::new(Variable::from_str("{\"foo\":{\"bar\":true}}").unwrap());
+        let var = Variable::from_str("{\"foo\":{\"bar\":true}}").unwrap();
         assert_eq!(Rc::new(Variable::Boolean(true)), expr.search(var).unwrap());
+    }
+
+    #[test]
+    fn can_create_from_json_reference_and_release_ownership() {
+        let expr = Expression::new("foo.bar").unwrap();
+        let var = Json::from_str("{\"foo\":{\"bar\":true}}").unwrap();
+        let result = expr.search(&var).unwrap();
+        assert_eq!(Rc::new(Variable::Boolean(true)), result);
+        assert!(var.is_object());
     }
 }

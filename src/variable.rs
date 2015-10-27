@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 use std::iter::Iterator;
 use self::rustc_serialize::json::Json;
 
+use IntoJMESPath;
 use ast::{Ast, Comparator};
 
 /// JMESPath variable.
@@ -359,38 +360,7 @@ impl Variable {
 pub struct VariableArena {
     true_bool: Rc<Variable>,
     false_bool: Rc<Variable>,
-    null: Rc<Variable>,
-    empty_array: Rc<Variable>,
-    empty_object: Rc<Variable>
-}
-
-/// Trait used to convert a rust value into a Variable.
-trait IntoVariable {
-    fn into_variable(self) -> Variable;
-}
-
-impl IntoVariable for usize {
-    fn into_variable(self) -> Variable {
-        Variable::U64(self as u64)
-    }
-}
-
-impl IntoVariable for u64 {
-    fn into_variable(self) -> Variable {
-        Variable::U64(self)
-    }
-}
-
-impl IntoVariable for f64 {
-    fn into_variable(self) -> Variable {
-        Variable::F64(self)
-    }
-}
-
-impl IntoVariable for i64 {
-    fn into_variable(self) -> Variable {
-        Variable::I64(self)
-    }
+    null: Rc<Variable>
 }
 
 impl VariableArena {
@@ -399,9 +369,7 @@ impl VariableArena {
         VariableArena {
             true_bool: Rc::new(Variable::Boolean(true)),
             false_bool: Rc::new(Variable::Boolean(false)),
-            null: Rc::new(Variable::Null),
-            empty_array: Rc::new(Variable::Array(vec![])),
-            empty_object: Rc::new(Variable::Object(BTreeMap::new()))
+            null: Rc::new(Variable::Null)
         }
     }
 
@@ -420,46 +388,10 @@ impl VariableArena {
         self.null.clone()
     }
 
-    /// Allocate a numeric value from f64, u64, usize, i64, etc...
+    /// Convenience method to allocates a Variable.
     #[inline]
-    pub fn alloc_number<S>(&self, s: S) -> Rc<Variable> where S: IntoVariable {
-        Rc::new(s.into_variable())
-    }
-
-    /// Allocate a string variable from a String, &str, or anything
-    /// implementing Into<String>.
-    #[inline]
-    pub fn alloc_string<S>(&self, s: S) -> Rc<Variable> where S: Into<String> {
-        Rc::new(Variable::String(s.into()))
-    }
-
-    /// Allocate an array value.
-    /// Empty values will use a shared reference.
-    #[inline]
-    pub fn alloc_array(&self, array: Vec<Rc<Variable>>) -> Rc<Variable> {
-        if array.is_empty() {
-            self.empty_array.clone()
-        } else {
-            Rc::new(Variable::Array(array))
-        }
-    }
-
-    /// Allocate an array value.
-    /// Empty values will use a shared reference.
-    #[inline]
-    pub fn alloc_object(&self, map: BTreeMap<String, Rc<Variable>>) -> Rc<Variable> {
-        if map.is_empty() {
-            self.empty_object.clone()
-        } else {
-            Rc::new(Variable::Object(map))
-        }
-    }
-
-    /// Allocate an expression reference.
-    /// This method is currently a simple pass-thru.
-    #[inline]
-    pub fn alloc_expref(&self, ast: Ast) -> Rc<Variable> {
-        Rc::new(Variable::Expref(ast))
+    pub fn alloc<S>(&self, s: S) -> Rc<Variable> where S: IntoJMESPath {
+        s.into_jmespath()
     }
 }
 

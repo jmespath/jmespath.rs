@@ -88,7 +88,7 @@ impl<'a> TreeInterpreter<'a> {
             // Converts an object into a JSON array of its values.
             &Ast::ObjectValues(ref predicate) => {
                 Ok(match try!(self.interpret(data, predicate)).object_values() {
-                    Some(values) => self.arena.alloc_array(values),
+                    Some(values) => self.arena.alloc(values),
                     None => self.arena.alloc_null()
                 })
             },
@@ -105,7 +105,7 @@ impl<'a> TreeInterpreter<'a> {
                                 collected.push(current);
                             }
                         }
-                        Ok(self.arena.alloc_array(collected))
+                        Ok(self.arena.alloc(collected))
                     }
                 }
             },
@@ -120,7 +120,7 @@ impl<'a> TreeInterpreter<'a> {
                                 _ => collected.push(element.clone())
                             }
                         }
-                        Ok(self.arena.alloc_array(collected))
+                        Ok(self.arena.alloc(collected))
                     }
                 }
             },
@@ -132,7 +132,7 @@ impl<'a> TreeInterpreter<'a> {
                     for node in nodes {
                         collected.push(try!(self.interpret(data.clone(), node)));
                     }
-                    Ok(self.arena.alloc_array(collected))
+                    Ok(self.arena.alloc(collected))
                 }
             },
             &Ast::MultiHash(ref kvp_list) => {
@@ -145,7 +145,7 @@ impl<'a> TreeInterpreter<'a> {
                         let value = try!(self.interpret(data.clone(), &kvp.value));
                         collected.insert(key.as_string().unwrap().to_string(), value);
                     }
-                    Ok(self.arena.alloc_object(collected))
+                    Ok(self.arena.alloc(collected))
                 }
             },
             &Ast::Function(ref fn_name, ref arg_nodes) => {
@@ -155,10 +155,10 @@ impl<'a> TreeInterpreter<'a> {
                 }
                 self.fn_dispatcher.call(fn_name, &args, &self)
             },
-            &Ast::Expref(ref ast) => Ok(self.arena.alloc_expref(*ast.clone())),
+            &Ast::Expref(ref ast) => Ok(self.arena.alloc(*ast.clone())),
             &Ast::Slice(ref a, ref b, c) => {
                 match data.as_array() {
-                    Some(ref array) => Ok(self.arena.alloc_array(slice(array, a, b, c))),
+                    Some(ref array) => Ok(self.arena.alloc(slice(array, a, b, c))),
                     None => Ok(self.arena.alloc_null())
                 }
             }
