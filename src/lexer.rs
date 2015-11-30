@@ -70,7 +70,7 @@ impl<'a> Lexer<'a> {
     fn consume_while<F>(&mut self, predicate: F) -> String
         where F: Fn(char) -> bool
     {
-        let mut buffer = self.iter.next().unwrap().1.to_string();
+        let mut buffer = self.iter.next().expect("Expected token").1.to_string();
         loop {
             match self.iter.peek() {
                 None => break,
@@ -106,7 +106,7 @@ impl<'a> Lexer<'a> {
     #[inline]
     fn consume_number(&mut self, is_negative: bool) -> Token {
         let lexeme = self.consume_while(|c| c.is_digit(10));
-        let numeric_value: i32 = lexeme.parse().unwrap();
+        let numeric_value: i32 = lexeme.parse().expect("Expected valid number");
         match is_negative {
             true => Number(numeric_value * -1),
             false => Number(numeric_value)
@@ -167,7 +167,7 @@ impl<'a> Lexer<'a> {
             // JSON decode the string to expand escapes
             match Variable::from_str(format!(r##""{}""##, s).as_ref()) {
                 // Convert the JSON value into a string literal.
-                Ok(j) => QuotedIdentifier(j.as_string().unwrap().to_string()),
+                Ok(j) => QuotedIdentifier(j.as_string().expect("Expected string").to_string()),
                 Err(e) => Error {
                     value: format!(r#""{}""#, s),
                     msg: format!("Unable to parse JSON value in quoted identifier: {}", e)

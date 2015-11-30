@@ -21,7 +21,6 @@
 //! ```
 extern crate rustc_serialize;
 
-pub use parser::parse;
 pub use variable::Variable;
 
 use std::collections::BTreeMap;
@@ -31,7 +30,7 @@ use self::rustc_serialize::json::Json;
 
 use ast::Ast;
 use interpreter::interpret;
-use parser::ParseError;
+use parser::{parse, ParseError};
 
 pub mod ast;
 pub mod lexer;
@@ -43,7 +42,7 @@ mod variable;
 /// A compiled JMESPath expression.
 #[derive(Clone)]
 pub struct Expression {
-    ast: Ast,
+    pub ast: Ast,
     original: String
 }
 

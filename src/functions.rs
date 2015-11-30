@@ -170,17 +170,17 @@ impl FnDispatcher for BuiltinFunctions {
         match fn_name {
             "abs" => {
                 validate!("abs", args, types![number]);
-                Ok(intr.arena.alloc(args[0].as_f64().unwrap().abs()))
+                Ok(intr.arena.alloc(args[0].as_f64().expect("f64").abs()))
             },
             "avg" => {
                 validate!("avg", args, array!(number));
-                let array = args[0].as_array().unwrap();
-                let sum = array.iter().fold(0f64, |a, ref b| a + b.as_f64().unwrap());
+                let array = args[0].as_array().expect("as_array");
+                let sum = array.iter().fold(0f64, |a, ref b| a + b.as_f64().expect("f64"));
                 Ok(intr.arena.alloc(sum / (array.len() as f64)))
             },
             "ceil" => {
                 validate!("ceil", args, types![number]);
-                Ok(intr.arena.alloc(args[0].as_f64().unwrap().ceil()))
+                Ok(intr.arena.alloc(args[0].as_f64().expect("f64").ceil()))
             },
             "contains" => {
                 validate!("contains", args, types![array|string], types![any]);
@@ -197,25 +197,25 @@ impl FnDispatcher for BuiltinFunctions {
             },
             "ends_with" => {
                 validate!("ends_with", args, types![string], types![string]);
-                let subject = args[0].as_string().unwrap();
-                let search = args[1].as_string().unwrap();
+                let subject = args[0].as_string().expect("ends_with:0:string");
+                let search = args[1].as_string().expect("ends_with:1:string");
                 Ok(intr.arena.alloc_bool(subject.ends_with(search)))
             },
             "floor" => {
                 validate!("floor", args, types![number]);
-                Ok(intr.arena.alloc(args[0].as_f64().unwrap().floor()))
+                Ok(intr.arena.alloc(args[0].as_f64().expect("f64").floor()))
             },
             "join" => {
                 validate!("join", args, types![string], array![string]);
-                Ok(intr.arena.alloc(
-                    args.iter().skip(1)
-                        .map(|ref v| v.as_string().unwrap().clone())
-                        .collect::<Vec<String>>()
-                        .join(args[0].as_string().unwrap())))
+                let mut result = String::new();
+                for value in args[1].as_array().unwrap() {
+                    result.push_str(value.as_string().unwrap());
+                }
+                Ok(intr.arena.alloc(result))
             },
             "keys" => {
                 validate!("keys", args, types![object]);
-                let keys = args[0].object_keys().unwrap()
+                let keys = args[0].object_keys().expect("object keys")
                     .iter()
                     .map(|k| intr.arena.alloc((*k).clone()))
                     .collect::<Vec<Rc<Variable>>>();
@@ -245,9 +245,9 @@ impl FnDispatcher for BuiltinFunctions {
             "min_by" => max_by_min_by!(min, args, intr),
             "merge" => {
                 validate!("merge", args, types![object] ...types![object]);
-                let mut result = args[0].as_object().unwrap().clone();
+                let mut result = args[0].as_object().expect("object").clone();
                 for arg in args.iter().skip(1) {
-                    result.extend(arg.as_object().unwrap().clone());
+                    result.extend(arg.as_object().expect("object").clone());
                 }
                 Ok(intr.arena.alloc(result))
             },
@@ -268,29 +268,37 @@ impl FnDispatcher for BuiltinFunctions {
             },
             "sort" => {
                 validate!("sort", args, array![string|number]);
-                let mut values: Vec<Rc<Variable>> = args[0].as_array().unwrap().clone();
-                if values[0].is_string() {
-                    values.sort_by(|a, b| a.as_string().unwrap().cmp(b.as_string().unwrap()));
-                } else {
-                    values.sort_by(|a, b| a.as_f64().unwrap()
-                        .partial_cmp(&b.as_f64().unwrap())
-                        .unwrap_or(Ordering::Equal));
+                let mut values: Vec<Rc<Variable>> = args[0].as_array().expect("array").clone();
+                if values.len() != 0 {
+                    if values[0].is_string() {
+                        values.sort_by(|a, b| a.as_string()
+                            .expect("sort_by:string")
+                            .cmp(b.as_string().expect("sort_by:string (cmp)")));
+                    } else {
+                        values.sort_by(|a, b| a.as_f64().expect("f64")
+                            .partial_cmp(&b.as_f64().expect("f64"))
+                            .unwrap_or(Ordering::Equal));
+                    }
                 }
                 Ok(intr.arena.alloc(values))
             },
             "sort_by" => sort_by(args, intr),
             "starts_with" => {
                 validate!("starts_with", args, types![string], types![string]);
-                let subject = args[0].as_string().unwrap();
-                let search = args[1].as_string().unwrap();
+                let subject = args[0].as_string().expect("starts_with:0:string");
+                let search = args[1].as_string().expect("starts_with:1:string");
                 Ok(intr.arena.alloc_bool(subject.starts_with(search)))
             },
             "sum" => {
                 validate!("sum", args, array![number]);
-                let array = args[0].as_array().unwrap();
-                Ok(intr.arena.alloc(array.iter().fold(
-                    array[0].as_f64().unwrap().clone(),
-                    |acc, item| acc.max(item.as_f64().unwrap()))))
+                let array = args[0].as_array().expect("array");
+                if array.len() == 0 {
+                    Ok(intr.arena.alloc(vec![]))
+                } else {
+                    Ok(intr.arena.alloc(array.iter().fold(
+                        array[0].as_f64().expect("f64").clone(),
+                        |acc, item| acc.max(item.as_f64().expect("f64")))))
+                }
             },
             "to_array" => {
                 try!(arity("to_array", 1, args));
@@ -314,7 +322,7 @@ impl FnDispatcher for BuiltinFunctions {
             },
             "to_string" => {
                 validate!("to_string", args, types![object|array|boolean|number|string|null]);
-                Ok(intr.arena.alloc(args[0].to_string().unwrap()))
+                Ok(intr.arena.alloc(args[0].to_string().expect("cast to string")))
             },
             "type" => {
                 try!(arity("type", 1, args));
@@ -322,7 +330,7 @@ impl FnDispatcher for BuiltinFunctions {
             },
             "values" => {
                 validate!("values", args, types![object]);
-                Ok(intr.arena.alloc(args[0].object_values().unwrap()))
+                Ok(intr.arena.alloc(args[0].object_values().expect("Object")))
             },
             _ => Err(format!("Unknown function: {}", fn_name))
         }
@@ -365,16 +373,16 @@ fn sort_by(args: &Vec<Rc<Variable>>, intr: &TreeInterpreter) -> InterpretResult 
         match state {
             SortByState::Initial if a_type == "string" && b_type == a_type => {
                 state = SortByState::FoundString;
-                a.as_string().unwrap().cmp(b.as_string().unwrap())
+                a.as_string().expect("string").cmp(b.as_string().expect("string"))
             },
             SortByState::Initial if a_type == "number" && b_type == a_type => {
                 state = SortByState::FoundNumber;
-                a.as_f64().unwrap().partial_cmp(&b.as_f64().unwrap()).unwrap()
+                a.as_f64().expect("f64").partial_cmp(&b.as_f64().expect("f64")).expect("cmp")
             },
             SortByState::FoundString if a_type == "string" && b_type == "string" =>
-                a.as_string().unwrap().cmp(b.as_string().unwrap()),
+                a.as_string().expect("string").cmp(b.as_string().expect("string")),
             SortByState::FoundNumber if a_type == "number" && b_type == "number" =>
-                a.as_f64().unwrap().partial_cmp(&b.as_f64().unwrap()).unwrap(),
+                a.as_f64().expect("f64").partial_cmp(&b.as_f64().expect("f64")).expect("cmp"),
             _ => {
                 state = SortByState::Error("sort_by expref is expected to return all strings \
                                            or all numbers".to_string());

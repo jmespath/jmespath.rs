@@ -143,7 +143,8 @@ impl<'a> TreeInterpreter<'a> {
                     for kvp in kvp_list {
                         let key = try!(self.interpret(data.clone(), &kvp.key));
                         let value = try!(self.interpret(data.clone(), &kvp.value));
-                        collected.insert(key.as_string().unwrap().to_string(), value);
+                        let key_value = key.as_string().expect("Expected string").to_string();
+                        collected.insert(key_value, value);
                     }
                     Ok(self.arena.alloc(collected))
                 }
