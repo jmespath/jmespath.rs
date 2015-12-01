@@ -3,28 +3,23 @@ use std::rc::Rc;
 use std::collections::BTreeMap;
 
 use ast::Ast;
-use functions::{FnDispatcher, BuiltinFunctions};
+use functions::FnDispatcher;
 use variable::{Variable, VariableArena};
 
 pub type InterpretResult = Result<Rc<Variable>, String>;
 
-/// Creates a new TreeInterpreter and interprets data with a given AST.
-pub fn interpret(data: Rc<Variable>, ast: &Ast) -> InterpretResult {
-    TreeInterpreter::new(&BuiltinFunctions::new()).interpret(data, ast)
-}
-
 /// TreeInterpreter recursively extracts data using an AST.
 #[derive(Clone)]
-pub struct TreeInterpreter<'a> {
+pub struct TreeInterpreter {
     /// Handles interpreting built-in functions from the AST.
-    fn_dispatcher: &'a FnDispatcher,
+    pub fn_dispatcher: FnDispatcher,
     /// Allocates runtime variables.
     pub arena: VariableArena
 }
 
-impl<'a> TreeInterpreter<'a> {
+impl TreeInterpreter {
     /// Creates a new TreeInterpreter using the given function dispatcher.
-    pub fn new(fn_dispatcher: &'a FnDispatcher) -> TreeInterpreter<'a> {
+    pub fn new(fn_dispatcher: FnDispatcher) -> TreeInterpreter {
         TreeInterpreter {
             fn_dispatcher: fn_dispatcher,
             arena: VariableArena::new()
@@ -229,6 +224,12 @@ mod tests {
     use super::*;
     use ast::{Ast, Comparator, KeyValuePair};
     use variable::Variable;
+    use functions::FnDispatcher;
+
+    // Helper method for tests
+    fn interpret(data: Rc<Variable>, ast: &Ast) -> InterpretResult {
+        TreeInterpreter::new(FnDispatcher::new()).interpret(data, ast)
+    }
 
     #[test]
     fn interprets_identifier() {

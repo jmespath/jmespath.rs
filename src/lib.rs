@@ -29,7 +29,8 @@ use std::rc::Rc;
 use self::rustc_serialize::json::Json;
 
 use ast::Ast;
-use interpreter::interpret;
+use functions::FnDispatcher;
+use interpreter::TreeInterpreter;
 use parser::{parse, ParseError};
 
 pub mod ast;
@@ -43,22 +44,30 @@ mod variable;
 #[derive(Clone)]
 pub struct Expression {
     pub ast: Ast,
-    original: String
+    original: String,
+    tree_interpreter: TreeInterpreter
 }
 
 impl Expression {
     /// Creates a new JMESPath expression from an expression string.
     pub fn new(expression: &str) -> Result<Expression, ParseError> {
+        Expression::with_tree_interpreter(expression, TreeInterpreter::new(FnDispatcher::new()))
+    }
+
+    /// Creates a new JMESPath expression using a custom tree interpreter.
+    pub fn with_tree_interpreter(expression: &str, tree_interpreter: TreeInterpreter)
+            -> Result<Expression, ParseError> {
         Ok(Expression {
             original: expression.to_string(),
-            ast: try!(parse(expression))
+            ast: try!(parse(expression)),
+            tree_interpreter: tree_interpreter
         })
     }
 
     /// Returns the result of searching data with the compiled expression.
     pub fn search<S>(&self, data: S) -> Result<Rc<Variable>, String>
             where S: IntoJMESPath {
-        interpret(data.into_jmespath(), &self.ast)
+        self.tree_interpreter.interpret(data.into_jmespath(), &self.ast)
     }
 
     /// Returns the original string of this JMESPath expression.

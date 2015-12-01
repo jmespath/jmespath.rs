@@ -4,13 +4,6 @@ use std::cmp::{max, min, Ordering};
 use interpreter::{TreeInterpreter, InterpretResult};
 use variable::Variable;
 
-/// Handles the dispatching of named functions using an array of arguments.
-pub trait FnDispatcher {
-    /// Dispatches and interprets a function by name.
-    fn call(&self, fn_name: &str, args: &Vec<Rc<Variable>>, intr: &TreeInterpreter)
-        -> InterpretResult;
-}
-
 /// Validates the arity of a function.
 #[inline]
 fn arity(fn_name: &str, arity: usize, args: &Vec<Rc<Variable>>) -> Result<(), String> {
@@ -154,17 +147,15 @@ macro_rules! max_by_min_by {
 
 /// Built-in function implementations.
 #[derive(Clone)]
-pub struct BuiltinFunctions;
+pub struct FnDispatcher;
 
-impl BuiltinFunctions {
+impl FnDispatcher {
     /// Creates a new Builtins function dispatcher.
-    pub fn new() -> BuiltinFunctions {
-        BuiltinFunctions
+    pub fn new() -> FnDispatcher {
+        FnDispatcher
     }
-}
 
-impl FnDispatcher for BuiltinFunctions {
-    fn call(&self, fn_name: &str, args: &Vec<Rc<Variable>>, intr: &TreeInterpreter)
+    pub fn call(&self, fn_name: &str, args: &Vec<Rc<Variable>>, intr: &TreeInterpreter)
         -> InterpretResult
     {
         match fn_name {
