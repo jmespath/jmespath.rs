@@ -1,33 +1,39 @@
 //! Extracts JSON data by interpreting a JMESPath AST
 use std::rc::Rc;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
-use ast::Ast;
-use functions::FnDispatcher;
-use variable::{Variable, VariableArena};
+use super::RuntimeError;
+use super::ast::Ast;
+use super::functions::{register_core_functions, JPFunction, Functions};
+use super::variable::{Variable, VariableArena};
 
-pub type InterpretResult = Result<Rc<Variable>, String>;
+pub type JPResult = Result<Rc<Variable>, RuntimeError>;
 
 /// TreeInterpreter recursively extracts data using an AST.
-#[derive(Clone)]
 pub struct TreeInterpreter {
-    /// Handles interpreting built-in functions from the AST.
-    pub fn_dispatcher: FnDispatcher,
     /// Allocates runtime variables.
-    pub arena: VariableArena
+    pub arena: VariableArena,
+    /// Provides a mapping between JMESPath function names and the function to execute.
+    functions: Functions
 }
 
 impl TreeInterpreter {
-    /// Creates a new TreeInterpreter using the given function dispatcher.
-    pub fn new(fn_dispatcher: FnDispatcher) -> TreeInterpreter {
+    /// Creates a new TreeInterpreter
+    pub fn new() -> TreeInterpreter {
+        let mut functions = HashMap::new();
+        register_core_functions(&mut functions);
         TreeInterpreter {
-            fn_dispatcher: fn_dispatcher,
-            arena: VariableArena::new()
+            arena: VariableArena::new(),
+            functions: functions
         }
     }
 
+    pub fn register_fn(&mut self, fn_name: &str, f: Box<JPFunction>) {
+        self.functions.insert(fn_name.to_string(), f);
+    }
+
     /// Interprets the given data using an AST node.
-    pub fn interpret(&self, data: Rc<Variable>, node: &Ast) -> InterpretResult {
+    pub fn interpret(&self, data: Rc<Variable>, node: &Ast) -> JPResult {
         match node {
             &Ast::Subexpr(ref lhs, ref rhs) =>
                 self.interpret(try!(self.interpret(data, lhs)), rhs),
@@ -82,10 +88,13 @@ impl TreeInterpreter {
             },
             // Converts an object into a JSON array of its values.
             &Ast::ObjectValues(ref predicate) => {
-                Ok(match try!(self.interpret(data, predicate)).object_values() {
-                    Some(values) => self.arena.alloc(values),
-                    None => self.arena.alloc_null()
-                })
+                let subject = try!(self.interpret(data, predicate));
+                match *subject {
+                    Variable::Object(ref v) => {
+                        Ok(self.arena.alloc(v.values().cloned().collect::<Vec<Rc<Variable>>>()))
+                    },
+                    _ => Ok(self.arena.alloc_null())
+                }
             },
             // Passes the results of lhs into rhs if lhs yields an array and
             // each node of lhs that passes through rhs yields a non-null value.
@@ -149,7 +158,10 @@ impl TreeInterpreter {
                 for arg in arg_nodes {
                     args.push(try!(self.interpret(data.clone(), arg)));
                 }
-                self.fn_dispatcher.call(fn_name, &args, &self)
+                match self.functions.get(fn_name) {
+                    Some(f) => f.evaluate(args, self),
+                    None => Err(RuntimeError::UnknownFunction { function: fn_name.clone() })
+                }
             },
             &Ast::Expref(ref ast) => Ok(self.arena.alloc(*ast.clone())),
             &Ast::Slice(ref a, ref b, c) => {
@@ -224,11 +236,10 @@ mod tests {
     use super::*;
     use ast::{Ast, Comparator, KeyValuePair};
     use variable::Variable;
-    use functions::FnDispatcher;
 
     // Helper method for tests
-    fn interpret(data: Rc<Variable>, ast: &Ast) -> InterpretResult {
-        TreeInterpreter::new(FnDispatcher::new()).interpret(data, ast)
+    fn interpret(data: Rc<Variable>, ast: &Ast) -> JPResult {
+        TreeInterpreter::new().interpret(data, ast)
     }
 
     #[test]
@@ -450,7 +461,7 @@ mod tests {
     fn calls_functions() {
         let data = Rc::new(Variable::from_str("[1, 2, 3]").unwrap());
         let ast = Ast::Function("length".to_string(), vec![Ast::CurrentNode]);
-        assert_eq!(Rc::new(Variable::U64(3)), interpret(data, &ast).unwrap());
+        assert_eq!(Rc::new(Variable::Number(3.0)), interpret(data, &ast).unwrap());
     }
 
     #[test]

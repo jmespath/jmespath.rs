@@ -1,7 +1,7 @@
 //! JMESPath AST
 use std::rc::Rc;
 
-use variable::Variable;
+use super::variable::Variable;
 
 /// Represents the abstract syntax tree of a JMESPath expression.
 #[derive(Clone, PartialEq, PartialOrd, Debug)]
@@ -35,4 +35,11 @@ pub struct KeyValuePair {
 
 /// Comparators (i.e., less than, greater than, etc.)
 #[derive(Clone, PartialEq, PartialOrd, Debug)]
-pub enum Comparator { Eq, Lt, Lte, Ne, Gte, Gt }
+pub enum Comparator {
+    Eq,
+    Lt,
+    Lte,
+    Ne,
+    Gte,
+    Gt
+}

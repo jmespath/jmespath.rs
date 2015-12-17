@@ -29,7 +29,6 @@ use std::rc::Rc;
 use self::rustc_serialize::json::Json;
 
 use ast::Ast;
-use functions::FnDispatcher;
 use interpreter::TreeInterpreter;
 use parser::{parse, ParseError};
 
@@ -40,8 +39,44 @@ mod functions;
 mod interpreter;
 mod variable;
 
+/// JMESPath error
+#[derive(Clone,Debug,PartialEq)]
+pub enum Error {
+    /// An error occurred while parsing an expression.
+    Parse(ParseError),
+    /// An error occurred while evaluating an expression.
+    Runtime(RuntimeError)
+}
+
+/// Runtime JMESPath error
+#[derive(Clone,Debug,PartialEq)]
+pub enum RuntimeError {
+    TooManyArguments { expected: usize, actual: usize },
+    NotEnoughArguments { expected: usize, actual: usize },
+    WrongType { expected: String, actual: String, position: usize },
+    UnknownFunction { function: String },
+    WrongReturnType { expected: String, actual: String, position: usize }
+}
+
+impl RuntimeError {
+    pub fn wrong_type(expected: String, actual: &str, position: usize) -> RuntimeError {
+        RuntimeError::WrongType {
+            expected: expected,
+            actual: actual.to_string(),
+            position: position
+        }
+    }
+
+    pub fn wrong_return_type(expected: String, actual: &str, position: usize) -> RuntimeError {
+        RuntimeError::WrongReturnType {
+            expected: expected,
+            actual: actual.to_string(),
+            position: position
+        }
+    }
+}
+
 /// A compiled JMESPath expression.
-#[derive(Clone)]
 pub struct Expression {
     pub ast: Ast,
     original: String,
@@ -51,7 +86,7 @@ pub struct Expression {
 impl Expression {
     /// Creates a new JMESPath expression from an expression string.
     pub fn new(expression: &str) -> Result<Expression, ParseError> {
-        Expression::with_tree_interpreter(expression, TreeInterpreter::new(FnDispatcher::new()))
+        Expression::with_tree_interpreter(expression, TreeInterpreter::new())
     }
 
     /// Creates a new JMESPath expression using a custom tree interpreter.
@@ -65,7 +100,7 @@ impl Expression {
     }
 
     /// Returns the result of searching data with the compiled expression.
-    pub fn search<S>(&self, data: S) -> Result<Rc<Variable>, String>
+    pub fn search<S>(&self, data: S) -> Result<Rc<Variable>, RuntimeError>
             where S: IntoJMESPath {
         self.tree_interpreter.interpret(data.into_jmespath(), &self.ast)
     }
@@ -129,25 +164,25 @@ impl IntoJMESPath for bool {
 
 impl IntoJMESPath for usize {
     fn into_jmespath(self) -> Rc<Variable> {
-        Rc::new(Variable::U64(self as u64))
+        Rc::new(Variable::Number(self as f64))
     }
 }
 
 impl IntoJMESPath for u64 {
     fn into_jmespath(self) -> Rc<Variable> {
-        Rc::new(Variable::U64(self))
+        Rc::new(Variable::Number(self as f64))
     }
 }
 
 impl IntoJMESPath for f64 {
     fn into_jmespath(self) -> Rc<Variable> {
-        Rc::new(Variable::F64(self))
+        Rc::new(Variable::Number(self))
     }
 }
 
 impl IntoJMESPath for i64 {
     fn into_jmespath(self) -> Rc<Variable> {
-        Rc::new(Variable::I64(self))
+        Rc::new(Variable::Number(self as f64))
     }
 }
 

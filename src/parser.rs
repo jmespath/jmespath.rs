@@ -2,8 +2,8 @@
 use std::fmt;
 use std::iter::Peekable;
 
-use ast::{Ast, KeyValuePair, Comparator};
-use lexer::{Lexer, Token};
+use super::ast::{Ast, KeyValuePair, Comparator};
+use super::lexer::{Lexer, Token};
 
 pub type ParseResult = Result<Ast, ParseError>;
 type ParseStep = Result<Token, ParseError>;

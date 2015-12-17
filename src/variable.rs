@@ -1,14 +1,14 @@
 extern crate rustc_serialize;
 
+use std::string::ToString;
 use std::cmp::{max, Ordering};
-use std::i64;
 use std::rc::Rc;
 use std::collections::BTreeMap;
 use std::iter::Iterator;
 use self::rustc_serialize::json::Json;
 
-use IntoJMESPath;
-use ast::{Ast, Comparator};
+use super::IntoJMESPath;
+use super::ast::{Ast, Comparator};
 
 /// JMESPath variable.
 ///
@@ -19,9 +19,7 @@ pub enum Variable {
     Null,
     String(String),
     Boolean(bool),
-    I64(i64),
-    U64(u64),
-    F64(f64),
+    Number(f64),
     Array(Vec<Rc<Variable>>),
     Object(BTreeMap<String, Rc<Variable>>),
     Expref(Ast)
@@ -38,8 +36,8 @@ impl Ord for Variable {
         } else {
             match var_type {
                 "string" => self.as_string().unwrap().cmp(other.as_string().unwrap()),
-                "number" => self.as_f64().unwrap()
-                    .partial_cmp(&other.as_f64().unwrap())
+                "number" => self.as_number().unwrap()
+                    .partial_cmp(&other.as_number().unwrap())
                     .unwrap_or(Ordering::Less),
                 _ => Ordering::Equal
             }
@@ -54,9 +52,9 @@ impl Variable {
             &Json::Null => Variable::Null,
             &Json::Boolean(value) => Variable::Boolean(value),
             &Json::String(ref s) => Variable::String(s.to_string()),
-            &Json::I64(i) => Variable::I64(i),
-            &Json::F64(f) => Variable::F64(f),
-            &Json::U64(u) => Variable::U64(u),
+            &Json::I64(n) => Variable::Number(n as f64),
+            &Json::U64(n) => Variable::Number(n as f64),
+            &Json::F64(f) => Variable::Number(f),
             &Json::Array(ref array) => {
                 let mut result: Vec<Rc<Variable>> = vec![];
                 for value in array.iter() {
@@ -88,9 +86,7 @@ impl Variable {
             &Variable::Null => Some(Json::Null),
             &Variable::Boolean(value) => Some(Json::Boolean(value)),
             &Variable::String(ref s) => Some(Json::String(s.to_string())),
-            &Variable::I64(i) => Some(Json::I64(i)),
-            &Variable::F64(f) => Some(Json::F64(f)),
-            &Variable::U64(u) => Some(Json::U64(u)),
+            &Variable::Number(f) => Some(Json::F64(f)),
             &Variable::Array(ref array) => {
                 let mut result: Vec<Json> = vec![];
                 for value in array.iter() {
@@ -164,63 +160,16 @@ impl Variable {
     /// Returns true if the value is a Number. Returns false otherwise.
     pub fn is_number(&self) -> bool {
         match *self {
-            Variable::I64(_) | Variable::U64(_) | Variable::F64(_) => true,
+            Variable::Number(_) => true,
             _ => false,
-        }
-    }
-
-    /// Returns true if the value is a i64. Returns false otherwise.
-    pub fn is_i64(&self) -> bool {
-        match *self {
-            Variable::I64(_) => true,
-            _ => false,
-        }
-    }
-
-    /// Returns true if the value is a u64. Returns false otherwise.
-    pub fn is_u64(&self) -> bool {
-        match *self {
-            Variable::U64(_) => true,
-            _ => false,
-        }
-    }
-
-    /// Returns true if the value is a f64. Returns false otherwise.
-    pub fn is_f64(&self) -> bool {
-        match *self {
-            Variable::F64(_) => true,
-            _ => false,
-        }
-    }
-
-    /// If the value is a number, return or cast it to a i64.
-    /// Returns None otherwise.
-    pub fn as_i64(&self) -> Option<i64> {
-        match *self {
-            Variable::I64(n) => Some(n),
-            Variable::U64(n) if n >= i64::MAX as u64 => None,
-            Variable::U64(n) => Some(n as i64),
-            _ => None
-        }
-    }
-
-    /// If the value is a number, return or cast it to a u64.
-    /// Returns None otherwise.
-    pub fn as_u64(&self) -> Option<u64> {
-        match *self {
-            Variable::I64(n) if n >= 0 => Some(n as u64),
-            Variable::U64(n) => Some(n),
-            _ => None
         }
     }
 
     /// If the value is a number, return or cast it to a f64.
     /// Returns None otherwise.
-    pub fn as_f64(&self) -> Option<f64> {
+    pub fn as_number(&self) -> Option<f64> {
         match *self {
-            Variable::I64(n) => Some(n as f64),
-            Variable::U64(n) => Some(n as f64),
-            Variable::F64(n) => Some(n),
+            Variable::Number(f) => Some(f),
             _ => None
         }
     }
@@ -301,19 +250,6 @@ impl Variable {
             .map(|value| value.clone().clone())
     }
 
-    /// Gets a vector of object values where each value is an Rc clone.
-    /// None is returned if the Variable is not an object.
-    pub fn object_values(&self) -> Option<Vec<Rc<Variable>>> {
-        self.as_object().map(|map| map.values().cloned().collect())
-    }
-
-    /// Converts a Variable::Object to a Variable::Array containing object keys.
-    /// None is returned if the Variable is not an object.
-    pub fn object_keys(&self) -> Option<Vec<&String>> {
-        self.as_object()
-            .map(|map| map.keys().collect())
-    }
-
     /// Returns true or false based on if the Variable value is considered truthy.
     pub fn is_truthy(&self) -> bool {
         match self {
@@ -321,7 +257,7 @@ impl Variable {
             &Variable::String(ref s) if s.len() > 0 => true,
             &Variable::Array(ref a) if a.len() > 0 => true,
             &Variable::Object(ref o) if o.len() > 0 => true,
-            &Variable::I64(_) | &Variable::U64(_) | &Variable::F64(_) => true,
+            &Variable::Number(_) => true,
             _ => false
         }
     }
@@ -331,7 +267,7 @@ impl Variable {
         match self {
             &Variable::Boolean(_) => "boolean",
             &Variable::String(_) => "string",
-            &Variable::I64(_) | &Variable::U64(_) | &Variable::F64(_) => "number",
+            &Variable::Number(_) => "number",
             &Variable::Array(_) => "array",
             &Variable::Object(_) => "object",
             &Variable::Null => "null",
@@ -413,17 +349,13 @@ mod tests {
                    Variable::from_json(&Json::String("Foo".to_string())));
         assert_eq!(Variable::Null, Variable::from_json(&Json::Null));
         assert_eq!(Variable::Boolean(false), Variable::from_json(&Json::Boolean(false)));
-        assert_eq!(Variable::I64(1), Variable::from_json(&Json::I64(1)));
-        assert_eq!(Variable::U64(1), Variable::from_json(&Json::U64(1)));
-        assert_eq!(Variable::F64(1.0), Variable::from_json(&Json::F64(1.0)));
-        assert_eq!(Variable::U64(1), Variable::from_json(&Json::U64(1)));
-        assert_eq!(Variable::F64(1.0), Variable::from_json(&Json::F64(1.0)));
+        assert_eq!(Variable::Number(1.0), Variable::from_json(&Json::F64(1.0)));
         let array = Variable::from_json(&Json::from_str("[1, [true]]").unwrap());
         assert!(array.is_array());
-        assert_eq!(Some(Rc::new(Variable::U64(1))), array.get_index(0));
+        assert_eq!(Some(Rc::new(Variable::Number(1.0))), array.get_index(0));
         let map = Variable::from_json(&Json::from_str("{\"a\": {\"b\": 1}}").unwrap());
         assert!(map.is_object());
-        assert_eq!(Some(Rc::new(Variable::U64(1))), map.get_value("a").unwrap().get_value("b"));
+        assert_eq!(Some(Rc::new(Variable::Number(1.0))), map.get_value("a").unwrap().get_value("b"));
     }
 
     #[test]
@@ -435,12 +367,12 @@ mod tests {
 
     #[test]
     fn test_determines_types() {
-        assert_eq!("object", Variable::from_str(&"{\"foo\": \"bar\"}").unwrap().get_type());
-        assert_eq!("array", Variable::from_str(&"[\"foo\"]").unwrap().get_type());
-        assert_eq!("null", Variable::Null.get_type());
-        assert_eq!("boolean", Variable::Boolean(true).get_type());
-        assert_eq!("string", Variable::String("foo".to_string()).get_type());
-        assert_eq!("number", Variable::U64(10).get_type());
+         assert_eq!("object", Variable::from_str(&"{\"foo\": \"bar\"}").unwrap().get_type());
+         assert_eq!("array", Variable::from_str(&"[\"foo\"]").unwrap().get_type());
+         assert_eq!("null", Variable::Null.get_type());
+         assert_eq!("boolean", Variable::Boolean(true).get_type());
+         assert_eq!("string", Variable::String("foo".to_string()).get_type());
+         assert_eq!("number", Variable::Number(10.0).get_type());
     }
 
     #[test]
@@ -454,25 +386,8 @@ mod tests {
         assert_eq!(false, Variable::Boolean(false).is_truthy());
         assert_eq!(true, Variable::String("foo".to_string()).is_truthy());
         assert_eq!(false, Variable::String("".to_string()).is_truthy());
-        assert_eq!(true, Variable::U64(10).is_truthy());
-        assert_eq!(true, Variable::U64(0).is_truthy());
-    }
-
-    #[test]
-    fn test_object_values_to_array() {
-        let good = Variable::from_str(&"{\"foo\": \"bar\"}").unwrap();
-        assert_eq!(good.object_values(),
-                   Some(vec![Rc::new(Variable::String("bar".to_string()))]));
-        let bad = Variable::from_str(&"[\"foo\", \"bar\", \"baz\", \"bam\"]").unwrap();
-        assert_eq!(None, bad.object_values());
-    }
-
-    #[test]
-    fn test_object_keys_to_array() {
-        let good = Variable::from_str(&"{\"foo\": \"bar\"}").unwrap();
-        assert_eq!(good.object_keys(), Some(vec![&"foo".to_string()]));
-        let bad = Variable::from_str(&"[\"foo\", \"bar\", \"baz\", \"bam\"]").unwrap();
-        assert_eq!(None, bad.object_keys());
+        assert_eq!(true, Variable::Number(10.0).is_truthy());
+        assert_eq!(true, Variable::Number(0.0).is_truthy());
     }
 
     #[test]
@@ -486,8 +401,8 @@ mod tests {
     #[test]
     fn test_compare() {
         let invalid = Variable::String("foo".to_string());
-        let l = Variable::U64(10);
-        let r = Variable::U64(20);
+        let l = Variable::Number(10.0);
+        let r = Variable::Number(20.0);
         assert_eq!(None, invalid.compare(&Comparator::Gt, &r));
         assert_eq!(Some(false), l.compare(&Comparator::Gt, &r));
         assert_eq!(Some(false), l.compare(&Comparator::Gte, &r));
@@ -502,7 +417,7 @@ mod tests {
     #[test]
     fn gets_value_from_object() {
         let var = Variable::from_str("{\"foo\":1}").unwrap();
-        assert_eq!(Some(Rc::new(Variable::U64(1))), var.get_value("foo"));
+        assert_eq!(Some(Rc::new(Variable::Number(1.0))), var.get_value("foo"));
     }
 
     #[test]
@@ -518,9 +433,9 @@ mod tests {
     #[test]
     fn gets_index_from_array() {
         let var = Variable::from_str("[1, 2, 3]").unwrap();
-        assert_eq!(Some(Rc::new(Variable::U64(1))), var.get_index(0));
-        assert_eq!(Some(Rc::new(Variable::U64(2))), var.get_index(1));
-        assert_eq!(Some(Rc::new(Variable::U64(3))), var.get_index(2));
+        assert_eq!(Some(Rc::new(Variable::Number(1.0))), var.get_index(0));
+        assert_eq!(Some(Rc::new(Variable::Number(2.0))), var.get_index(1));
+        assert_eq!(Some(Rc::new(Variable::Number(3.0))), var.get_index(2));
         assert_eq!(None, var.get_index(3));
     }
 
@@ -532,10 +447,10 @@ mod tests {
     #[test]
     fn gets_negative_index_from_array() {
         let var = Variable::from_str("[1, 2, 3]").unwrap();
-        assert_eq!(Some(Rc::new(Variable::U64(3))), var.get_negative_index(0));
-        assert_eq!(Some(Rc::new(Variable::U64(3))), var.get_negative_index(1));
-        assert_eq!(Some(Rc::new(Variable::U64(2))), var.get_negative_index(2));
-        assert_eq!(Some(Rc::new(Variable::U64(1))), var.get_negative_index(3));
+        assert_eq!(Some(Rc::new(Variable::Number(3.0))), var.get_negative_index(0));
+        assert_eq!(Some(Rc::new(Variable::Number(3.0))), var.get_negative_index(1));
+        assert_eq!(Some(Rc::new(Variable::Number(2.0))), var.get_negative_index(2));
+        assert_eq!(Some(Rc::new(Variable::Number(1.0))), var.get_negative_index(3));
         assert_eq!(None, var.get_negative_index(4));
     }
 
@@ -582,60 +497,9 @@ mod tests {
     }
 
     #[test]
-    fn test_is_i64() {
-        let value = Variable::from_str("-12").unwrap();
-        assert!(value.is_i64());
-
-        let value = Variable::from_str("12").unwrap();
-        assert!(!value.is_i64());
-
+    fn test_as_number() {
         let value = Variable::from_str("12.0").unwrap();
-        assert!(!value.is_i64());
-    }
-
-    #[test]
-    fn test_is_u64() {
-        let value = Variable::from_str("12").unwrap();
-        assert!(value.is_u64());
-
-        let value = Variable::from_str("-12").unwrap();
-        assert!(!value.is_u64());
-
-        let value = Variable::from_str("12.0").unwrap();
-        assert!(!value.is_u64());
-    }
-
-    #[test]
-    fn test_is_f64() {
-        let value = Variable::from_str("12").unwrap();
-        assert!(!value.is_f64());
-
-        let value = Variable::from_str("-12").unwrap();
-        assert!(!value.is_f64());
-
-        let value = Variable::from_str("12.0").unwrap();
-        assert!(value.is_f64());
-
-        let value = Variable::from_str("-12.0").unwrap();
-        assert!(value.is_f64());
-    }
-
-    #[test]
-    fn test_as_i64() {
-        let value = Variable::from_str("-12").unwrap();
-        assert_eq!(value.as_i64(), Some(-12));
-    }
-
-    #[test]
-    fn test_as_u64() {
-        let value = Variable::from_str("12").unwrap();
-        assert_eq!(value.as_u64(), Some(12));
-    }
-
-    #[test]
-    fn test_as_f64() {
-        let value = Variable::from_str("12.0").unwrap();
-        assert_eq!(value.as_f64(), Some(12f64));
+        assert_eq!(value.as_number(), Some(12f64));
     }
 
     #[test]

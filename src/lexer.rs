@@ -4,7 +4,7 @@ use std::iter::Peekable;
 use std::str::CharIndices;
 
 use self::Token::*;
-use variable::Variable;
+use super::variable::Variable;
 
 /// Tokenizes a JMESPath expression.
 pub fn tokenize(expr: &str) -> Lexer {
@@ -237,8 +237,8 @@ impl<'a> Iterator for Lexer<'a> {
                         '\'' => return Some((pos, self.consume_raw_string())),
                         '`' => return Some((pos, self.consume_literal())),
                         '=' => tok!((pos, self.alt(&'=', Eq, Error {
-                                value: '='.to_string(),
-                                msg: "Did you mean \"==\"?".to_string() }))),
+                            value: '='.to_string(),
+                            msg: "Did you mean \"==\"?".to_string() }))),
                         '>' => tok!((pos, self.alt(&'=', Gte, Gt))),
                         '<' => tok!((pos, self.alt(&'=', Lte, Lt))),
                         '!' => tok!((pos, self.alt(&'=', Ne, Not))),
