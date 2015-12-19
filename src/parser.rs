@@ -57,6 +57,12 @@ impl ParseError {
     }
 }
 
+impl fmt::Display for ParseError {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(fmt, "{}", self.msg)
+    }
+}
+
 /// Operators are pushed onto the operator stack.
 #[derive(Debug, PartialEq)]
 enum Operator {

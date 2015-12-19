@@ -129,8 +129,11 @@ macro_rules! validate {
             try!(validate_arity(arg_types.len(), $args.len()));
             for (k, v) in $args.iter().enumerate() {
                 if !arg_types[k].is_valid(v) {
-                    return Err(RuntimeError::wrong_type(
-                        arg_types[k].to_string(), v.get_type(), k));
+                    return Err(RuntimeError::WrongType {
+                        expected: arg_types[k].to_string(),
+                        actual: v.get_type().to_string(),
+                        position: k
+                    });
                 }
             }
         }
@@ -139,26 +142,16 @@ macro_rules! validate {
     ($args:expr, $($x:expr),* ...$variadic:expr ) => (
         {
             let arg_types: Vec<ArgumentType> = vec![$($x), *];
+            let variadic = $variadic;
             try!(validate_min_arity($args.len(), arg_types.len()));
-            // Validate each variadic agument
             for (k, v) in $args.iter().enumerate() {
-                if !$variadic.is_valid(v) {
-                    return Err(RuntimeError::wrong_type(
-                        $variadic.to_string(), v.get_type(), k));
-                }
-                match arg_types.get(k) {
-                    Some(validator) => {
-                        if !validator.is_valid(v) {
-                            return Err(RuntimeError::wrong_type(
-                                validator.to_string(), v.get_type(), k));
-                        }
-                    },
-                    None => {
-                        if !$variadic.is_valid(v) {
-                            return Err(RuntimeError::wrong_type(
-                                $variadic.to_string(), v.get_type(), k));
-                        }
-                    }
+                let validator = arg_types.get(k).unwrap_or(&variadic);
+                if !validator.is_valid(v) {
+                    return Err(RuntimeError::WrongType {
+                        expected: validator.to_string(),
+                        actual: v.get_type().to_string(),
+                        position: k
+                    });
                 }
             }
         }

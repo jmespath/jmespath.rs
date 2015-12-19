@@ -48,6 +48,15 @@ pub enum Error {
     Runtime(RuntimeError)
 }
 
+impl fmt::Display for Error {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        match self {
+            &self::Error::Parse(ref err) => write!(fmt, "Parse error: {}", err),
+            &self::Error::Runtime(ref err) => write!(fmt, "Runtime error: {}", err)
+        }
+    }
+}
+
 /// Runtime JMESPath error
 #[derive(Clone,Debug,PartialEq)]
 pub enum RuntimeError {
@@ -72,6 +81,30 @@ impl RuntimeError {
             expected: expected,
             actual: actual.to_string(),
             position: position
+        }
+    }
+}
+
+impl fmt::Display for RuntimeError {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        use self::RuntimeError::*;
+        match self {
+            &UnknownFunction { ref function } => {
+                write!(fmt, "call to undefined function {}", function)
+            },
+            &TooManyArguments { ref expected, ref actual } => {
+                write!(fmt, "too many arguments, expected {}, found {}", expected, actual)
+            },
+            &NotEnoughArguments { ref expected, ref actual } => {
+                write!(fmt, "not enough arguments, expected {}, found {}", expected, actual)
+            },
+            &WrongType { ref expected, ref actual, ref position } => {
+                write!(fmt, "argument {} must be a {:?}, {:?} given", position, expected, actual)
+            },
+            &WrongReturnType { ref expected, ref actual, ref position } => {
+                write!(fmt, "argument {} must return {:?} but returned {:?}",
+                       position, expected, actual)
+            },
         }
     }
 }
