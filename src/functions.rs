@@ -91,18 +91,31 @@ pub trait JPFunction {
     fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> JPResult;
 }
 
+/// Boxed JPFunction
+pub type FnBox = Box<JPFunction + 'static>;
+
 /// Map of JMESPath function names to their implementation
-pub type Functions = HashMap<String, Box<JPFunction + 'static>>;
+pub type Functions = HashMap<String, FnBox>;
 
 /// Validates the arity of a function.
 #[inline]
-fn validate_arity(expected: usize, actual: usize) -> Result<(), RuntimeError> {
+pub fn validate_arity(expected: usize, actual: usize) -> Result<(), RuntimeError> {
     if actual == expected {
         Ok(())
     } else if actual < expected {
         Err(RuntimeError::NotEnoughArguments { expected: expected, actual: actual })
     } else {
         Err(RuntimeError::TooManyArguments { expected: expected, actual: actual })
+    }
+}
+
+/// Validates the arity of a function.
+#[inline]
+pub fn validate_min_arity(expected: usize, actual: usize) -> Result<(), RuntimeError> {
+    if actual < expected {
+        Err(RuntimeError::NotEnoughArguments { expected: expected, actual: actual })
+    } else {
+        Ok(())
     }
 }
 
@@ -126,13 +139,7 @@ macro_rules! validate {
     ($args:expr, $($x:expr),* ...$variadic:expr ) => (
         {
             let arg_types: Vec<ArgumentType> = vec![$($x), *];
-            // Validate the minimum arity
-            if $args.len() < arg_types.len() {
-                return Err(RuntimeError::NotEnoughArguments {
-                    expected: arg_types.len(),
-                    actual: $args.len()
-                });
-            }
+            try!(validate_min_arity($args.len(), arg_types.len()));
             // Validate each variadic agument
             for (k, v) in $args.iter().enumerate() {
                 if !$variadic.is_valid(v) {
