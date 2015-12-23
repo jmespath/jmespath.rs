@@ -53,7 +53,7 @@ impl ParseError {
     fn inject_err_pointer(string_buffer: &mut String, col: usize) {
         let span = (0..col).map(|_| ' ').collect::<String>();
         string_buffer.push_str(&span);
-        string_buffer.push_str(&"^\n");
+        string_buffer.push_str(&"^");
     }
 }
 
@@ -132,6 +132,7 @@ impl Operator {
     #[inline]
     fn is_right_associative(&self) -> bool {
         match self {
+            &Operator::Ampersand => true,
             // Projections and Not are right associative.
             &Operator::Star
                 | &Operator::ArrayProjection
@@ -290,6 +291,7 @@ impl<'a> Parser<'a> {
             },
             Token::Lbracket => self.open_lbracket(true),
             Token::At => {
+                self.parser_state = ParserState::HasOperand;
                 self.output_queue.push(Ast::CurrentNode);
                 Ok(self.advance())
             },
@@ -806,7 +808,7 @@ mod test {
     #[test]
     fn test_parses_literal() {
         let ast = parse("`0`").unwrap();
-        assert_eq!("Literal(U64(0))", format!("{:?}", ast));
+        assert_eq!("Literal(Number(0))", format!("{:?}", ast));
     }
 
     #[test]

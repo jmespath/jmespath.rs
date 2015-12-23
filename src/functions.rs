@@ -129,7 +129,7 @@ macro_rules! validate {
             try!(validate_arity(arg_types.len(), $args.len()));
             for (k, v) in $args.iter().enumerate() {
                 if !arg_types[k].is_valid(v) {
-                    return Err(RuntimeError::WrongType {
+                    return Err(RuntimeError::InvalidType {
                         expected: arg_types[k].to_string(),
                         actual: v.get_type().to_string(),
                         position: k
@@ -143,11 +143,11 @@ macro_rules! validate {
         {
             let arg_types: Vec<ArgumentType> = vec![$($x), *];
             let variadic = $variadic;
-            try!(validate_min_arity($args.len(), arg_types.len()));
+            try!(validate_min_arity(arg_types.len(), $args.len()));
             for (k, v) in $args.iter().enumerate() {
                 let validator = arg_types.get(k).unwrap_or(&variadic);
                 if !validator.is_valid(v) {
-                    return Err(RuntimeError::WrongType {
+                    return Err(RuntimeError::InvalidType {
                         expected: validator.to_string(),
                         actual: v.get_type().to_string(),
                         position: k
@@ -168,19 +168,23 @@ macro_rules! max_by_min_by {
             let initial = try!($interpreter.interpret(vals[0].clone(), &ast));
             let entered_type = initial.get_type();
             if entered_type != "string" && entered_type != "number" {
-                return Err(RuntimeError::wrong_type(
-                    "expression->number|expression->string".to_string(),
-                    entered_type, 1));
+                return Err(RuntimeError::InvalidType {
+                    expected: "expression->number|expression->string".to_string(),
+                    actual: entered_type.to_string(),
+                    position: 1
+                });
             }
             vals.iter().skip(1).map(|v| $interpreter.interpret(v.clone(), &ast))
                 .fold(Ok(initial.clone()), |a, b| {
                     let (a_val, b_val) = (try!(a), try!(b));
-                    if b_val.get_type() != entered_type {
-                        Err(RuntimeError::wrong_type(
-                            format!("expression->{}", entered_type),
-                            b_val.get_type(), 1))
-                    } else {
+                    if b_val.get_type() == entered_type {
                         Ok($operator(a_val, b_val))
+                    } else {
+                        Err(RuntimeError::InvalidType {
+                            expected: format!("expression->{}", entered_type),
+                            actual: b_val.get_type().to_string(),
+                            position: 1
+                        })
                     }
                 })
         }
@@ -431,10 +435,15 @@ struct Reverse;
 
 impl JPFunction for Reverse {
     fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> JPResult {
-        validate!(args, ArgumentType::Array);
-        let mut values = args[0].as_array().unwrap().clone();
-        values.reverse();
-        Ok(intr.arena.alloc(values))
+        validate!(args, ArgumentType::OneOf(vec![ArgumentType::Array, ArgumentType::String]));
+        if args[0].is_array() {
+            let mut values = args[0].as_array().unwrap().clone();
+            values.reverse();
+            Ok(intr.arena.alloc(values))
+        } else {
+            let word = args[0].as_string().unwrap().clone();
+            Ok(intr.arena.alloc(word))
+        }
     }
 }
 
@@ -502,7 +511,11 @@ impl JPFunction for SortBy {
                     let expr_string = format!("{}", ArgumentType::ExprefReturns(
                         vec![ArgumentType::Number, ArgumentType::String]));
                     state = SortByState::Error(
-                        RuntimeError::wrong_return_type(expr_string, b_type, 1));
+                        RuntimeError::InvalidReturnType {
+                            expected: expr_string,
+                            actual: b_type.to_string(),
+                            position: 1
+                        });
                     Ordering::Equal
                 }
             }

@@ -102,7 +102,7 @@ impl TreeInterpreter {
                 match try!(self.interpret(data, lhs)).as_array() {
                     None => Ok(self.arena.alloc_null()),
                     Some(left) => {
-                        let mut collected = vec!();
+                        let mut collected = vec![];
                         for element in left {
                             let current = try!(self.interpret(element.clone(), rhs));
                             if !current.is_null() {
@@ -117,7 +117,7 @@ impl TreeInterpreter {
                 match try!(self.interpret(data, node)).as_array() {
                     None => Ok(self.arena.alloc_null()),
                     Some(a) => {
-                        let mut collected: Vec<Rc<Variable>> = vec!();
+                        let mut collected: Vec<Rc<Variable>> = vec![];
                         for element in a {
                             match element.as_array() {
                                 Some(array) => collected.extend(array.iter().cloned()),
@@ -132,7 +132,7 @@ impl TreeInterpreter {
                 if data.is_null() {
                     Ok(self.arena.alloc_null())
                 } else {
-                    let mut collected = vec!();
+                    let mut collected = vec![];
                     for node in nodes {
                         collected.push(try!(self.interpret(data.clone(), node)));
                     }
@@ -147,8 +147,13 @@ impl TreeInterpreter {
                     for kvp in kvp_list {
                         let key = try!(self.interpret(data.clone(), &kvp.key));
                         let value = try!(self.interpret(data.clone(), &kvp.value));
-                        let key_value = key.as_string().expect("Expected string").to_string();
-                        collected.insert(key_value, value);
+                        if let Variable::String(ref s) = *key {
+                            collected.insert(s.to_string(), value);
+                        } else {
+                            return Err(RuntimeError::InvalidKey {
+                                actual: key.get_type().to_string()
+                            });
+                        }
                     }
                     Ok(self.arena.alloc(collected))
                 }
@@ -165,9 +170,13 @@ impl TreeInterpreter {
             },
             &Ast::Expref(ref ast) => Ok(self.arena.alloc(*ast.clone())),
             &Ast::Slice(ref a, ref b, c) => {
-                match data.as_array() {
-                    Some(ref array) => Ok(self.arena.alloc(slice(array, a, b, c))),
-                    None => Ok(self.arena.alloc_null())
+                if c == 0 {
+                    Err(RuntimeError::InvalidSlice)
+                } else {
+                    match data.as_array() {
+                        Some(ref array) => Ok(self.arena.alloc(slice(array, a, b, c))),
+                        None => Ok(self.arena.alloc_null())
+                    }
                 }
             }
         }
@@ -419,7 +428,7 @@ mod tests {
 
     #[test]
     fn multi_list_on_null_is_null() {
-        let ast = Ast::MultiList(vec!());
+        let ast = Ast::MultiList(vec![]);
         assert_eq!(Rc::new(Variable::Null), interpret(Rc::new(Variable::Null), &ast).unwrap());
     }
 

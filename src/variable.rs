@@ -531,8 +531,8 @@ mod tests {
     #[test]
     fn test_converts_to_json() {
         let test_cases = vec![
-            "true", "false", "{}", "[]", "0", "null",
-            "[1,2,3]", "{\"foo\":[true,false,10,1.1,-5],\"bar\":null}"];
+            "true", "false", "{}", "[]", "0.0", "null",
+            "[1.0,2.0]", "{\"foo\":[true,false,-5.0],\"bar\":null}"];
         for case in test_cases {
             let var = Variable::from_str(case).unwrap();
             assert_eq!(Json::from_str(case).unwrap(), var.to_json().unwrap());

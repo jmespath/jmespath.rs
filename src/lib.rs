@@ -17,11 +17,12 @@
 //! ```
 //! use jmespath;
 //!
-//! let ast = jmespath::parse("foo.bar | baz");
+//! let expr = jmespath::Expression::new("foo.bar | baz").unwrap();
 //! ```
 extern crate rustc_serialize;
 
-pub use variable::Variable;
+pub use variable::{Variable, VariableArena};
+pub use interpreter::TreeInterpreter;
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -29,15 +30,24 @@ use std::rc::Rc;
 use self::rustc_serialize::json::Json;
 
 use ast::Ast;
-use interpreter::TreeInterpreter;
 use parser::{parse, ParseError};
 
 pub mod ast;
 pub mod lexer;
 pub mod parser;
-mod functions;
+pub mod functions;
 mod interpreter;
 mod variable;
+
+/// Parses an expression and performs a search over data
+pub fn search<T>(expression: &str,
+                 data: T) -> Result<Rc<Variable>, Error>
+                 where T: IntoJMESPath {
+    match Expression::new(expression) {
+        Err(e) => Err(Error::Parse(e)),
+        Ok(expr) => expr.search(data).map_err(|e| Error::Runtime(e))
+    }
+}
 
 /// JMESPath error
 #[derive(Clone,Debug,PartialEq)]
@@ -62,27 +72,11 @@ impl fmt::Display for Error {
 pub enum RuntimeError {
     TooManyArguments { expected: usize, actual: usize },
     NotEnoughArguments { expected: usize, actual: usize },
-    WrongType { expected: String, actual: String, position: usize },
+    InvalidType { expected: String, actual: String, position: usize },
     UnknownFunction { function: String },
-    WrongReturnType { expected: String, actual: String, position: usize }
-}
-
-impl RuntimeError {
-    pub fn wrong_type(expected: String, actual: &str, position: usize) -> RuntimeError {
-        RuntimeError::WrongType {
-            expected: expected,
-            actual: actual.to_string(),
-            position: position
-        }
-    }
-
-    pub fn wrong_return_type(expected: String, actual: &str, position: usize) -> RuntimeError {
-        RuntimeError::WrongReturnType {
-            expected: expected,
-            actual: actual.to_string(),
-            position: position
-        }
-    }
+    InvalidSlice,
+    InvalidReturnType { expected: String, actual: String, position: usize },
+    InvalidKey { actual: String },
 }
 
 impl fmt::Display for RuntimeError {
@@ -98,12 +92,16 @@ impl fmt::Display for RuntimeError {
             &NotEnoughArguments { ref expected, ref actual } => {
                 write!(fmt, "not enough arguments, expected {}, found {}", expected, actual)
             },
-            &WrongType { ref expected, ref actual, ref position } => {
+            &InvalidType { ref expected, ref actual, ref position } => {
                 write!(fmt, "argument {} must be a {:?}, {:?} given", position, expected, actual)
             },
-            &WrongReturnType { ref expected, ref actual, ref position } => {
+            &InvalidSlice => write!(fmt, "Invalid slice"),
+            &InvalidReturnType { ref expected, ref actual, ref position } => {
                 write!(fmt, "argument {} must return {:?} but returned {:?}",
                        position, expected, actual)
+            },
+            &InvalidKey { ref actual } => {
+                write!(fmt, "Invalid key. Expected string, found {:?}", actual)
             },
         }
     }
@@ -123,8 +121,9 @@ impl Expression {
     }
 
     /// Creates a new JMESPath expression using a custom tree interpreter.
-    pub fn with_tree_interpreter(expression: &str, tree_interpreter: TreeInterpreter)
-            -> Result<Expression, ParseError> {
+    pub fn with_tree_interpreter(expression: &str,
+                                 tree_interpreter: TreeInterpreter)
+                                 -> Result<Expression, ParseError> {
         Ok(Expression {
             original: expression.to_string(),
             ast: try!(parse(expression)),
@@ -133,8 +132,9 @@ impl Expression {
     }
 
     /// Returns the result of searching data with the compiled expression.
-    pub fn search<S>(&self, data: S) -> Result<Rc<Variable>, RuntimeError>
-            where S: IntoJMESPath {
+    pub fn search<S>(&self,
+                     data: S) -> Result<Rc<Variable>, RuntimeError>
+                     where S: IntoJMESPath {
         self.tree_interpreter.interpret(data.into_jmespath(), &self.ast)
     }
 
@@ -152,7 +152,7 @@ impl fmt::Display for Expression {
 }
 
 impl fmt::Debug for Expression {
-    /// Shows the original regular expression.
+    /// Shows the original jmespath expression.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Display::fmt(self, f)
     }
