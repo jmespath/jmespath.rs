@@ -1,12 +1,13 @@
 //! Module for parsing JMESPath expressions into an AST.
 use std::fmt;
-use std::iter::Peekable;
+use std::collections::VecDeque;
+use std::rc::Rc;
 
+use super::variable::Variable;
 use super::ast::{Ast, KeyValuePair, Comparator};
-use super::lexer::{Lexer, Token};
+use super::lexer::{tokenize, Token, TokenTuple};
 
 pub type ParseResult = Result<Ast, ParseError>;
-type ParseStep = Result<Token, ParseError>;
 
 /// Parses a JMESPath expression into an AST
 pub fn parse(expr: &str) -> ParseResult {
@@ -63,1133 +64,360 @@ impl fmt::Display for ParseError {
     }
 }
 
-/// Operators are pushed onto the operator stack.
-#[derive(Debug, PartialEq)]
-enum Operator {
-    Function(String, Vec<Ast>),
-    MultiList(Vec<Ast>),
-    MultiHash(Vec<Ast>),
-    ArrayProjection,
-    FilterProjection(Option<Ast>),
-    SliceProjection(bool, Option<i32>, Option<i32>, i32),
-    Lparen,
-    Dot,
-    And,
-    Or,
-    Pipe,
-    Star,
-    Flatten,
-    Not,
-    Eq,
-    Ne,
-    Gt,
-    Gte,
-    Lt,
-    Lte,
-    Ampersand
-}
-
-impl Operator {
-    #[inline]
-    pub fn precedence(&self) -> usize {
-        match self {
-            &Operator::Pipe => 1,
-            &Operator::Eq => 2,
-            &Operator::Ne => 2,
-            &Operator::Gt => 2,
-            &Operator::Gte => 2,
-            &Operator::Lt => 2,
-            &Operator::Lte => 2,
-            &Operator::And => 3,
-            &Operator::Or => 5,
-            &Operator::Flatten => 6,
-            &Operator::Star
-                | &Operator::ArrayProjection
-                | &Operator::FilterProjection(Some(_))
-                | &Operator::SliceProjection(_, _, _, _) => 20,
-            &Operator::Dot => 40,
-            &Operator::Not => 45,
-            &Operator::MultiHash(_) => 50,
-            &Operator::MultiList(_) => 55,
-            _ => 0 // Note: 0 precedence should never be popped from operator stack.
-        }
-    }
-
-    /// Returns true if the current operator has a precedence < given.
-    /// This function takes operator associativity into account. Left
-    /// associative operators check with <, while right associative check
-    /// with <=.
-    #[inline]
-    pub fn has_lower_precedence(&self, precedence: usize) -> bool {
-        if self.is_right_associative() {
-            self.precedence() < precedence
-        } else {
-            self.precedence() <= precedence
-        }
-    }
-
-    /// Returns true if the operator is right associative.
-    #[inline]
-    fn is_right_associative(&self) -> bool {
-        match self {
-            &Operator::Ampersand => true,
-            // Projections and Not are right associative.
-            &Operator::Star
-                | &Operator::ArrayProjection
-                | &Operator::SliceProjection(_, _, _, _)
-                | &Operator::FilterProjection(_)
-                | &Operator::Not => true,
-            // Left associative.
-            _ => false
-        }
-    }
-
-    #[inline]
-    pub fn is_binary(&self) -> bool {
-        match self {
-            &Operator::Ampersand => false,
-            &Operator::Not => false,
-            &Operator::Lparen => false,
-            &Operator::SliceProjection(is_binary, _, _, _) => is_binary,
-            _ => true
-        }
-    }
-
-    // Returns true if the opeartor is closed by the passed in token.
-    #[inline]
-    pub fn is_closed_by_token(&self, token: &Token) -> bool {
-        match self {
-            &Operator::Lparen => token == &Token::Rparen,
-            &Operator::Function(_, _) => token == &Token::Rparen,
-            &Operator::FilterProjection(None) => token == &Token::Rbracket,
-            &Operator::MultiList(_) => token == &Token::Rbracket,
-            &Operator::MultiHash(_) => token == &Token::Rbrace,
-            _ => false
-        }
-    }
-
-    // Returns true if the operator is built up using the provided token separator.
-    #[inline]
-    pub fn supports_separator(&self, token: &Token) -> bool {
-        match self {
-            // Functions and multi-list support commas.
-            &Operator::Function(_, _) | &Operator::MultiList(_) => token == &Token::Comma,
-            // Multi-hash supports commas and colons.
-            &Operator::MultiHash(_) => token == &Token::Comma || token == &Token::Colon,
-            _ => false
-        }
-    }
-}
-
-impl fmt::Display for Operator {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            &Operator::Dot => write!(f, "."),
-            &Operator::Or => write!(f, "||"),
-            &Operator::Pipe => write!(f, "|"),
-            &Operator::Star => write!(f, "*"),
-            &Operator::Flatten => write!(f, "[]"),
-            &Operator::Not => write!(f, "!"),
-            &Operator::Ampersand => write!(f, "&"),
-            &Operator::And => write!(f, "&&"),
-            &Operator::Eq => write!(f, "=="),
-            &Operator::Ne => write!(f, "!="),
-            &Operator::Gt => write!(f, ">"),
-            &Operator::Gte => write!(f, ">="),
-            &Operator::Lt => write!(f, "<"),
-            &Operator::Lte => write!(f, "<="),
-            &Operator::MultiList(_) => write!(f, "multi-list"),
-            &Operator::MultiHash(_) => write!(f, "multi-hash"),
-            &Operator::ArrayProjection => write!(f, "[*]"),
-            &Operator::FilterProjection(_) => write!(f, "filter-projection"),
-            &Operator::SliceProjection(_, _, _, _) => write!(f, "slice-projection"),
-            &Operator::Function(ref name, _) => write!(f, "{}()", name),
-            &Operator::Lparen => write!(f, "(")
-        }
-    }
-}
-
-/// Influences how to parse tokens and which tokens are allowed.
-enum ParserState {
-    NeedOperand,
-    HasOperand
-}
-
-/// JMESPath parser
-pub struct Parser<'a> {
-    /// Token stream
-    stream: Peekable<Lexer<'a>>,
+/// Encapsulates parser state to keep parsers stateless.
+pub struct Parser {
+    /// Parsed tokens
+    token_queue: VecDeque<TokenTuple>,
+    /// Shared EOF token
+    eof_token: Token,
     /// Expression being parsed
     expr: String,
     /// The current character offset in the expression
     pos: usize,
-    /// Operand queue containing AST nodes.
-    output_queue: Vec<Ast>,
-    /// Operator stack containing operator states.
-    operator_stack: Vec<Operator>,
-    /// Current state of parser. Determines acceptable tokens and behavior.
-    parser_state: ParserState
 }
 
-impl<'a> Parser<'a> {
-    pub fn new(expr: &'a str) -> Parser<'a> {
+impl Parser {
+    pub fn new(expr: &str) -> Parser {
         Parser {
-            stream: Lexer::new(expr).peekable(),
-            expr: expr.to_string(),
+            token_queue: tokenize(expr),
+            eof_token: Token::Eof,
             pos: 0,
-            operator_stack: vec!(),
-            output_queue: vec!(),
-            parser_state: ParserState::NeedOperand
+            expr: expr.to_string(),
         }
     }
 
-    /// Parses a JMESPath expression.
+    /// Parses the expression into result containing an AST or ParseError.
     pub fn parse(&mut self) -> ParseResult {
-        let mut token = self.advance();
-        loop {
-            token = match self.parser_state {
-                ParserState::NeedOperand => try!(self.need_operand_state(token)),
-                ParserState::HasOperand => try!(self.has_operand_state(token))
-            };
-            if token == Token::Eof {
-                break;
-            }
-        }
-        // Pop and process any remaining operators on the stack.
-        while !self.operator_stack.is_empty() {
-            try!(self.pop_token());
-        }
-        if self.stream.next().is_some() {
-            Err(self.err(None, &"Did not reach token stream EOF"))
-        } else {
-            Ok(self.output_queue.pop().expect("Output queue element"))
-        }
-    }
-
-    #[inline]
-    fn need_operand_state(&mut self, token: Token) -> ParseStep {
-        match token {
-            Token::Identifier(value) => {
-                self.output_queue.push(Ast::Identifier(value));
-                self.parser_state = ParserState::HasOperand;
-                Ok(self.advance())
-            },
-            Token::Literal(ref value) => {
-                self.output_queue.push(Ast::Literal(value.clone()));
-                self.parser_state = ParserState::HasOperand;
-                Ok(self.advance())
-            },
-            Token::QuotedIdentifier(ref value) => {
-                self.parser_state = ParserState::HasOperand;
-                let next_token = self.advance();
-                if let Token::Lparen = next_token {
-                    Err(self.err(None, &"Quoted strings can't be function names"))
-                } else {
-                    self.output_queue.push(Ast::Identifier(value.clone()));
-                    Ok(next_token)
+        self.expr(0)
+            .and_then(|result| {
+                // After parsing the expr, we should reach the end of the stream.
+                match self.peek(0) {
+                    &Token::Eof => Ok(result),
+                    _ => Err(self.err(None, &"Did not reach token stream EOF"))
                 }
-            },
-            Token::Lbracket => self.open_lbracket(true),
-            Token::At => {
-                self.parser_state = ParserState::HasOperand;
-                self.output_queue.push(Ast::CurrentNode);
-                Ok(self.advance())
-            },
-            Token::Star => {
-                self.output_queue.push(Ast::CurrentNode);
-                let next_token = self.advance();
-                self.projection_rhs(next_token, Operator::Star)
-            },
-            Token::Flatten => {
-                self.output_queue.push(Ast::CurrentNode);
-                let next_token = self.advance();
-                self.projection_rhs(next_token, Operator::Flatten)
-            },
-            Token::Filter => {
-                self.output_queue.push(Ast::CurrentNode);
-                self.open_filter()
-            },
-            Token::Lbrace => {
-                let next_token = self.advance();
-                self.push_operator(next_token, Operator::MultiHash(vec!()))
-                    .and_then(|next_token| self.open_multi_hash_key(next_token))
-            },
-            Token::Ampersand => {
-                let next_token = self.advance();
-                self.push_operator(next_token, Operator::Ampersand)
-            },
-            Token::Not => {
-                let next_token = self.advance();
-                self.push_operator(next_token, Operator::Not)
-            },
-            Token::Lparen => {
-                let next_token = self.advance();
-                self.operator_stack.push(Operator::Lparen);
-                Ok(next_token)
-            },
-            ref t @ _ => Err(self.err(Some(t), &format!("Unexpected operand token: {:?}", t)))
-        }
+            })
     }
 
     #[inline]
-    fn push_need_operand_operator(&mut self, op: Operator) -> ParseStep {
-        let next_token = self.advance();
-        self.parser_state = ParserState::NeedOperand;
-        self.push_operator(next_token, op)
-    }
-
-    #[inline]
-    fn has_operand_state(&mut self, token: Token) -> ParseStep {
-        match token {
-            Token::Dot => {
-                match self.stream.peek() {
-                    Some(&(_, Token::Star)) => {
-                        self.advance();
-                        let next_token = self.advance();
-                        self.projection_rhs(next_token, Operator::Star)
-                    },
-                    _ => self.parse_dot(Operator::Dot)
-                }
+    pub fn advance(&mut self) -> Token {
+        match self.token_queue.pop_front() {
+            Some((pos, tok)) => {
+                self.pos = pos;
+                tok
             },
-            Token::Flatten => {
-                let next_token = self.advance();
-                self.projection_rhs(next_token, Operator::Flatten)
-            },
-            Token::Filter => self.open_filter(),
-            Token::Lbracket => self.open_lbracket(false),
-            Token::Or => self.push_need_operand_operator(Operator::Or),
-            Token::And => self.push_need_operand_operator(Operator::And),
-            Token::Pipe => self.push_need_operand_operator(Operator::Pipe),
-            Token::Lt => self.push_need_operand_operator(Operator::Lt),
-            Token::Lte => self.push_need_operand_operator(Operator::Lte),
-            Token::Gt => self.push_need_operand_operator(Operator::Gt),
-            Token::Gte => self.push_need_operand_operator(Operator::Gte),
-            Token::Eq => self.push_need_operand_operator(Operator::Eq),
-            Token::Ne => self.push_need_operand_operator(Operator::Ne),
-            Token::Lparen => {
-                match self.output_queue.pop() {
-                    // A "(" preceded by an identifier means that it is a function call.
-                    Some(Ast::Identifier(fn_name)) => self.open_function(fn_name),
-                    _ => Err(self.err(None, &format!("Unexpected parenthesis"))),
-                }
-            },
-            Token::Rparen => self.closing_token(token, |p: &mut Self, op: Operator| {
-                match op {
-                    Operator::Lparen => Some(Ok(p.advance())),
-                    Operator::Function(name, mut args) => {
-                        args.push(p.output_queue.pop().expect("Output queue element"));
-                        p.output_queue.push(Ast::Function(name, args));
-                        Some(Ok(p.advance()))
-                    },
-                    _ => None
-                }
-            }),
-            Token::Rbracket => self.closing_token(token, |p: &mut Self, op: Operator| {
-                match op {
-                    Operator::MultiList(mut args) => {
-                        args.push(p.output_queue.pop().expect("Output queue element"));
-                        p.output_queue.push(Ast::MultiList(args));
-                        Some(Ok(p.advance()))
-                    },
-                    Operator::FilterProjection(None) => {
-                        let filter_expr = p.output_queue.pop().expect("Output queue element");
-                        let next_token = p.advance();
-                        Some(p.projection_rhs(next_token,
-                                              Operator::FilterProjection(Some(filter_expr))))
-                    },
-                    _ => None
-                }
-            }),
-            Token::Rbrace => self.closing_token(token, |p: &mut Self, op: Operator| {
-                match op {
-                    Operator::MultiHash(mut args) => {
-                        args.push(p.output_queue.pop().expect("Output queue element"));
-                        // If there are an odd number of values, then there is a mis-match.
-                        if args.len() % 2 == 1 {
-                            Some(Err(p.err(Some(&Token::Rbrace), "Unbalanced key value pairs")))
-                        } else {
-                            let mut kvps: Vec<KeyValuePair> = vec!();
-                            while args.len() > 0 {
-                                kvps.insert(0, KeyValuePair {value: args.pop().unwrap(),
-                                                             key: args.pop().unwrap()});
-                            }
-                            p.output_queue.push(Ast::MultiHash(kvps));
-                            Some(Ok(p.advance()))
-                        }
-                    },
-                    _ => None
-                }
-            }),
-            Token::Comma => self.separator_token(Token::Comma, |p: &mut Self, op: Operator| {
-                match op {
-                    Operator::Function(fn_name, mut args) => {
-                        args.push(p.output_queue.pop().expect("Output queue element"));
-                        p.operator_stack.push(Operator::Function(fn_name, args));
-                        Some(Ok(p.advance()))
-                    },
-                    Operator::MultiList(mut args) => {
-                        args.push(p.output_queue.pop().expect("Output queue element"));
-                        p.operator_stack.push(Operator::MultiList(args));
-                        Some(Ok(p.advance()))
-                    },
-                    Operator::MultiHash(mut args) => {
-                        args.push(p.output_queue.pop().expect("Output queue element"));
-                        p.operator_stack.push(Operator::MultiHash(args));
-                        let next_token = p.advance();
-                        Some(p.open_multi_hash_key(next_token))
-                    },
-                    // Error when a comma is inside a precedence parens: e.g., "(a || b, c) | d"
-                    _ => None
-                }
-            }),
-            Token::Colon => self.separator_token(Token::Colon, |p: &mut Self, op: Operator| {
-                match op {
-                    Operator::MultiHash(mut args) => {
-                        // Cannot have an uneven number when adding a key.
-                        if args.len() % 1 == 1 {
-                            None
-                        } else {
-                            args.push(p.output_queue.pop().expect("Output queue element"));
-                            p.operator_stack.push(Operator::MultiHash(args));
-                            Some(Ok(p.advance()))
-                        }
-                    },
-                    _ => None
-                }
-            }),
-            _ => Err(self.err(Some(&token), &format!("Unexpected postfix token: {:?}", token))),
-        }
-    }
-
-    // Starts a filter projection and ensures that the next token is a valid nud token.
-    #[inline]
-    fn open_filter(&mut self) -> ParseStep {
-        let next_token = self.advance();
-        self.parser_state = ParserState::NeedOperand;
-        self.push_operator(next_token, Operator::FilterProjection(None))
-    }
-
-    // Opens a function expression, ensuring that functions that are immediately closed are not
-    // pushed onto the operator stack as it would try to consume an argument token which would
-    // not exist.
-    #[inline]
-    fn open_function(&mut self, fn_name: String) -> ParseStep {
-        match self.advance() {
-            Token::Rparen => {
-                self.output_queue.push(Ast::Function(fn_name, vec!()));
-                self.parser_state = ParserState::HasOperand;
-                Ok(self.advance())
-            },
-            next_token @ _ => {
-                self.parser_state = ParserState::NeedOperand;
-                self.push_operator(next_token, Operator::Function(fn_name, vec!()))
-            }
-        }
-    }
-
-    // Advances to the next token and ensures that the multi-hash key is an identifier.
-    #[inline]
-    fn open_multi_hash_key(&mut self, next_token: Token) -> ParseStep {
-        match next_token {
-            Token::Identifier(_) | Token::QuotedIdentifier(_) => Ok(next_token),
-            _ => Err(self.err(Some(&next_token), &"Expected identifier for multi-hash key"))
-        }
-    }
-
-    // Opens a "[", accounting for [*], [a, b], [1], [:]
-    #[inline]
-    fn open_lbracket(&mut self, is_nud: bool) -> ParseStep {
-        // Skip the bracket "["
-        let token = self.advance();
-        match self.stream.peek() {
-            // If the next token is a closing "]", then we know exactly what it is.
-            Some(&(_, Token::Rbracket)) => {
-                match token {
-                    // Example: [1]
-                    Token::Number(value) => {
-                        if is_nud {
-                            self.output_queue.push(Ast::Index(value));
-                        } else {
-                            let lhs = self.output_queue.pop().expect("Output queue element");
-                            self.output_queue.push(
-                                Ast::Subexpr(Box::new(lhs), Box::new(Ast::Index(value))));
-                        }
-                        // Skip the "]" token.
-                        self.advance();
-                        self.parser_state = ParserState::HasOperand;
-                        Ok(self.advance())
-                    },
-                    // Example: [*]
-                    Token::Star => {
-                        if is_nud {
-                            self.output_queue.push(Ast::CurrentNode);
-                        }
-                        // Skip the "]" token.
-                        self.advance();
-                        let next_token = self.advance();
-                        self.projection_rhs(next_token, Operator::ArrayProjection)
-                    },
-                    // Example: [:]
-                    Token::Colon => self.parse_slice(!is_nud, token),
-                    // Everything else is invalid
-                    _ => Err(self.err(Some(&token), "Expected number, ':', or '*'")),
-                }
-            },
-            // Example: [1:], [::-1]
-            Some(&(_, Token::Number(_))) | Some(&(_, Token::Colon)) =>
-                self.parse_slice(!is_nud, token),
-            // Everything else is a multi-list.
-            _ => {
-                self.parser_state = ParserState::NeedOperand;
-                self.push_operator(token, Operator::MultiList(vec!()))
-            }
-        }
-    }
-
-    // Parse slices. e.g., [:::], [::-1], [0:10], [0:10:-2], etc...
-    fn parse_slice(&mut self, is_binary: bool, mut current_token: Token) -> ParseStep {
-        let mut pos = 0;
-        let mut parts = [None, None, None];
-        loop {
-            match current_token {
-                Token::Rbracket => break,
-                Token::Colon if pos == 2 =>
-                    return Err(self.err(None, "Found too many colons in slice expression")),
-                Token::Colon => { pos += 1; current_token = self.advance(); },
-                Token::Number(value) => {
-                    parts[pos] = Some(value);
-                    current_token = self.advance();
-                    if let Token::Number(_) = current_token {
-                        return Err(self.err(Some(&current_token), "Expected ':', or ']'"))
-                    }
-                },
-                ref t @ _ => return Err(self.err(Some(t), "Expected number, ':', or ']'"))
-            }
-        }
-        let next_token = self.advance();
-        self.projection_rhs(
-            next_token,
-            Operator::SliceProjection(is_binary, parts[0], parts[1], parts[2].unwrap_or(1)))
-    }
-
-    // Prepares the parser for the right hand side of a projection.
-    #[inline]
-    fn projection_rhs(&mut self, token: Token, parent_operator: Operator) -> ParseStep {
-        match token {
-            // Skip the dot token and parse with a dot precedence (e.g.., foo.*.bar)
-            Token::Dot => self.parse_dot(parent_operator),
-            // Multilist and filter are valid operators after
-            Token::Lbracket | Token::Filter => {
-                self.parser_state = ParserState::NeedOperand;
-                self.push_operator(token, parent_operator)
-            },
-            Token::Eof => {
-                self.output_queue.push(Ast::CurrentNode);
-                self.push_operator(token, parent_operator)
-            },
-            // Projection tokens require the current node and then the operator push.
-            Token::Pipe | Token::Or | Token::And | Token::Flatten => {
-                self.output_queue.push(Ast::CurrentNode);
-                self.parser_state = ParserState::HasOperand;
-                self.push_operator(token, parent_operator)
-            },
-            _ => Err(self.token_err(&token))
-        }
-    }
-
-    // Prepares the parser for the right hand side of a "." token.
-    #[inline]
-    fn parse_dot(&mut self, parent_operator: Operator) -> ParseStep {
-        // Skip the "." token.
-        let token = self.advance();
-        match token {
-            // Parse multi-list when it follows a dot. e.g., foo.[a, b]
-            Token::Lbracket => {
-                // Push the operator that triggered this onto the operator stack.
-                self.push_operator(token, parent_operator).and_then(|_| {
-                    // Parse a multi-list. Skip the "[" and push the multi-list operator.
-                    let next_token = self.advance();
-                    self.parser_state = ParserState::NeedOperand;
-                    self.push_operator(next_token, Operator::MultiList(vec![]))
-                })
-            },
-            // Ensure the next character is valid after the "." token.
-            Token::Identifier(_)
-                | Token::QuotedIdentifier(_)
-                | Token::Star
-                | Token::Lbrace
-                | Token::Ampersand
-                | Token::Filter =>
-            {
-                self.parser_state = ParserState::NeedOperand;
-                self.push_operator(token, parent_operator)
-            },
-            _ => Err(self.err(Some(&token), &format!("Expected an identifier, '*', '{{', '[', \
-                                                     '@', or '[?', found {:?}", token)))
-        }
-    }
-
-    // Adds an operator to the operator_stack.
-    //
-    // Any operators that have a greater precedence than the provided operator are popped from
-    // the operator stack and processed, meaningbinary operators pop two output_queue values and
-    // unary tokens pop one.
-    #[inline]
-    fn push_operator(&mut self, token: Token, operator: Operator) -> ParseStep {
-        // Pop things from the top of the operator stack that have a higher precedence.
-        while match self.operator_stack.last() {
-            Some(&Operator::Lparen) => false,
-            Some(ref last) if operator.has_lower_precedence(last.precedence()) => true,
-            _ => false
-        } {
-            try!(self.pop_token());
-        }
-        self.operator_stack.push(operator);
-        Ok(token)
-    }
-
-    // Pops operators until the operator at the top of the stack is closed by the provided token.
-    //
-    // If no matching opened operator is found, it means the token is misplaced. If an opened
-    // operator is found but not what we were expecting (enforced with the closure), then the
-    // closing character is unbalanced in relation to other closing characters.
-    #[inline]
-    fn closing_token<F>(&mut self, token: Token, on_match: F) -> ParseStep
-        where F: Fn(&mut Self, Operator) -> Option<ParseStep>
-    {
-        while !self.operator_stack.is_empty() {
-            if self.operator_stack.last().expect("operator stack").is_closed_by_token(&token) {
-                // Stop popping if the operator that was popped is our desired match.
-                let last_operator = self.operator_stack.pop().expect("Closing operator");
-                match on_match(self, last_operator) {
-                    Some(t) => return t,
-                    None => break
-                }
-            }
-            // Keep popping operators off the operator stack and onto output stack.
-            try!(self.pop_token());
-        }
-        Err(self.err(Some(&token), &format!("Unbalanced {:?}", token)))
-    }
-
-    /// When a comma/colon/etc. is encountered, we pop from the operator stack until the operator
-    /// at the top of the stack is an operator that accepts the token (e.g., function or
-    /// multi-list). We then add the value at the top of the output stack to the operator that
-    /// accepts mutliple values. This value is popped and then added back to the operator stack
-    /// after pushing the value.
-    #[inline]
-    fn separator_token<F>(&mut self, token: Token, on_match: F) -> ParseStep
-        where F: Fn(&mut Self, Operator) -> Option<ParseStep>
-    {
-        // Hitting a separator tokens means that we need an operand to follow.
-        self.parser_state = ParserState::NeedOperand;
-        while !self.operator_stack.is_empty() {
-            if self.operator_stack.last().expect("op stack").supports_separator(&token) {
-                let last_operator = self.operator_stack.pop().expect("Owning operator");
-                // Ensure that the operator that was popped is our desired match.
-                match on_match(self, last_operator) {
-                    Some(t) => return t,
-                    None => break
-                }
-            }
-            // Keep popping operators off the operator stack and onto output stack.
-            try!(self.pop_token());
-        }
-        Err(self.err(Some(&token), &format!("Misplaced {:?} separator", token)))
-    }
-
-    #[inline]
-    fn pop_token(&mut self) -> Result<(), ParseError> {
-        let operator = self.operator_stack.pop().expect("Output queue element");
-        match operator {
-            Operator::Lparen => return Err(self.err(None, "Unclosed \"(\"")),
-            Operator::Function(_, _) => return Err(self.err(None, "Unclosed function")),
-            Operator::MultiHash(_) => return Err(self.err(None, "Unclosed multi-hash '{'")),
-            Operator::MultiList(_) => return Err(self.err(None, "Unclosed multi-list '['")),
-            Operator::FilterProjection(None) => return Err(self.err(None, "Unclosed filter")),
-            _ => ()
-        };
-        if self.output_queue.is_empty() || operator.is_binary() && self.output_queue.len() < 2 {
-            return Err(self.err(None, &format!("Incomplete '{}' expression", operator)));
-        }
-        let rhs = self.output_queue.pop().expect("Output queue element");
-        if operator.is_binary() {
-            let lhs = self.output_queue.pop().expect("Output queue element");
-            match operator {
-                Operator::Dot => self.output_queue.push(
-                    Ast::Subexpr(Box::new(lhs), Box::new(rhs))),
-                Operator::Or => self.output_queue.push(
-                    Ast::Or(Box::new(lhs), Box::new(rhs))),
-                Operator::And => self.output_queue.push(
-                    Ast::And(Box::new(lhs), Box::new(rhs))),
-                Operator::Pipe => self.output_queue.push(
-                    Ast::Subexpr(Box::new(lhs), Box::new(rhs))),
-                Operator::Star => self.output_queue.push(
-                    Ast::Projection(Box::new(Ast::ObjectValues(Box::new(lhs))),
-                                    Box::new(rhs))),
-                Operator::Flatten => self.output_queue.push(
-                    Ast::Projection(Box::new(Ast::Flatten(Box::new(lhs))),
-                                    Box::new(rhs))),
-                Operator::Eq => self.output_queue.push(
-                    Ast::Comparison(Comparator::Eq, Box::new(lhs), Box::new(rhs))),
-                Operator::Ne => self.output_queue.push(
-                    Ast::Comparison(Comparator::Ne, Box::new(lhs), Box::new(rhs))),
-                Operator::Gt => self.output_queue.push(
-                    Ast::Comparison(Comparator::Gt, Box::new(lhs), Box::new(rhs))),
-                Operator::Gte => self.output_queue.push(
-                    Ast::Comparison(Comparator::Gte, Box::new(lhs), Box::new(rhs))),
-                Operator::Lt => self.output_queue.push(
-                    Ast::Comparison(Comparator::Lt, Box::new(lhs), Box::new(rhs))),
-                Operator::Lte => self.output_queue.push(
-                    Ast::Comparison(Comparator::Lte, Box::new(lhs), Box::new(rhs))),
-                Operator::ArrayProjection => self.output_queue.push(
-                    Ast::Projection(Box::new(lhs), Box::new(rhs))),
-                Operator::FilterProjection(Some(expr)) => self.output_queue.push(
-                    Ast::Projection(Box::new(lhs),
-                                    Box::new(Ast::Condition(
-                                        Box::new(expr),
-                                        Box::new(rhs))))),
-                Operator::SliceProjection(_, start, stop, step) => self.output_queue.push(
-                    Ast::Subexpr(Box::new(lhs),
-                                 Box::new(Ast::Projection(
-                                     Box::new(Ast::Slice(start, stop, step)), Box::new(rhs))))),
-                _ => unreachable!()
-            };
-        } else {
-            match operator {
-                Operator::Ampersand => self.output_queue.push(Ast::Expref(Box::new(rhs))),
-                Operator::SliceProjection(_, start, stop, step) => self.output_queue.push(
-                    Ast::Projection(Box::new(Ast::Slice(start, stop, step)), Box::new(rhs))),
-                Operator::Not => self.output_queue.push(Ast::Not(Box::new(rhs))),
-                _ => unreachable!()
-            }
-        }
-        Ok(())
-    }
-
-    /// Advances the cursor position of the parser and returns the next token or Token::Eof.
-    #[inline]
-    fn advance(&mut self) -> Token {
-        match self.stream.next() {
-            Some((pos, tok)) => { self.pos = pos; tok },
             None => Token::Eof
         }
     }
 
+    #[inline]
+    pub fn peek(&self, lookahead: usize) -> &Token {
+        match self.token_queue.get(lookahead) {
+            Some(&(_, ref t)) => t,
+            None => &self.eof_token
+        }
+    }
+
     /// Returns a formatted ParseError with the given message.
-    fn err(&self, current_token: Option<&Token>, error_msg: &str) -> ParseError {
+    pub fn err(&self, current_token: Option<&Token>, error_msg: &str) -> ParseError {
         let mut buff = error_msg.to_string();
-        if let Some(&Token::Error { ref msg, .. }) = current_token {
-            buff.push_str(&format!(" -- {}", msg));
+        match current_token {
+            Some(&Token::Error { ref msg, .. }) => {
+                buff.push_str(&format!(" -- {}", msg))
+            },
+            Some(ref t) => buff.push_str(&format!(" -- found {:?}", t)),
+            _ => ()
         }
         ParseError::new(&self.expr, self.pos, buff)
     }
 
-    /// Generates a formatted parse error for an out of place token.
-    fn token_err(&self, current_token: &Token) -> ParseError {
-        let error_message = &format!("Unexpected token: {:?}", current_token);
-        self.err(Some(current_token), error_message)
-    }
-}
-
-
-#[cfg(test)]
-mod test {
-    use super::*;
-    use super::Operator;
-    use ast::Ast;
-
-    #[test]
-    fn test_parse_nud() {
-        let ast = parse("foo").unwrap();
-        assert_eq!("Identifier(\"foo\")", format!("{:?}", ast));
+    /// Main parse function of the Pratt parser that parses while RBP < LBP
+    fn expr(&mut self, rbp: usize) -> ParseResult {
+        let mut left = self.nud();
+        while rbp < self.peek(0).lbp() {
+            left = self.led(try!(left));
+        }
+        left
     }
 
-    #[test]
-    fn test_parses_literal() {
-        let ast = parse("`0`").unwrap();
-        assert_eq!("Literal(Number(0))", format!("{:?}", ast));
+    fn nud(&mut self) -> ParseResult {
+        match self.advance() {
+            Token::At => Ok(Ast::CurrentNode),
+            Token::Identifier(value) => Ok(Ast::Identifier(value)),
+            Token::QuotedIdentifier(value) => {
+                match self.peek(0) {
+                    &Token::Lparen => {
+                        Err(self.err(Some(&Token::Lparen),
+                                     &"Quoted strings can't be a function name"))
+                    },
+                    _ => Ok(Ast::Identifier(value))
+                }
+            },
+            Token::Star => self.parse_wildcard_values(Ast::CurrentNode),
+            Token::Literal(value) => Ok(Ast::Literal(value)),
+            Token::Lbracket => {
+                match self.peek(0) {
+                    &Token::Number(_) | &Token::Colon => self.parse_index(),
+                    &Token::Star if self.peek(1) == &Token::Rbracket => {
+                        self.advance();
+                        self.parse_wildcard_index(Ast::CurrentNode)
+                    },
+                    _ => self.parse_multi_list()
+                }
+            },
+            Token::Flatten => self.parse_flatten(Ast::CurrentNode),
+            Token::Lbrace => {
+                let mut pairs = vec![];
+                loop {
+                    // Requires at least on key value pair.
+                    pairs.push(try!(self.parse_kvp()));
+                    match self.advance() {
+                        // Terminal condition is the Rbrace token
+                        Token::Rbrace => break,
+                        // Skip commas as they are used to delineate kvps
+                        Token::Comma => continue,
+                        ref t @ _ => return Err(self.err(Some(t), "Expected '}' or ','"))
+                    }
+                }
+                Ok(Ast::MultiHash(pairs))
+            },
+            Token::Ampersand => {
+                let rhs = try!(self.expr(Token::Ampersand.lbp()));
+                Ok(Ast::Expref(Box::new(rhs)))
+            },
+            Token::Not => Ok(Ast::Not(Box::new(try!(self.expr(Token::Not.lbp()))))),
+            Token::Filter => self.parse_filter(Ast::CurrentNode),
+            Token::Lparen => {
+                let result = try!(self.expr(0));
+                match self.advance() {
+                    Token::Rparen => Ok(result),
+                    ref t @ _ => Err(self.err(Some(t), "Expected ')' to close '('"))
+                }
+            },
+            ref tok @ _ => Err(self.err(Some(tok), &"Unexpected nud token"))
+        }
     }
 
-    #[test]
-    fn test_parse_subexpr() {
-        let ast = parse("foo.bar.baz").unwrap();
-        assert_eq!("Subexpr(Subexpr(Identifier(\"foo\"), Identifier(\"bar\")), \
-                            Identifier(\"baz\"))",
-                   format!("{:?}", ast));
+    fn led(&mut self, left: Ast) -> ParseResult {
+        match self.advance() {
+            Token::Dot => {
+                if self.peek(0) == &Token::Star {
+                    // Skip the star and parse the rhs
+                    self.advance();
+                    self.parse_wildcard_values(left)
+                } else {
+                    let rhs = try!(self.parse_dot(Token::Dot.lbp()));
+                    Ok(Ast::Subexpr(Box::new(left), Box::new(rhs)))
+                }
+            },
+            Token::Lbracket => {
+                match match self.peek(0) {
+                    &Token::Number(_) | &Token::Colon => true,
+                    &Token::Star => false,
+                    t @ _ => return Err(self.err(Some(t), "Expected number, ':', or '*'"))
+                } {
+                    true => {
+                        Ok(Ast::Subexpr(Box::new(left),
+                                        Box::new(try!(self.parse_index()))))
+                    },
+                    false => {
+                        self.advance();
+                        self.parse_wildcard_index(left)
+                    }
+                }
+            },
+            Token::Or => {
+                let rhs = try!(self.expr(Token::Or.lbp()));
+                Ok(Ast::Or(Box::new(left), Box::new(rhs)))
+            },
+            Token::And => {
+                let rhs = try!(self.expr(Token::And.lbp()));
+                Ok(Ast::And(Box::new(left), Box::new(rhs)))
+            },
+            Token::Pipe => {
+                let rhs = try!(self.expr(Token::Pipe.lbp()));
+                Ok(Ast::Subexpr(Box::new(left), Box::new(rhs)))
+            },
+            Token::Lparen => {
+                match left {
+                    Ast::Identifier(v) => {
+                        Ok(Ast::Function(v, try!(self.parse_list(Token::Rparen))))
+                    },
+                    _ => panic!("Implement parens")
+                }
+            },
+            Token::Flatten => self.parse_flatten(left),
+            Token::Filter => self.parse_filter(left),
+            Token::Eq => self.parse_comparator(Comparator::Eq, left),
+            Token::Ne => self.parse_comparator(Comparator::Ne, left),
+            Token::Gt => self.parse_comparator(Comparator::Gt, left),
+            Token::Gte => self.parse_comparator(Comparator::Gte, left),
+            Token::Lt => self.parse_comparator(Comparator::Lt, left),
+            Token::Lte => self.parse_comparator(Comparator::Lte, left),
+            ref t @ _ => Err(self.err(Some(t), "Unexpected led token")),
+        }
     }
 
-    #[test]
-    fn test_parse_or() {
-        let ast = parse("foo || bar").unwrap();
-        assert_eq!("Or(Identifier(\"foo\"), Identifier(\"bar\"))", format!("{:?}", ast));
+    fn parse_kvp(&mut self) -> Result<KeyValuePair, ParseError> {
+        match self.advance() {
+            Token::Identifier(value) | Token::QuotedIdentifier(value) => {
+                if self.peek(0) == &Token::Colon {
+                    self.advance();
+                    Ok(KeyValuePair {
+                        key: Ast::Literal(Rc::new(Variable::String(value))),
+                        value: try!(self.expr(0))
+                    })
+                } else {
+                    Err(self.err(Some(self.peek(0)), &"Expected ':' to follow key"))
+                }
+            },
+            ref t @ _ => Err(self.err(Some(t), &"Expected Identifier to start key value pair"))
+        }
     }
 
-    #[test]
-    fn test_parse_or_and_subexpr_with_precedence() {
-        let ast = parse("foo.baz || bar.bam").unwrap();
-        assert_eq!("Or(Subexpr(Identifier(\"foo\"), Identifier(\"baz\")), \
-                       Subexpr(Identifier(\"bar\"), Identifier(\"bam\")))",
-                   format!("{:?}", ast));
+    /// Parses a filter token into a Projection that filters the right
+    /// side of the projection using a Condition node. If the Condition node
+    /// returns a truthy value, then the value is yielded by the projection.
+    fn parse_filter(&mut self, lhs: Ast) -> ParseResult {
+        // Parse the LHS of the condition node.
+        let condition_lhs = try!(self.expr(0));
+        // Eat the closing bracket.
+        if self.advance() != Token::Rbracket {
+            Err(self.err(None, &"Expected ']'"))
+        } else {
+            let condition_rhs = Box::new(try!(self.projection_rhs(Token::Filter.lbp())));
+            Ok(Ast::Projection(
+                Box::new(lhs),
+                Box::new(Ast::Condition(Box::new(condition_lhs), condition_rhs))))
+        }
     }
 
-    #[test]
-    fn test_parse_or_with_and_and_subexpr_with_precedence() {
-        let ast = parse("a.b || c.d && e").unwrap();
-        assert_eq!("And(Or(Subexpr(Identifier(\"a\"), Identifier(\"b\")), \
-                           Subexpr(Identifier(\"c\"), Identifier(\"d\"))), \
-                        Identifier(\"e\"))", format!("{:?}", ast));
+    fn parse_flatten(&mut self, lhs: Ast) -> ParseResult {
+        let rhs = try!(self.projection_rhs(Token::Flatten.lbp()));
+        Ok(Ast::Projection(Box::new(Ast::Flatten(Box::new(lhs))), Box::new(rhs)))
     }
 
-    #[test]
-    fn test_parse_or_and_pipe_with_precedence() {
-        let ast = parse("foo || bar | baz").unwrap();
-        assert_eq!("Subexpr(Or(Identifier(\"foo\"), Identifier(\"bar\")), \
-                            Identifier(\"baz\"))", format!("{:?}", ast));
+    /// Parses a comparator token into a Comparison (e.g., foo == bar)
+    fn parse_comparator(&mut self, cmp: Comparator, lhs: Ast) -> ParseResult {
+        let rhs = try!(self.expr(Token::Eq.lbp()));
+        Ok(Ast::Comparison(cmp, Box::new(lhs), Box::new(rhs)))
     }
 
-    #[test]
-    fn test_parse_not() {
-        let ast = parse("!foo || bar").unwrap();
-        assert_eq!("Or(Not(Identifier(\"foo\")), Identifier(\"bar\"))", format!("{:?}", ast));
+    /// Parses the right hand side of a dot expression.
+    fn parse_dot(&mut self, lbp: usize) -> ParseResult {
+        match match self.peek(0) {
+            &Token::Lbracket => true,
+            &Token::Identifier(_) | &Token::QuotedIdentifier(_) | &Token::Star | &Token::Lbrace
+                | &Token::Ampersand | &Token::Filter => false,
+            _ => return Err(self.err(None, &"Expected identifier, '*', '{', '[', '&', or '[?'"))
+        } {
+            true => {
+                self.advance();
+                self.parse_multi_list()
+            },
+            false => self.expr(lbp)
+        }
     }
 
-    #[test]
-    fn test_not_requires_operand() {
-        let result = parse("!");
-        assert_eq!("ParseError { msg: \"Parse error at line 0, col 1; Incomplete \
-                    \\\'!\\\' expression\\n!\\n ^\\n\", line: 0, col: 1 }",
-                   format!("{:?}", result.unwrap_err()));
+    /// Parses the right hand side of a projection, using the given LBP to
+    /// determine when to stop consuming tokens.
+    fn projection_rhs(&mut self, lbp: usize) -> ParseResult {
+        match match self.peek(0) {
+            &Token::Dot => true,
+            &Token::Lbracket | &Token::Filter => false,
+            p @ _ if p.lbp() < 10 => return Ok(Ast::CurrentNode),
+            _ => return Err(self.err(None, &"Expected '.', '[', or '[?'"))
+        } {
+            true => {
+                self.advance();
+                self.parse_dot(lbp)
+            },
+            false => self.expr(lbp)
+        }
     }
 
-    #[test]
-    fn test_comparator() {
-        let ast = parse("foo.bar == baz || bam").unwrap();
-        assert_eq!(
-            "Comparison(Eq, Subexpr(Identifier(\"foo\"), Identifier(\"bar\")), \
-                                    Or(Identifier(\"baz\"), Identifier(\"bam\")))",
-            format!("{:?}", ast));
+    /// Creates a projection for "[*]"
+    fn parse_wildcard_index(&mut self, lhs: Ast) -> ParseResult {
+        match self.advance() {
+            Token::Rbracket => {
+                let rhs = try!(self.projection_rhs(Token::Star.lbp()));
+                Ok(Ast::Projection(Box::new(lhs), Box::new(rhs)))
+            },
+            ref t @ _ => Err(self.err(Some(t), &"Expected ']' for wildcard index"))
+        }
     }
 
-    #[test]
-    fn test_parse_wildcard_values() {
-        let ast = parse("foo.*.baz").unwrap();
-        assert_eq!("Projection(ObjectValues(Identifier(\"foo\")), Identifier(\"baz\"))",
-                   format!("{:?}", ast));
+    /// Creates a projection for "*"
+    fn parse_wildcard_values(&mut self, lhs: Ast) -> ParseResult {
+        let rhs = try!(self.projection_rhs(Token::Star.lbp()));
+        Ok(Ast::Projection(
+            Box::new(Ast::ObjectValues(Box::new(lhs))),
+            Box::new(rhs)))
     }
 
-    #[test]
-    fn test_parse_nud_wildcard_values() {
-        let ast = parse("*.baz").unwrap();
-        assert_eq!("Projection(ObjectValues(CurrentNode), Identifier(\"baz\"))",
-                   format!("{:?}", ast));
+    /// Parses [0], [::-1], [0:-1], [0:1], etc...
+    fn parse_index(&mut self) -> ParseResult {
+        let mut parts = [None, None, None];
+        let mut pos = 0;
+        loop {
+            match self.advance() {
+                Token::Number(value) => {
+                    parts[pos] = Some(value);
+                    match self.peek(0) {
+                        &Token::Colon | &Token::Rbracket => (),
+                        t @ _ => return Err(self.err(Some(t), "Expected ':', or ']'"))
+                    };
+                },
+                Token::Rbracket => break,
+                Token::Colon if pos >= 2 => {
+                    return Err(self.err(None, "Too many colons in slice expr"));
+                },
+                Token::Colon => {
+                    pos += 1;
+                    match self.peek(0) {
+                        &Token::Number(_) | &Token::Colon | &Token::Rbracket => continue,
+                        _ => return Err(self.err(None, "Expected number, ':', or ']'"))
+                    };
+                },
+                ref t @ _ => return Err(self.err(Some(t), "Expected number, ':', or ']'")),
+            }
+        }
+
+        if pos == 0 {
+            // No colons were found, so this is a simple index extraction.
+            Ok(Ast::Index(parts[0].unwrap()))
+        } else {
+            // Sliced array from start (e.g., [2:])
+            let lhs = Ast::Slice(parts[0], parts[1], parts[2].unwrap_or(1));
+            let rhs = try!(self.projection_rhs(Token::Star.lbp()));
+            Ok(Ast::Projection(Box::new(lhs), Box::new(rhs)))
+        }
     }
 
-    #[test]
-    fn test_parse_nud_wildcard_values_with_no_rhs() {
-        let ast = parse("* | baz").unwrap();
-        assert_eq!("Subexpr(Projection(ObjectValues(CurrentNode), CurrentNode), \
-                            Identifier(\"baz\"))",
-                   format!("{:?}", ast));
+    /// Parses multi-select lists (e.g., "[foo, bar, baz]")
+    fn parse_multi_list(&mut self) -> ParseResult {
+        Ok(Ast::MultiList(try!(self.parse_list(Token::Rbracket))))
     }
 
-    #[test]
-    fn test_parse_flatten() {
-        let ast = parse("foo[].baz").unwrap();
-        assert_eq!("Projection(Flatten(Identifier(\"foo\")), Identifier(\"baz\"))",
-                   format!("{:?}", ast));
-        let ast = parse("a[]").unwrap();
-        assert_eq!("Projection(Flatten(Identifier(\"a\")), CurrentNode)",
-                  format!("{:?}", ast));
-    }
-
-    #[test]
-    fn test_parse_nud_flatten() {
-        let ast = parse("[].baz").unwrap();
-        assert_eq!("Projection(Flatten(CurrentNode), Identifier(\"baz\"))",
-                   format!("{:?}", ast));
-    }
-
-    #[test]
-    fn test_parse_wildcard_index() {
-        let ast = parse("foo[*].baz").unwrap();
-        assert_eq!("Projection(Identifier(\"foo\"), Identifier(\"baz\"))",
-                   format!("{:?}", ast));
-    }
-
-    #[test]
-    fn test_parse_number() {
-        let ast = parse("foo[0]").unwrap();
-        assert_eq!("Subexpr(Identifier(\"foo\"), Index(0))", format!("{:?}", ast));
-    }
-
-    #[test]
-    fn test_parse_number_with_subexpr() {
-        let ast = parse("foo[0].bar").unwrap();
-        assert_eq!("Subexpr(Subexpr(Identifier(\"foo\"), Index(0)), Identifier(\"bar\"))",
-                   format!("{:?}", ast));
-    }
-
-    #[test]
-    fn test_parse_number_in_projection() {
-        let ast = parse("foo.*[0]").unwrap();
-        assert_eq!("Projection(ObjectValues(Identifier(\"foo\")), Index(0))",
-                   format!("{:?}", ast));
-    }
-
-    #[test]
-    fn test_parse_complex_expression() {
-        let ast = parse("foo.*.bar[*][0].baz || bam | boo").unwrap();
-        assert_eq!("Subexpr(Or(Projection(ObjectValues(Identifier(\"foo\")), \
-                                Projection(Identifier(\"bar\"), \
-                                           Subexpr(Index(0), Identifier(\"baz\")))), \
-                       Identifier(\"bam\")), Identifier(\"boo\"))",
-                   format!("{:?}", ast));
-    }
-
-    #[test]
-    fn test_parse_expression_reference() {
-        let ast = parse("&foo.bar | [0]").unwrap();
-        assert_eq!("Expref(Subexpr(Subexpr(Identifier(\"foo\"), Identifier(\"bar\")), Index(0)))",
-                   format!("{:?}", ast));
-    }
-
-    #[test]
-    fn test_parse_empty_functions() {
-        let ast = parse("foo()").unwrap();
-        assert_eq!("Function(\"foo\", [])", format!("{:?}", ast));
-    }
-
-    #[test]
-    fn test_parse_functions_at_end() {
-        let ast = parse("foo(bar)").unwrap();
-        assert_eq!("Function(\"foo\", [Identifier(\"bar\")])", format!("{:?}", ast));
-    }
-
-    #[test]
-    fn test_ensures_functions_are_closed() {
-        let result = parse("foo(bar");
-        assert_eq!("ParseError { msg: \"Parse error at line 0, col 7; Unclosed function\\n\
-                    foo(bar\\n       ^\\n\", line: 0, col: 7 }",
-                   format!("{:?}", result.unwrap_err()));
-    }
-
-    #[test]
-    fn test_ensures_functions_with_no_args_are_closed() {
-        let result = parse("foo(");
-        assert_eq!("ParseError { msg: \"Parse error at line 0, col 4; Unclosed function\\n\
-                    foo(\\n    ^\\n\", line: 0, col: 4 }",
-                   format!("{:?}", result.unwrap_err()));
-    }
-
-    #[test]
-    fn test_parse_functions_with_multiple_args() {
-        let ast = parse("foo(bar, baz.boo, bam || qux)").unwrap();
-        assert_eq!("Function(\"foo\", [Identifier(\"bar\"), \
-                                       Subexpr(Identifier(\"baz\"), Identifier(\"boo\")), \
-                                       Or(Identifier(\"bam\"), Identifier(\"qux\"))])",
-                   format!("{:?}", ast));
-    }
-
-    #[test]
-    fn test_parse_multi_list() {
-        let ast = parse("foo.[bar, baz]").unwrap();
-        assert_eq!("Subexpr(Identifier(\"foo\"), \
-                            MultiList([Identifier(\"bar\"), Identifier(\"baz\")]))",
-                   format!("{:?}", ast));
-    }
-
-    #[test]
-    fn test_ensures_multi_list_are_closed() {
-        let result = parse("foo.[bar, baz");
-        assert_eq!("ParseError { msg: \"Parse error at line 0, col 13; \
-                    Unclosed multi-list \\\'[\\\'\\n\
-                    foo.[bar, baz\\n             ^\\n\", line: 0, col: 13 }",
-                   format!("{:?}", result.unwrap_err()));
-    }
-
-    #[test]
-    fn test_parse_postfix_slice_projections() {
-        let ast = parse("foo[0::-1].bar").unwrap();
-        assert_eq!("Subexpr(Identifier(\"foo\"), \
-                            Projection(Slice(Some(0), None, -1), \
-                                       Identifier(\"bar\")))",
-                   format!("{:?}", ast));
-    }
-
-    #[test]
-    fn test_parse_prefix_slice_projections() {
-        let ast = parse("[0::-1].bar").unwrap();
-        assert_eq!("Projection(Slice(Some(0), None, -1), Identifier(\"bar\"))",
-                   format!("{:?}", ast));
-    }
-
-    #[test]
-    fn test_ensures_slices_are_closed() {
-        let result = parse("[0::1");
-        assert_eq!("ParseError { msg: \"Parse error at line 0, col 5; \
-                    Expected number, \\\':\\\', or \\\']\\\'\\n\
-                    [0::1\\n     ^\\n\", line: 0, col: 5 }",
-                   format!("{:?}", result.unwrap_err()));
-    }
-
-    #[test]
-    fn test_parses_nud_filter_projections() {
-        let ast = parse("[?foo == bar].baz").unwrap();
-        assert_eq!("Projection(CurrentNode, \
-                               Condition(\
-                                   Comparison(Eq, Identifier(\"foo\"), Identifier(\"bar\")), \
-                                   Identifier(\"baz\")))",
-                   format!("{:?}", ast));
-    }
-
-    #[test]
-    fn test_parses_led_filter_projections() {
-        let ast = parse("prefix[?foo == bar].baz.boo").unwrap();
-        assert_eq!("Projection(Identifier(\"prefix\"), \
-                               Condition(\
-                                   Comparison(Eq, Identifier(\"foo\"), Identifier(\"bar\")), \
-                                   Subexpr(Identifier(\"baz\"), Identifier(\"boo\"))))",
-                   format!("{:?}", ast));
-    }
-
-    #[test]
-    fn test_ensures_filters_are_not_empty() {
-        let result = parse("prefix[?].bar");
-        assert_eq!("ParseError { msg: \"Parse error at line 0, col 8; Unexpected \
-                    operand token: Rbracket\\nprefix[?].bar\\n        ^\\n\", line: 0, col: 8 }",
-                   format!("{:?}", result.unwrap_err()));
-    }
-
-    #[test]
-    fn test_ensures_filters_are_closed() {
-        let result = parse("prefix[?baz");
-        assert_eq!("ParseError { msg: \"Parse error at line 0, col 11; Unclosed filter\\n\
-                    prefix[?baz\\n           ^\\n\", line: 0, col: 11 }",
-                   format!("{:?}", result.unwrap_err()));
-    }
-
-    #[test]
-    fn test_parse_multi_hash() {
-        let ast = parse("foo.{bar: baz, bam: boo}.bam").unwrap();
-        assert_eq!("Subexpr(Subexpr(Identifier(\"foo\"), \
-                            MultiHash([KeyValuePair { key: Identifier(\"bar\"), \
-                                                      value: Identifier(\"baz\") }, \
-                                       KeyValuePair { key: Identifier(\"bam\"), \
-                                                      value: Identifier(\"boo\") }])), \
-                            Identifier(\"bam\"))",
-                   format!("{:?}", ast));
-    }
-
-    #[test]
-    fn test_parse_nud_multi_hash() {
-        let ast = parse("{bar: baz}").unwrap();
-        assert_eq!("MultiHash([KeyValuePair { key: Identifier(\"bar\"), \
-                                              value: Identifier(\"baz\") }])",
-                   format!("{:?}", ast));
-    }
-
-    #[test]
-    fn test_ensures_multi_hash_are_closed() {
-        let result = parse("foo.{bar: baz");
-        assert_eq!("ParseError { msg: \"Parse error at line 0, col 13; Unclosed multi-hash \
-                    \\\'{\\\'\\nfoo.{bar: baz\\n             ^\\n\", line: 0, col: 13 }",
-                   format!("{:?}", result.unwrap_err()));
-    }
-
-    #[test]
-    fn test_ensures_multi_hash_colon_has_value() {
-        assert_eq!("ParseError { msg: \"Parse error at line 0, col 9; Unexpected \
-                    operand token: Rbrace\\nfoo.{bar:}\\n         ^\\n\", line: 0, col: 9 }",
-                   format!("{:?}", parse("foo.{bar:}").unwrap_err()));
-    }
-
-    #[test]
-    fn test_ensures_multi_hash_comma_followed_by_expr() {
-        let result = parse("foo.{bar: baz, }");
-        assert_eq!("ParseError { msg: \"Parse error at line 0, col 15; Expected identifier \
-                    for multi-hash key\\nfoo.{bar: baz, }\\n               ^\\n\", \
-                    line: 0, col: 15 }",
-                   format!("{:?}", result.unwrap_err()));
-    }
-
-    #[test]
-    fn test_ensures_multi_hash_comma_followed_by_key() {
-        let result = parse("{&bar: bam}");
-        assert_eq!("ParseError { msg: \"Parse error at line 0, col 1; Expected identifier \
-                    for multi-hash key\\n{&bar: bam}\\n ^\\n\", line: 0, col: 1 }",
-                   format!("{:?}", result.unwrap_err()));
-    }
-
-    #[test]
-    fn test_does_not_blow_up_on_bad_binary() {
-        let result = parse("foo |");
-        assert_eq!("ParseError { msg: \"Parse error at line 0, col 5; Incomplete \
-                    \\\'|\\\' expression\\nfoo |\\n     ^\\n\", line: 0, col: 5 }",
-                   format!("{:?}", result.unwrap_err()));
-    }
-
-    #[test]
-    fn test_displays_operators() {
-        assert_eq!(".".to_string(), format!("{}", Operator::Dot));
-        assert_eq!("foo()".to_string(),
-                   format!("{}", Operator::Function("foo".to_string(), vec!())));
-        assert_eq!("multi-list".to_string(), format!("{}", Operator::MultiList(vec!())));
-        assert_eq!("multi-hash".to_string(), format!("{}", Operator::MultiHash(vec!())));
-        assert_eq!("[*]".to_string(), format!("{}", Operator::ArrayProjection));
-        assert_eq!("filter-projection".to_string(),
-                   format!("{}", Operator::FilterProjection(Some(Ast::CurrentNode))));
-        assert_eq!("slice-projection".to_string(),
-                   format!("{}", Operator::SliceProjection(true, None, None, 1)));
-    }
-
-    #[test]
-    fn test_parses_precedence_with_parens() {
-        let ast = parse("(foo | bar) || baz").unwrap();
-        assert_eq!("Or(Subexpr(Identifier(\"foo\"), Identifier(\"bar\")), \
-                    Identifier(\"baz\"))",
-                   format!("{:?}", ast));
-    }
-
-    #[test]
-    fn test_parses_precedence_with_preceding_token() {
-        let ast = parse("a | (b)").unwrap();
-        assert_eq!("Subexpr(Identifier(\"a\"), Identifier(\"b\"))", format!("{:?}", ast));
-        let ast = parse("a || (b | c) || d").unwrap();
-        assert_eq!(
-            "Or(Or(Identifier(\"a\"), Subexpr(Identifier(\"b\"), Identifier(\"c\"))), \
-                Identifier(\"d\"))", format!("{:?}", ast));
-    }
-
-    #[test]
-    fn test_parses_parens_at_end() {
-        let ast = parse("(foo || bar)").unwrap();
-        assert_eq!("Or(Identifier(\"foo\"), Identifier(\"bar\"))", format!("{:?}", ast));
-    }
-
-    #[test]
-    fn test_parses_superfluous_parens() {
-        assert_eq!("Identifier(\"foo\")", format!("{:?}", parse("(foo)").unwrap()));
-        assert_eq!("Identifier(\"foo\")", format!("{:?}", parse("((((foo))))").unwrap()));
-    }
-
-    #[test]
-    fn test_requires_opening_paren() {
-        let ast = parse(")");
-        assert_eq!("Err(ParseError { msg: \"Parse error at line 0, col 0; Unexpected \
-                    operand token: Rparen\\n)\\n^\\n\", line: 0, col: 0 })",
-                   format!("{:?}", ast));
-        let ast = parse("(foo))");
-        assert_eq!("Err(ParseError { msg: \"Parse error at line 0, col 5; Unbalanced \
-                    Rparen\\n(foo))\\n     ^\\n\", line: 0, col: 5 })",
-                   format!("{:?}", ast));
-    }
-
-    #[test]
-    fn test_requires_paren_is_closed() {
-        let ast = parse("(");
-        assert_eq!("Err(ParseError { msg: \"Parse error at line 0, col 1; Unclosed \
-                    \\\"(\\\"\\n(\\n ^\\n\", line: 0, col: 1 })",
-                   format!("{:?}", ast));
+    /// Parse a comma separated list of expressions until a closing token.
+    ///
+    /// This function is used for functions and multi-list parsing. Note
+    /// that this function allows empty lists. This is fine when parsing
+    /// multi-list expressions because "[]" is tokenized as Token::Flatten.
+    ///
+    /// Examples: [foo, bar], foo(bar), foo(), foo(baz, bar)
+    fn parse_list(&mut self, closing: Token) -> Result<Vec<Ast>, ParseError> {
+        let mut nodes = vec![];
+        while self.peek(0) != &closing {
+            nodes.push(try!(self.expr(0)));
+            // Skip commas
+            if self.peek(0) == &Token::Comma {
+                self.advance();
+                if self.peek(0) == &closing {
+                    return Err(self.err(Some(self.peek(0)), "token cannot be directly after ','"));
+                }
+            }
+        }
+        self.advance();
+        Ok(nodes)
     }
 }

@@ -335,7 +335,8 @@ impl JPFunction for Length {
         match *args[0] {
             Variable::Array(ref a) => Ok(intr.arena.alloc(a.len())),
             Variable::Object(ref m) => Ok(intr.arena.alloc(m.len())),
-            Variable::String(ref s) => Ok(intr.arena.alloc(s.len())),
+            // Note that we need to count the code points not the number of unicode characters
+            Variable::String(ref s) => Ok(intr.arena.alloc(s.chars().count())),
             _ => unreachable!()
         }
     }
@@ -441,7 +442,7 @@ impl JPFunction for Reverse {
             values.reverse();
             Ok(intr.arena.alloc(values))
         } else {
-            let word = args[0].as_string().unwrap().clone();
+            let word: String = args[0].as_string().unwrap().chars().rev().collect();
             Ok(intr.arena.alloc(word))
         }
     }
