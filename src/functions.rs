@@ -159,12 +159,17 @@ macro_rules! validate {
 }
 
 /// Macro used to implement max_by and min_by functions.
-macro_rules! max_by_min_by {
+macro_rules! min_and_max_by {
     ($operator:ident, $args:expr, $interpreter:expr) => (
         {
             validate!($args, ArgumentType::Array, ArgumentType::Expref);
             let vals = $args[0].as_array().unwrap();
+            // Return null when there are not values in the array
+            if vals.is_empty() {
+                return Ok($interpreter.arena.alloc_null());
+            }
             let ast = $args[1].as_expref().unwrap();
+            // Map over the first value to get the homogeneous required return type
             let initial = try!($interpreter.interpret(vals[0].clone(), &ast));
             let entered_type = initial.get_type();
             if entered_type != "string" && entered_type != "number" {
@@ -174,19 +179,42 @@ macro_rules! max_by_min_by {
                     position: 1
                 });
             }
-            vals.iter().skip(1).map(|v| $interpreter.interpret(v.clone(), &ast))
-                .fold(Ok(initial.clone()), |a, b| {
-                    let (a_val, b_val) = (try!(a), try!(b));
-                    if b_val.get_type() == entered_type {
-                        Ok($operator(a_val, b_val))
-                    } else {
-                        Err(RuntimeError::InvalidType {
-                            expected: format!("expression->{}", entered_type),
-                            actual: b_val.get_type().to_string(),
-                            position: 1
-                        })
-                    }
-                })
+            // Map over each value, finding the best candidate value and fail on error.
+            let mut candidate = (vals[0].clone(), initial.clone());
+            for v in vals {
+                let mapped = try!($interpreter.interpret(v.clone(), &ast));
+                if mapped.get_type() != entered_type {
+                    return Err(RuntimeError::InvalidType {
+                        expected: format!("expression->{}", entered_type),
+                        actual: mapped.get_type().to_string(),
+                        position: 1
+                    });
+                }
+                if mapped.$operator(&candidate.1) {
+                    candidate = (v.clone(), mapped);
+                }
+            }
+            Ok(candidate.0)
+        }
+    )
+}
+
+/// Macro used to implement max and min functions.
+macro_rules! min_and_max {
+    ($operator:ident, $args:expr, $interpreter:expr) => (
+        {
+            let acceptable = vec![ArgumentType::String, ArgumentType::Number];
+            validate!($args, ArgumentType::HomogeneousArray(acceptable));
+            let values = $args[0].as_array().unwrap();
+            if values.is_empty() {
+                Ok($interpreter.arena.alloc_null())
+            } else {
+                let result: Rc<Variable> = values
+                    .iter()
+                    .skip(1)
+                    .fold(values[0].clone(), |acc, item| $operator(acc, item.clone()));
+                Ok(result)
+            }
         }
     )
 }
@@ -361,15 +389,7 @@ struct Max;
 
 impl JPFunction for Max {
     fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> JPResult {
-        let acceptable = vec![ArgumentType::String, ArgumentType::Number];
-        validate!(args, ArgumentType::HomogeneousArray(acceptable));
-        let values = args[0].as_array().unwrap();
-        let initial = intr.arena.alloc_null();
-        let result: Rc<Variable> = values
-            .iter()
-            .skip(1)
-            .fold(initial, |acc, item| max(acc, item.clone()));
-        Ok(result)
+        min_and_max!(max, args, intr)
     }
 }
 
@@ -377,15 +397,7 @@ struct Min;
 
 impl JPFunction for Min {
     fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> JPResult {
-        let acceptable = vec![ArgumentType::String, ArgumentType::Number];
-        validate!(args, ArgumentType::HomogeneousArray(acceptable));
-        let values = args[0].as_array().unwrap();
-        let initial = intr.arena.alloc_null();
-        let result: Rc<Variable> = values
-            .iter()
-            .skip(1)
-            .fold(initial, |acc, item| min(acc, item.clone()));
-        Ok(result)
+        min_and_max!(min, args, intr)
     }
 }
 
@@ -393,7 +405,7 @@ struct MaxBy;
 
 impl JPFunction for MaxBy {
     fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> JPResult {
-        max_by_min_by!(max, args, intr)
+        min_and_max_by!(gt, args, intr)
     }
 }
 
@@ -401,7 +413,7 @@ struct MinBy;
 
 impl JPFunction for MinBy {
     fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> JPResult {
-        max_by_min_by!(min, args, intr)
+        min_and_max_by!(lt, args, intr)
     }
 }
 
