@@ -470,7 +470,7 @@ mod tests {
     fn calls_functions() {
         let data = Rc::new(Variable::from_str("[1, 2, 3]").unwrap());
         let ast = Ast::Function("length".to_string(), vec![Ast::CurrentNode]);
-        assert_eq!(Rc::new(Variable::Number(3.0)), interpret(data, &ast).unwrap());
+        assert_eq!(Rc::new(Variable::U64(3)), interpret(data, &ast).unwrap());
     }
 
     #[test]

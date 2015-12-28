@@ -197,25 +197,25 @@ impl IntoJMESPath for bool {
 
 impl IntoJMESPath for usize {
     fn into_jmespath(self) -> Rc<Variable> {
-        Rc::new(Variable::Number(self as f64))
+        Rc::new(Variable::U64(self as u64))
     }
 }
 
 impl IntoJMESPath for u64 {
     fn into_jmespath(self) -> Rc<Variable> {
-        Rc::new(Variable::Number(self as f64))
+        Rc::new(Variable::U64(self))
     }
 }
 
 impl IntoJMESPath for f64 {
     fn into_jmespath(self) -> Rc<Variable> {
-        Rc::new(Variable::Number(self))
+        Rc::new(Variable::F64(self))
     }
 }
 
 impl IntoJMESPath for i64 {
     fn into_jmespath(self) -> Rc<Variable> {
-        Rc::new(Variable::Number(self as f64))
+        Rc::new(Variable::I64(self))
     }
 }
 

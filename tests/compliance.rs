@@ -162,10 +162,14 @@ impl TestAssertion for ValidResult {
         match try!(self.try_parse(suite, case)).search(suite.given.clone()) {
             Err(e) => Err(self.err_message(suite, case, format!("{}", e))),
             Ok(r) => {
-                if r != self.expected_result {
-                    Err(self.err_message(suite, case, r.to_string().unwrap()))
-                } else {
-                    Ok(())
+                match r.as_string() {
+                    Some(s) if s != self.expected_result.as_string().unwrap() => {
+                        Err(self.err_message(suite, case, r.to_string().unwrap()))
+                    },
+                    Some(_) if r != self.expected_result => {
+                        Err(self.err_message(suite, case, r.to_string().unwrap()))
+                    },
+                    _ => Ok(())
                 }
             }
         }
