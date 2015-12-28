@@ -427,7 +427,7 @@ mod tests {
     #[test]
     fn gets_value_from_object() {
         let var = Variable::from_str("{\"foo\":1}").unwrap();
-        assert_eq!(Some(Rc::new(Variable::F64(1.0))), var.get_value("foo"));
+        assert_eq!(Some(Rc::new(Variable::U64(1))), var.get_value("foo"));
     }
 
     #[test]
@@ -443,9 +443,9 @@ mod tests {
     #[test]
     fn gets_index_from_array() {
         let var = Variable::from_str("[1, 2, 3]").unwrap();
-        assert_eq!(Some(Rc::new(Variable::F64(1.0))), var.get_index(0));
-        assert_eq!(Some(Rc::new(Variable::F64(2.0))), var.get_index(1));
-        assert_eq!(Some(Rc::new(Variable::F64(3.0))), var.get_index(2));
+        assert_eq!(Some(Rc::new(Variable::U64(1))), var.get_index(0));
+        assert_eq!(Some(Rc::new(Variable::U64(2))), var.get_index(1));
+        assert_eq!(Some(Rc::new(Variable::U64(3))), var.get_index(2));
         assert_eq!(None, var.get_index(3));
     }
 
@@ -457,10 +457,10 @@ mod tests {
     #[test]
     fn gets_negative_index_from_array() {
         let var = Variable::from_str("[1, 2, 3]").unwrap();
-        assert_eq!(Some(Rc::new(Variable::F64(3.0))), var.get_negative_index(0));
-        assert_eq!(Some(Rc::new(Variable::F64(3.0))), var.get_negative_index(1));
-        assert_eq!(Some(Rc::new(Variable::F64(2.0))), var.get_negative_index(2));
-        assert_eq!(Some(Rc::new(Variable::F64(1.0))), var.get_negative_index(3));
+        assert_eq!(Some(Rc::new(Variable::U64(3))), var.get_negative_index(0));
+        assert_eq!(Some(Rc::new(Variable::U64(3))), var.get_negative_index(1));
+        assert_eq!(Some(Rc::new(Variable::U64(2))), var.get_negative_index(2));
+        assert_eq!(Some(Rc::new(Variable::U64(1))), var.get_negative_index(3));
         assert_eq!(None, var.get_negative_index(4));
     }
 
