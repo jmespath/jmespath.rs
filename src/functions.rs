@@ -254,8 +254,11 @@ struct Abs;
 impl JPFunction for Abs {
     fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> JPResult {
         validate![args, ArgumentType::Number];
-        let n = args[0].as_number().unwrap();
-        Ok(intr.arena.alloc(n.abs()))
+        match *args[0] {
+            Variable::I64(n) => Ok(intr.arena.alloc(n.abs())),
+            Variable::F64(f) => Ok(intr.arena.alloc(f.abs())),
+            _ => Ok(args[0].clone())
+        }
     }
 }
 
@@ -266,7 +269,7 @@ impl JPFunction for Avg {
         validate!(args, ArgumentType::HomogeneousArray(vec![ArgumentType::Number]));
         let values = args[0].as_array().unwrap();
         let sum = values.iter()
-            .map(|n| n.as_number().unwrap())
+            .map(|n| n.as_f64().unwrap())
             .fold(0f64, |a, ref b| a + b);
         Ok(intr.arena.alloc(sum / (values.len() as f64)))
     }
@@ -277,7 +280,7 @@ struct Ceil;
 impl JPFunction for Ceil {
     fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> JPResult {
         validate!(args, ArgumentType::Number);
-        let n = args[0].as_number().unwrap();
+        let n = args[0].as_f64().unwrap();
         Ok(intr.arena.alloc(n.ceil()))
     }
 }
@@ -319,7 +322,7 @@ struct Floor;
 impl JPFunction for Floor {
     fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> JPResult {
         validate!(args, ArgumentType::Number);
-        let n = args[0].as_number().unwrap();
+        let n = args[0].as_f64().unwrap();
         Ok(intr.arena.alloc(n.floor()))
     }
 }
@@ -514,12 +517,12 @@ impl JPFunction for SortBy {
                 },
                 SortByState::Initial if a_type == "number" && b_type == a_type => {
                     state = SortByState::FoundNumber;
-                    a.as_number().unwrap().partial_cmp(&b.as_number().unwrap()).unwrap()
+                    a.as_f64().unwrap().partial_cmp(&b.as_f64().unwrap()).unwrap()
                 },
                 SortByState::FoundString if a_type == "string" && b_type == "string" =>
                     a.as_string().unwrap().cmp(b.as_string().unwrap()),
                 SortByState::FoundNumber if a_type == "number" && b_type == "number" =>
-                    a.as_number().unwrap().partial_cmp(&b.as_number().unwrap()).unwrap(),
+                    a.as_f64().unwrap().partial_cmp(&b.as_f64().unwrap()).unwrap(),
                 _ => {
                     let expr_string = format!("{}", ArgumentType::ExprefReturns(
                         vec![ArgumentType::Number, ArgumentType::String]));
@@ -559,7 +562,7 @@ impl JPFunction for Sum {
     fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> JPResult {
         validate!(args, ArgumentType::HomogeneousArray(vec![ArgumentType::Number]));
         let result = args[0].as_array().unwrap().iter().fold(
-            0.0, |acc, item| acc + item.as_number().unwrap());
+            0.0, |acc, item| acc + item.as_f64().unwrap());
         Ok(intr.arena.alloc(result))
     }
 }
@@ -582,9 +585,9 @@ impl JPFunction for ToNumber {
     fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> JPResult {
         validate!(args, ArgumentType::Any);
         match *args[0] {
-            Variable::Number(_) => Ok(args[0].clone()),
+            Variable::I64(_) | Variable::F64(_) | Variable::U64(_) => Ok(args[0].clone()),
             Variable::String(ref s) => {
-                match s.parse::<f64>() {
+                match Variable::from_str(s) {
                     Ok(f)  => Ok(intr.arena.alloc(f)),
                     Err(_) => Ok(intr.arena.alloc_null())
                 }
