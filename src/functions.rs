@@ -604,7 +604,10 @@ impl JPFunction for ToString {
         validate!(args, ArgumentType::OneOf(vec![
             ArgumentType::Object, ArgumentType::Array, ArgumentType::Boolean,
             ArgumentType::Number, ArgumentType::String, ArgumentType::Null]));
-        Ok(intr.arena.alloc(args[0].to_string().unwrap()))
+        match *args[0] {
+            Variable::String(_) => Ok(args[0].clone()),
+            _ => Ok(intr.arena.alloc(args[0].to_string().unwrap()))
+        }
     }
 }
 
