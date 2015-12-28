@@ -205,19 +205,16 @@ fn consume_inside<F>(iter: &mut CharIter, wrapper: char, invoke: F) -> Token
     let mut buffer = String::new();
     // Skip the opening character.
     iter.next();
-    loop {
-        match iter.next() {
-            Some((_, c)) if c == wrapper => return invoke(buffer),
-            Some((_, c)) if c == '\\' => {
+    while let Some((_, c)) = iter.next() {
+        if c == wrapper {
+            return invoke(buffer);
+        } else if c == '\\' {
+            buffer.push(c);
+            if let Some((_, c)) = iter.next() {
                 buffer.push(c);
-                // Break if an escape is followed by the end of the string.
-                match iter.next() {
-                    Some((_, c)) => buffer.push(c),
-                    None => break
-                }
-            },
-            Some((_, c)) => buffer.push(c),
-            None => break
+            }
+        } else {
+            buffer.push(c)
         }
     }
     // The token was not closed, so error with the string, including the
@@ -246,17 +243,19 @@ fn consume_quoted_identifier(iter: &mut CharIter) -> Token {
 
 #[inline]
 fn consume_raw_string(iter: &mut CharIter) -> Token {
-    consume_inside(iter, '\'', |s| Literal(Rc::new(Variable::String(s))))
+    // Note: we need to unescape here because the backslashes are passed through.
+    consume_inside(iter, '\'', |s| Literal(Rc::new(Variable::String(s.replace("\\'", "'")))))
 }
 
 // Consume and parse a literal JSON token.
 #[inline]
 fn consume_literal(iter: &mut CharIter) -> Token {
     consume_inside(iter, '`', |s| {
-        match Variable::from_str(s.as_ref()) {
+        let unescapeed = s.replace("\\`", "`");
+        match Variable::from_str(unescapeed.as_ref()) {
             Ok(j) => Literal(Rc::new(j)),
             Err(err) => Error {
-                value: format!("`{}`", s),
+                value: format!("`{}`", unescapeed),
                 msg: format!("Unable to parse literal JSON: {}", err)
             }
         }
