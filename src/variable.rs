@@ -1,11 +1,12 @@
-extern crate rustc_serialize;
+extern crate serde_json;
 
 use std::string::ToString;
 use std::cmp::{max, Ordering};
 use std::rc::Rc;
 use std::collections::BTreeMap;
 use std::iter::Iterator;
-use self::rustc_serialize::json::Json;
+
+use self::serde_json::Value;
 
 use super::IntoJMESPath;
 use super::ast::{Ast, Comparator};
@@ -18,7 +19,7 @@ use super::ast::{Ast, Comparator};
 pub enum Variable {
     Null,
     String(String),
-    Boolean(bool),
+    Bool(bool),
     I64(i64),
     U64(u64),
     F64(f64),
@@ -49,22 +50,22 @@ impl Ord for Variable {
 
 impl Variable {
     /// Create a new JMESPath variable from a JSON value.
-    pub fn from_json(value: &Json) -> Self {
+    pub fn from_json(value: &Value) -> Self {
         match value {
-            &Json::Null => Variable::Null,
-            &Json::Boolean(value) => Variable::Boolean(value),
-            &Json::String(ref s) => Variable::String(s.to_string()),
-            &Json::I64(n) => Variable::I64(n),
-            &Json::U64(n) => Variable::U64(n),
-            &Json::F64(f) => Variable::F64(f),
-            &Json::Array(ref array) => {
+            &Value::Null => Variable::Null,
+            &Value::Bool(value) => Variable::Bool(value),
+            &Value::String(ref s) => Variable::String(s.to_string()),
+            &Value::I64(n) => Variable::I64(n),
+            &Value::U64(n) => Variable::U64(n),
+            &Value::F64(f) => Variable::F64(f),
+            &Value::Array(ref array) => {
                 let mut result: Vec<Rc<Variable>> = vec![];
                 for value in array.iter() {
                     result.push(Rc::new(Variable::from_json(value)));
                 }
                 Variable::Array(result)
             },
-            &Json::Object(ref map) => {
+            &Value::Object(ref map) => {
                 let mut result: BTreeMap<String, Rc<Variable>> = BTreeMap::new();
                 for (key, value) in map.iter() {
                     result.insert(key.clone(), Rc::new(Variable::from_json(value)));
@@ -76,38 +77,38 @@ impl Variable {
 
     /// Create a JMESPath Variable from a JSON encoded string.
     pub fn from_str(s: &str) -> Result<Self, String> {
-        Json::from_str(s)
+        serde_json::from_str(s)
             .map(|value| Self::from_json(&value))
             .or_else(|err| Err(format!("{:?}", err).to_string()))
     }
 
     /// Converts the Variable value to a JSON value.
     /// If any value in the Variable is an Expref, None is returned.
-    pub fn to_json(&self) -> Option<Json> {
+    pub fn to_json(&self) -> Option<Value> {
         match self {
-            &Variable::Null => Some(Json::Null),
-            &Variable::Boolean(value) => Some(Json::Boolean(value)),
-            &Variable::String(ref s) => Some(Json::String(s.to_string())),
-            &Variable::I64(n) => Some(Json::I64(n)),
-            &Variable::F64(n) => Some(Json::F64(n)),
-            &Variable::U64(n) => Some(Json::U64(n)),
+            &Variable::Null => Some(Value::Null),
+            &Variable::Bool(value) => Some(Value::Bool(value)),
+            &Variable::String(ref s) => Some(Value::String(s.to_string())),
+            &Variable::I64(n) => Some(Value::I64(n)),
+            &Variable::F64(n) => Some(Value::F64(n)),
+            &Variable::U64(n) => Some(Value::U64(n)),
             &Variable::Array(ref array) => {
-                let mut result: Vec<Json> = vec![];
+                let mut result: Vec<Value> = vec![];
                 for value in array.iter() {
                     let json_value = Variable::to_json(value);
                     if json_value.is_none() { return None };
                     result.push(json_value.unwrap());
                 }
-                Some(Json::Array(result))
+                Some(Value::Array(result))
             },
             &Variable::Object(ref map) => {
-                let mut result: BTreeMap<String, Json> = BTreeMap::new();
+                let mut result: BTreeMap<String, Value> = BTreeMap::new();
                 for (key, value) in map.iter() {
                     let json_value = Variable::to_json(value);
                     if json_value.is_none() { return None };
                     result.insert(key.clone(), json_value.unwrap());
                 }
-                Some(Json::Object(result))
+                Some(Value::Object(result))
             },
             &Variable::Expref(_) => None
         }
@@ -116,7 +117,7 @@ impl Variable {
     /// Converts the Variable value to a JSON encoded string value.
     /// If any value in the Variable is an Expref, None is returned.
     pub fn to_string(&self) -> Option<String> {
-        self.to_json().map(|v| v.to_string())
+        self.to_json().map(|v| serde_json::to_string(&v).unwrap())
     }
 
     /// Returns true if the Variable is an Array. Returns false otherwise.
@@ -189,7 +190,7 @@ impl Variable {
     /// Returns None otherwise.
     pub fn as_boolean(&self) -> Option<bool> {
         match self {
-            &Variable::Boolean(b) => Some(b),
+            &Variable::Bool(b) => Some(b),
             _ => None
         }
     }
@@ -259,7 +260,7 @@ impl Variable {
     /// Returns true or false based on if the Variable value is considered truthy.
     pub fn is_truthy(&self) -> bool {
         match self {
-            &Variable::Boolean(true) => true,
+            &Variable::Bool(true) => true,
             &Variable::String(ref s) if s.len() > 0 => true,
             &Variable::Array(ref a) if a.len() > 0 => true,
             &Variable::Object(ref o) if o.len() > 0 => true,
@@ -273,7 +274,7 @@ impl Variable {
     /// Returns the JMESPath type name of a Variable value.
     pub fn get_type(&self) -> &str {
         match self {
-            &Variable::Boolean(_) => "boolean",
+            &Variable::Bool(_) => "boolean",
             &Variable::String(_) => "string",
             &Variable::F64(_) | &Variable::U64(_) | &Variable::I64(_)=> "number",
             &Variable::Array(_) => "array",
@@ -311,8 +312,8 @@ impl VariableArena {
     /// Create a new variable arena.
     pub fn new() -> VariableArena {
         VariableArena {
-            true_bool: Rc::new(Variable::Boolean(true)),
-            false_bool: Rc::new(Variable::Boolean(false)),
+            true_bool: Rc::new(Variable::Bool(true)),
+            false_bool: Rc::new(Variable::Bool(false)),
             null: Rc::new(Variable::Null)
         }
     }
@@ -342,11 +343,8 @@ impl VariableArena {
 
 #[cfg(test)]
 mod tests {
-    extern crate rustc_serialize;
-
     use std::rc::Rc;
-
-    use self::rustc_serialize::json::Json;
+    use super::serde_json::Value;
 
     use super::*;
     use ast::{Ast, Comparator};
@@ -354,22 +352,22 @@ mod tests {
     #[test]
     fn creates_variable_from_json() {
         assert_eq!(Variable::String("Foo".to_string()),
-                   Variable::from_json(&Json::String("Foo".to_string())));
-        assert_eq!(Variable::Null, Variable::from_json(&Json::Null));
-        assert_eq!(Variable::Boolean(false), Variable::from_json(&Json::Boolean(false)));
-        assert_eq!(Variable::U64(1), Variable::from_json(&Json::U64(1)));
-        let array = Variable::from_json(&Json::from_str("[1, [true]]").unwrap());
+                   Variable::from_json(&Value::String("Foo".to_string())));
+        assert_eq!(Variable::Null, Variable::from_json(&Value::Null));
+        assert_eq!(Variable::Bool(false), Variable::from_json(&Value::Bool(false)));
+        assert_eq!(Variable::U64(1), Variable::from_json(&Value::U64(1)));
+        let array = Variable::from_json(&serde_json::from_str("[1, [true]]").unwrap());
         assert!(array.is_array());
         assert_eq!(Some(Rc::new(Variable::U64(1))), array.get_index(0));
-        let map = Variable::from_json(&Json::from_str("{\"a\": {\"b\": 1}}").unwrap());
+        let map = Variable::from_json(&serde_json::from_str("{\"a\": {\"b\": 1}}").unwrap());
         assert!(map.is_object());
         assert_eq!(Some(Rc::new(Variable::U64(1))), map.get_value("a").unwrap().get_value("b"));
     }
 
     #[test]
     fn creates_variable_from_str() {
-        assert_eq!(Ok(Variable::Boolean(true)), Variable::from_str("true"));
-        assert_eq!(Err("SyntaxError(\"invalid syntax\", 1, 1)".to_string()),
+        assert_eq!(Ok(Variable::Bool(true)), Variable::from_str("true"));
+        assert_eq!(Err("SyntaxError(\"expected value\", 1, 1)".to_string()),
                    Variable::from_str("abc"));
     }
 
@@ -378,7 +376,7 @@ mod tests {
          assert_eq!("object", Variable::from_str(&"{\"foo\": \"bar\"}").unwrap().get_type());
          assert_eq!("array", Variable::from_str(&"[\"foo\"]").unwrap().get_type());
          assert_eq!("null", Variable::Null.get_type());
-         assert_eq!("boolean", Variable::Boolean(true).get_type());
+         assert_eq!("boolean", Variable::Bool(true).get_type());
          assert_eq!("string", Variable::String("foo".to_string()).get_type());
          assert_eq!("number", Variable::F64(1.0).get_type());
          assert_eq!("number", Variable::I64(1 as i64).get_type());
@@ -392,8 +390,8 @@ mod tests {
         assert_eq!(true, Variable::from_str(&"[\"foo\"]").unwrap().is_truthy());
         assert_eq!(false, Variable::from_str(&"[]").unwrap().is_truthy());
         assert_eq!(false, Variable::Null.is_truthy());
-        assert_eq!(true, Variable::Boolean(true).is_truthy());
-        assert_eq!(false, Variable::Boolean(false).is_truthy());
+        assert_eq!(true, Variable::Bool(true).is_truthy());
+        assert_eq!(false, Variable::Bool(false).is_truthy());
         assert_eq!(true, Variable::String("foo".to_string()).is_truthy());
         assert_eq!(false, Variable::String("".to_string()).is_truthy());
         assert_eq!(true, Variable::F64(10.0).is_truthy());
@@ -432,12 +430,12 @@ mod tests {
 
     #[test]
     fn getting_value_from_non_object_is_none() {
-        assert_eq!(None, Variable::Boolean(false).get_value("foo"));
+        assert_eq!(None, Variable::Bool(false).get_value("foo"));
     }
 
     #[test]
     fn getting_index_from_non_array_is_none() {
-        assert_eq!(None, Variable::Boolean(false).get_index(2));
+        assert_eq!(None, Variable::Bool(false).get_index(2));
     }
 
     #[test]
@@ -451,7 +449,7 @@ mod tests {
 
     #[test]
     fn getting_negative_index_from_non_array_is_none() {
-        assert_eq!(None, Variable::Boolean(false).get_negative_index(2));
+        assert_eq!(None, Variable::Bool(false).get_negative_index(2));
     }
 
     #[test]
@@ -466,31 +464,31 @@ mod tests {
 
     #[test]
     fn determines_if_null() {
-        assert_eq!(false, Variable::Boolean(true).is_null());
+        assert_eq!(false, Variable::Bool(true).is_null());
         assert_eq!(true, Variable::Null.is_null());
     }
 
     #[test]
     fn option_of_null() {
         assert_eq!(Some(()), Variable::Null.as_null());
-        assert_eq!(None, Variable::Boolean(true).as_null());
+        assert_eq!(None, Variable::Bool(true).as_null());
     }
 
     #[test]
     fn determines_if_boolean() {
-        assert_eq!(true, Variable::Boolean(true).is_boolean());
+        assert_eq!(true, Variable::Bool(true).is_boolean());
         assert_eq!(false, Variable::Null.is_boolean());
     }
 
     #[test]
     fn option_of_boolean() {
-        assert_eq!(Some(true), Variable::Boolean(true).as_boolean());
+        assert_eq!(Some(true), Variable::Bool(true).as_boolean());
         assert_eq!(None, Variable::Null.as_boolean());
     }
 
     #[test]
     fn determines_if_string() {
-        assert_eq!(false, Variable::Boolean(true).is_string());
+        assert_eq!(false, Variable::Bool(true).is_string());
         assert_eq!(true, Variable::String("foo".to_string()).is_string());
     }
 
@@ -545,7 +543,8 @@ mod tests {
             "[1.0,2.0]", "{\"foo\":[true,false,-5.0],\"bar\":null}"];
         for case in test_cases {
             let var = Variable::from_str(case).unwrap();
-            assert_eq!(Json::from_str(case).unwrap(), var.to_json().unwrap());
+            let value: Value = serde_json::from_str(case).unwrap();
+            assert_eq!(value, var.to_json().unwrap());
         }
     }
 
@@ -557,7 +556,7 @@ mod tests {
 
     #[test]
     fn test_converts_to_string() {
-        assert_eq!("true", Variable::Boolean(true).to_string().unwrap());
+        assert_eq!("true", Variable::Bool(true).to_string().unwrap());
     }
 
     #[test]

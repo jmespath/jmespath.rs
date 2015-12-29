@@ -19,7 +19,7 @@
 //!
 //! let expr = jmespath::Expression::new("foo.bar | baz").unwrap();
 //! ```
-extern crate rustc_serialize;
+extern crate serde_json;
 
 pub use variable::{Variable, VariableArena};
 pub use interpreter::TreeInterpreter;
@@ -27,7 +27,8 @@ pub use interpreter::TreeInterpreter;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::rc::Rc;
-use self::rustc_serialize::json::Json;
+
+use self::serde_json::Value;
 
 use ast::Ast;
 use parser::{parse, ParseError};
@@ -183,7 +184,7 @@ impl IntoJMESPath for Variable {
     }
 }
 
-impl <'a> IntoJMESPath for &'a Json {
+impl <'a> IntoJMESPath for &'a Value {
     fn into_jmespath(self) -> Rc<Variable> {
         Rc::new(Variable::from_json(self))
     }
@@ -191,7 +192,7 @@ impl <'a> IntoJMESPath for &'a Json {
 
 impl IntoJMESPath for bool {
     fn into_jmespath(self) -> Rc<Variable> {
-        Rc::new(Variable::Boolean(self))
+        Rc::new(Variable::Bool(self))
     }
 }
 
@@ -262,11 +263,8 @@ impl IntoJMESPath for BTreeMap<String, Rc<Variable>> {
 
 #[cfg(test)]
 mod test {
-    extern crate rustc_serialize;
-
     use super::*;
     use std::rc::Rc;
-    use self::rustc_serialize::json::Json;
 
     #[test]
     fn formats_expression_as_string() {
@@ -285,15 +283,6 @@ mod test {
     fn can_evaluate_jmespath_expression() {
         let expr = Expression::new("foo.bar").unwrap();
         let var = Variable::from_str("{\"foo\":{\"bar\":true}}").unwrap();
-        assert_eq!(Rc::new(Variable::Boolean(true)), expr.search(var).unwrap());
-    }
-
-    #[test]
-    fn can_create_from_json_reference_and_release_ownership() {
-        let expr = Expression::new("foo.bar").unwrap();
-        let var = Json::from_str("{\"foo\":{\"bar\":true}}").unwrap();
-        let result = expr.search(&var).unwrap();
-        assert_eq!(Rc::new(Variable::Boolean(true)), result);
-        assert!(var.is_object());
+        assert_eq!(Rc::new(Variable::Bool(true)), expr.search(var).unwrap());
     }
 }

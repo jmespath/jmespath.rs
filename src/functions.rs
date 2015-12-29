@@ -13,7 +13,7 @@ pub enum ArgumentType {
     Any,
     String,
     Number,
-    Boolean,
+    Bool,
     Array,
     Object,
     Null,
@@ -38,7 +38,7 @@ impl ArgumentType {
             &String if value.is_string() => true,
             &Number if value.is_number() => true,
             &Object if value.is_object() => true,
-            &Boolean if value.is_boolean() => true,
+            &Bool if value.is_boolean() => true,
             &Expref if value.is_expref() => true,
             &ExprefReturns(_) if value.is_expref() => true,
             &Array if value.is_array() => true,
@@ -65,7 +65,7 @@ impl fmt::Display for ArgumentType {
             &Any => write!(fmt, "any"),
             &String => write!(fmt, "string"),
             &Number => write!(fmt, "number"),
-            &Boolean => write!(fmt, "boolean"),
+            &Bool => write!(fmt, "boolean"),
             &Array => write!(fmt, "array"),
             &Object => write!(fmt, "object"),
             &Null => write!(fmt, "null"),
@@ -602,7 +602,7 @@ struct ToString;
 impl JPFunction for ToString {
     fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> JPResult {
         validate!(args, ArgumentType::OneOf(vec![
-            ArgumentType::Object, ArgumentType::Array, ArgumentType::Boolean,
+            ArgumentType::Object, ArgumentType::Array, ArgumentType::Bool,
             ArgumentType::Number, ArgumentType::String, ArgumentType::Null]));
         match *args[0] {
             Variable::String(_) => Ok(args[0].clone()),

@@ -261,15 +261,15 @@ mod tests {
     #[test]
     fn interprets_current_node() {
         let ast = Ast::CurrentNode;
-        let data = Rc::new(Variable::Boolean(true));
-        assert_eq!(Rc::new(Variable::Boolean(true)), interpret(data, &ast).unwrap());
+        let data = Rc::new(Variable::Bool(true));
+        assert_eq!(Rc::new(Variable::Bool(true)), interpret(data, &ast).unwrap());
     }
 
     #[test]
     fn interprets_literal() {
-        let ast = Ast::Literal(Rc::new(Variable::Boolean(true)));
+        let ast = Ast::Literal(Rc::new(Variable::Bool(true)));
         let data = Rc::new(Variable::Object(BTreeMap::new()));
-        assert_eq!(Rc::new(Variable::Boolean(true)), interpret(data, &ast).unwrap());
+        assert_eq!(Rc::new(Variable::Bool(true)), interpret(data, &ast).unwrap());
     }
 
     #[test]
@@ -283,15 +283,15 @@ mod tests {
     #[test]
     fn interprets_index() {
         let data = Rc::new(Variable::Array(vec![
-            Rc::new(Variable::Boolean(false)),
-            Rc::new(Variable::Boolean(true))]));
-        assert_eq!(Rc::new(Variable::Boolean(true)),
+            Rc::new(Variable::Bool(false)),
+            Rc::new(Variable::Bool(true))]));
+        assert_eq!(Rc::new(Variable::Bool(true)),
                    interpret(data.clone(), &Ast::Index(-1)).unwrap());
-        assert_eq!(Rc::new(Variable::Boolean(false)),
+        assert_eq!(Rc::new(Variable::Bool(false)),
                    interpret(data.clone(), &Ast::Index(-2)).unwrap());
-        assert_eq!(Rc::new(Variable::Boolean(false)),
+        assert_eq!(Rc::new(Variable::Bool(false)),
                    interpret(data.clone(), &Ast::Index(0)).unwrap());
-        assert_eq!(Rc::new(Variable::Boolean(true)),
+        assert_eq!(Rc::new(Variable::Bool(true)),
                    interpret(data.clone(), &Ast::Index(1)).unwrap());
     }
 
@@ -307,7 +307,7 @@ mod tests {
         let ast = Ast::Or(Box::new(Ast::Identifier("bar".to_string())),
                           Box::new(Ast::Identifier("foo".to_string())));
         let data = Rc::new(Variable::from_str("{\"foo\":true}").unwrap());
-        assert_eq!(Rc::new(Variable::Boolean(true)), interpret(data, &ast).unwrap());
+        assert_eq!(Rc::new(Variable::Bool(true)), interpret(data, &ast).unwrap());
     }
 
     #[test]
@@ -315,7 +315,7 @@ mod tests {
         let ast = Ast::And(Box::new(Ast::Identifier("bar".to_string())),
                            Box::new(Ast::Identifier("foo".to_string())));
         let data = Rc::new(Variable::from_str("{\"foo\":true, \"bar\":true}").unwrap());
-        assert_eq!(Rc::new(Variable::Boolean(true)), interpret(data, &ast).unwrap());
+        assert_eq!(Rc::new(Variable::Bool(true)), interpret(data, &ast).unwrap());
         let data = Rc::new(Variable::from_str("{\"foo\":true}").unwrap());
         assert_eq!(Rc::new(Variable::Null), interpret(data, &ast).unwrap());
     }
@@ -324,17 +324,17 @@ mod tests {
     fn interprets_not_expr() {
         let data = Rc::new(Variable::from_str("{\"a\":true,\"b\":0,\"c\":false}").unwrap());
         let ast = Ast::Not(Box::new(Ast::Identifier("a".to_string())));
-        assert_eq!(Rc::new(Variable::Boolean(false)), interpret(data.clone(), &ast).unwrap());
+        assert_eq!(Rc::new(Variable::Bool(false)), interpret(data.clone(), &ast).unwrap());
         let ast = Ast::Not(Box::new(Ast::Identifier("b".to_string())));
-        assert_eq!(Rc::new(Variable::Boolean(false)), interpret(data.clone(), &ast).unwrap());
+        assert_eq!(Rc::new(Variable::Bool(false)), interpret(data.clone(), &ast).unwrap());
         let ast = Ast::Not(Box::new(Ast::Identifier("c".to_string())));
-        assert_eq!(Rc::new(Variable::Boolean(true)), interpret(data.clone(), &ast).unwrap());
+        assert_eq!(Rc::new(Variable::Bool(true)), interpret(data.clone(), &ast).unwrap());
     }
 
     #[test]
     fn interprets_cond_expr() {
         let ast = Ast::Condition(
-            Box::new(Ast::Literal(Rc::new(Variable::Boolean(true)))),
+            Box::new(Ast::Literal(Rc::new(Variable::Bool(true)))),
             Box::new(Ast::Literal(Rc::new(Variable::String("foo".to_string())))));
         let data = Rc::new(Variable::Null);
         assert_eq!(Rc::new(Variable::String("foo".to_string())), interpret(data, &ast).unwrap());
@@ -343,7 +343,7 @@ mod tests {
     #[test]
     fn interprets_cond_expr_negative() {
         let ast = Ast::Condition(
-            Box::new(Ast::Literal(Rc::new(Variable::Boolean(false)))),
+            Box::new(Ast::Literal(Rc::new(Variable::Bool(false)))),
             Box::new(Ast::Literal(Rc::new(Variable::String("foo".to_string())))));
         let data = Rc::new(Variable::Null);
         assert_eq!(Rc::new(Variable::Null), interpret(data, &ast).unwrap());
@@ -375,7 +375,7 @@ mod tests {
 
     #[test]
     fn interprets_object_values_to_array_negative() {
-        let ast = Ast::ObjectValues(Box::new(Ast::Literal(Rc::new(Variable::Boolean(false)))));
+        let ast = Ast::ObjectValues(Box::new(Ast::Literal(Rc::new(Variable::Bool(false)))));
         let data = Rc::new(Variable::Null);
         assert_eq!(Rc::new(Variable::Null), interpret(data, &ast).unwrap());
     }
@@ -395,7 +395,7 @@ mod tests {
         let ast = Ast::Projection(
             Box::new(Ast::Identifier("a".to_string())),
             Box::new(Ast::Identifier("b".to_string())));
-        let data = Rc::new(Variable::Boolean(true));
+        let data = Rc::new(Variable::Bool(true));
         assert_eq!(Rc::new(Variable::Null), interpret(data, &ast).unwrap());
     }
 

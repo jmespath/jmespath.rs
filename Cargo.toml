@@ -5,4 +5,5 @@ authors = ["Michael Dowling <mtdowling@gmail.com>"]
 license = "MIT"
 
 [dependencies]
-rustc-serialize = "0.3"
+serde = "*"
+serde_json = "*"
