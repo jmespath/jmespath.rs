@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashMap};
 use std::rc::Rc;
-use std::cmp::{max, min, Ordering};
+use std::cmp::{max, min};
 use std::fmt;
 
 use super::RuntimeError;
@@ -475,73 +475,40 @@ impl JPFunction for Sort {
     }
 }
 
-enum SortByState {
-    Initial,
-    FoundString,
-    FoundNumber,
-    Error(RuntimeError)
-}
-
 struct SortBy;
 
 impl JPFunction for SortBy {
     fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> JPResult {
         validate!(args, ArgumentType::Array, ArgumentType::Expref);
-        let mut state = SortByState::Initial;
-        let mut vals = args[0].as_array().unwrap().clone();
-        let ast = args[1].as_expref().unwrap();
-        vals.sort_by(|ref lhs, ref rhs| {
-            if let SortByState::Error(_) = state {
-                return Ordering::Equal;
-            }
-            let a = match intr.interpret((*lhs).clone(), &ast) {
-                Ok(result) => result,
-                Err(e) => {
-                    state = SortByState::Error(e);
-                    return Ordering::Equal
-                }
-            };
-            let b = match intr.interpret((*rhs).clone(), &ast) {
-                Ok(result) => result,
-                Err(e) => {
-                    state = SortByState::Error(e);
-                    return Ordering::Equal
-                }
-            };
-            let a_type = a.get_type();
-            let b_type = b.get_type();
-            match state {
-                SortByState::Initial if a_type == "string" && b_type == a_type => {
-                    state = SortByState::FoundString;
-                    a.as_string().unwrap().cmp(b.as_string().unwrap())
-                },
-                SortByState::Initial if a_type == "number" && b_type == a_type => {
-                    state = SortByState::FoundNumber;
-                    a.as_f64().unwrap().partial_cmp(&b.as_f64().unwrap()).unwrap()
-                },
-                SortByState::FoundString if a_type == "string" && b_type == "string" =>
-                    a.as_string().unwrap().cmp(b.as_string().unwrap()),
-                SortByState::FoundNumber if a_type == "number" && b_type == "number" =>
-                    a.as_f64().unwrap().partial_cmp(&b.as_f64().unwrap()).unwrap(),
-                _ => {
-                    let expr_string = format!("{}", ArgumentType::ExprefReturns(
-                        vec![ArgumentType::Number, ArgumentType::String]));
-                    state = SortByState::Error(
-                        RuntimeError::InvalidReturnType {
-                            expected: expr_string,
-                            actual: b_type.to_string(),
-                            position: 1
-                        });
-                    Ordering::Equal
-                }
-            }
-        });
-
-        match state {
-            SortByState::Initial => Ok(intr.arena.alloc(vec![])),
-            SortByState::Error(e) => Err(e),
-            _ => Ok(intr.arena.alloc(vals))
+        let vals = args[0].as_array().unwrap().clone();
+        if vals.is_empty() {
+            return Ok(intr.arena.alloc(vals));
         }
+        let ast = args[1].as_expref().unwrap();
+        let mut mapped: Vec<(Rc<Variable>, Rc<Variable>)> = vec![];
+        let first_value = try!(intr.interpret(vals[0].clone(), &ast));
+        let first_type = first_value.get_type();
+        if first_type != "string" && first_type != "number" {
+            return Err(RuntimeError::InvalidReturnType {
+                expected: "expression->string|expression->number".to_string(),
+                actual: first_type.to_string(),
+                position: 1
+            });
+        }
+        mapped.push((vals[0].clone(), first_value.clone()));
+        for v in vals.iter().skip(1) {
+            let mapped_value = try!(intr.interpret((*v).clone(), &ast));
+            if mapped_value.get_type() != first_type {
+                return Err(RuntimeError::InvalidReturnType {
+                    expected: format!("expression->{}", first_type),
+                    actual: mapped_value.get_type().to_string(),
+                    position: 1
+                });
+            }
+            mapped.push((v.clone(), mapped_value));
+        }
+        mapped.sort_by(|a, b| a.1.cmp(&b.1));
+        Ok(intr.arena.alloc(vals))
     }
 }
 
