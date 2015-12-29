@@ -76,7 +76,7 @@ pub enum RuntimeError {
     InvalidType { expected: String, actual: String, position: usize },
     UnknownFunction { function: String },
     InvalidSlice,
-    InvalidReturnType { expected: String, actual: String, position: usize },
+    InvalidReturnType { expected: String, actual: String, position: usize, invocation: usize },
     InvalidKey { actual: String },
 }
 
@@ -97,9 +97,9 @@ impl fmt::Display for RuntimeError {
                 write!(fmt, "argument {} must be a {:?}, {:?} given", position, expected, actual)
             },
             &InvalidSlice => write!(fmt, "Invalid slice"),
-            &InvalidReturnType { ref expected, ref actual, ref position } => {
-                write!(fmt, "argument {} must return {:?} but returned {:?}",
-                       position, expected, actual)
+            &InvalidReturnType { ref expected, ref actual, ref position, ref invocation } => {
+                write!(fmt, "argument {} must return {:?} but returned {:?} on invocation {:?}",
+                       position, expected, actual, invocation)
             },
             &InvalidKey { ref actual } => {
                 write!(fmt, "Invalid key. Expected string, found {:?}", actual)

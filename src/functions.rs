@@ -173,21 +173,23 @@ macro_rules! min_and_max_by {
             let initial = try!($interpreter.interpret(vals[0].clone(), &ast));
             let entered_type = initial.get_type();
             if entered_type != "string" && entered_type != "number" {
-                return Err(RuntimeError::InvalidType {
+                return Err(RuntimeError::InvalidReturnType {
                     expected: "expression->number|expression->string".to_string(),
                     actual: entered_type.to_string(),
-                    position: 1
+                    position: 1,
+                    invocation: 1
                 });
             }
             // Map over each value, finding the best candidate value and fail on error.
             let mut candidate = (vals[0].clone(), initial.clone());
-            for v in vals {
+            for (invocation, v) in vals.iter().enumerate().skip(1) {
                 let mapped = try!($interpreter.interpret(v.clone(), &ast));
                 if mapped.get_type() != entered_type {
-                    return Err(RuntimeError::InvalidType {
+                    return Err(RuntimeError::InvalidReturnType {
                         expected: format!("expression->{}", entered_type),
                         actual: mapped.get_type().to_string(),
-                        position: 1
+                        position: 1,
+                        invocation: invocation
                     });
                 }
                 if mapped.$operator(&candidate.1) {
@@ -492,17 +494,19 @@ impl JPFunction for SortBy {
             return Err(RuntimeError::InvalidReturnType {
                 expected: "expression->string|expression->number".to_string(),
                 actual: first_type.to_string(),
-                position: 1
+                position: 1,
+                invocation: 1
             });
         }
         mapped.push((vals[0].clone(), first_value.clone()));
-        for v in vals.iter().skip(1) {
+        for (invocation, v) in vals.iter().enumerate().skip(1) {
             let mapped_value = try!(intr.interpret((*v).clone(), &ast));
             if mapped_value.get_type() != first_type {
                 return Err(RuntimeError::InvalidReturnType {
                     expected: format!("expression->{}", first_type),
                     actual: mapped_value.get_type().to_string(),
-                    position: 1
+                    position: 1,
+                    invocation: invocation
                 });
             }
             mapped.push((v.clone(), mapped_value));
