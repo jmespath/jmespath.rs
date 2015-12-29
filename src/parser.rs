@@ -142,6 +142,7 @@ impl Parser {
     }
 
     /// Main parse function of the Pratt parser that parses while RBP < LBP
+    #[inline]
     fn expr(&mut self, rbp: usize) -> ParseResult {
         let mut left = self.nud();
         while rbp < self.peek(0).lbp() {
@@ -150,6 +151,7 @@ impl Parser {
         left
     }
 
+    #[inline(never)]
     fn nud(&mut self) -> ParseResult {
         match self.advance() {
             Token::At => Ok(Ast::CurrentNode),
@@ -208,6 +210,7 @@ impl Parser {
         }
     }
 
+    #[inline(never)]
     fn led(&mut self, left: Ast) -> ParseResult {
         match self.advance() {
             Token::Dot => {
