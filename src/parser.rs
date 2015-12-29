@@ -17,50 +17,56 @@ pub fn parse(expr: &str) -> ParseResult {
 /// Encountered when an invalid JMESPath expression is parsed.
 #[derive(Clone, PartialEq, Debug)]
 pub struct ParseError {
+    /// The expression that failed to parse.
+    expression: String,
+    /// The absolute position of the failure.
+    position: usize,
     /// The error message.
-    msg: String,
+    message: String,
     /// The line number of the error.
     line: usize,
     /// The column of the error.
-    col: usize,
+    column: usize,
 }
 
 impl ParseError {
-    fn new(expr: &str, pos: usize, msg: String) -> ParseError {
+    fn new(expr: &str, position: usize, msg: String) -> ParseError {
         // Find each new line and create a formatted error message.
-        let mut line: usize = 0;
-        let mut col: usize = 0;
-        let mut buff = String::new();
+        let mut current_pos: usize = 0;
+        let mut current_line: usize = 0;
+        let mut matched_col: usize = 0;
         for l in expr.lines().collect::<Vec<&str>>() {
-            buff.push_str(l);
-            buff.push('\n');
-            if buff.len() > pos {
-                col = match line {
-                    0 => pos,
-                    _ => buff.len().checked_sub(2 + pos).unwrap_or(0)
+            current_pos += l.len() + 1;
+            if current_pos > position {
+                matched_col = match current_line {
+                    0 => position,
+                    _ => current_pos.checked_sub(2 + position).unwrap_or(0)
                 };
-                ParseError::inject_err_pointer(&mut buff, col);
                 break;
             }
-            line += 1;
+            current_line += 1;
         }
         ParseError {
-            msg: format!("Parse error at line {}, col {}; {}\n{}", line, col, msg, buff),
-            line: line,
-            col: col
+            expression: expr.to_string(),
+            position: position,
+            line: current_line,
+            column: matched_col,
+            message: msg,
         }
-    }
-
-    fn inject_err_pointer(string_buffer: &mut String, col: usize) {
-        let span = (0..col).map(|_| ' ').collect::<String>();
-        string_buffer.push_str(&span);
-        string_buffer.push_str(&"^");
     }
 }
 
 impl fmt::Display for ParseError {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(fmt, "{}", self.msg)
+        let mut buff = self.expression.lines().take(self.line + 1).collect::<String>();
+        buff.push_str(&"\n");
+        buff.push_str(&(0..self.column).map(|_| ' ').collect::<String>());
+        buff.push_str(&"^\n");
+        if self.line > 0 {
+            buff.push_str(&self.expression.lines().skip(self.line).collect::<String>());
+        }
+        write!(fmt, "Parse error at line {}, col {}; {}\n{}",
+                    self.line, self.column, self.message, buff)
     }
 }
 
@@ -93,7 +99,7 @@ impl Parser {
                 // After parsing the expr, we should reach the end of the stream.
                 match self.peek(0) {
                     &Token::Eof => Ok(result),
-                    _ => Err(self.err(None, &"Did not reach token stream EOF"))
+                    t @ _ => Err(self.err(t, &"Did not parse the complete expression", true))
                 }
             })
     }
@@ -118,16 +124,21 @@ impl Parser {
     }
 
     /// Returns a formatted ParseError with the given message.
-    pub fn err(&self, current_token: Option<&Token>, error_msg: &str) -> ParseError {
+    pub fn err(&self, current_token: &Token, error_msg: &str, is_peek: bool) -> ParseError {
+        let mut actual_pos = self.pos;
         let mut buff = error_msg.to_string();
         match current_token {
-            Some(&Token::Error { ref msg, .. }) => {
+            &Token::Error { ref msg, .. } => {
                 buff.push_str(&format!(" -- {}", msg))
             },
-            Some(ref t) => buff.push_str(&format!(" -- found {:?}", t)),
-            _ => ()
+            t @ _ => buff.push_str(&format!(" -- found {:?}", t))
         }
-        ParseError::new(&self.expr, self.pos, buff)
+        if is_peek {
+            if let Some(&(p, _)) = self.token_queue.get(0) {
+                actual_pos = p;
+            }
+        }
+        ParseError::new(&self.expr, actual_pos, buff)
     }
 
     /// Main parse function of the Pratt parser that parses while RBP < LBP
@@ -146,8 +157,8 @@ impl Parser {
             Token::QuotedIdentifier(value) => {
                 match self.peek(0) {
                     &Token::Lparen => {
-                        Err(self.err(Some(&Token::Lparen),
-                                     &"Quoted strings can't be a function name"))
+                        Err(self.err(
+                            &Token::Lparen, &"Quoted strings can't be a function name", true))
                     },
                     _ => Ok(Ast::Identifier(value))
                 }
@@ -175,7 +186,7 @@ impl Parser {
                         Token::Rbrace => break,
                         // Skip commas as they are used to delineate kvps
                         Token::Comma => continue,
-                        ref t @ _ => return Err(self.err(Some(t), "Expected '}' or ','"))
+                        ref t @ _ => return Err(self.err(t, "Expected '}' or ','", false))
                     }
                 }
                 Ok(Ast::MultiHash(pairs))
@@ -190,10 +201,10 @@ impl Parser {
                 let result = try!(self.expr(0));
                 match self.advance() {
                     Token::Rparen => Ok(result),
-                    ref t @ _ => Err(self.err(Some(t), "Expected ')' to close '('"))
+                    ref t @ _ => Err(self.err(t, "Expected ')' to close '('", false))
                 }
             },
-            ref tok @ _ => Err(self.err(Some(tok), &"Unexpected nud token"))
+            ref t @ _ => Err(self.err(t, &"Unexpected nud token", false))
         }
     }
 
@@ -213,7 +224,7 @@ impl Parser {
                 match match self.peek(0) {
                     &Token::Number(_) | &Token::Colon => true,
                     &Token::Star => false,
-                    t @ _ => return Err(self.err(Some(t), "Expected number, ':', or '*'"))
+                    t @ _ => return Err(self.err(t, "Expected number, ':', or '*'", true))
                 } {
                     true => {
                         Ok(Ast::Subexpr(Box::new(left),
@@ -253,7 +264,7 @@ impl Parser {
             Token::Gte => self.parse_comparator(Comparator::Gte, left),
             Token::Lt => self.parse_comparator(Comparator::Lt, left),
             Token::Lte => self.parse_comparator(Comparator::Lte, left),
-            ref t @ _ => Err(self.err(Some(t), "Unexpected led token")),
+            ref t @ _ => Err(self.err(t, "Unexpected led token", false)),
         }
     }
 
@@ -267,10 +278,10 @@ impl Parser {
                         value: try!(self.expr(0))
                     })
                 } else {
-                    Err(self.err(Some(self.peek(0)), &"Expected ':' to follow key"))
+                    Err(self.err(self.peek(0), &"Expected ':' to follow key", true))
                 }
             },
-            ref t @ _ => Err(self.err(Some(t), &"Expected Identifier to start key value pair"))
+            ref t @ _ => Err(self.err(t, &"Expected Identifier to start key value pair", false))
         }
     }
 
@@ -281,13 +292,14 @@ impl Parser {
         // Parse the LHS of the condition node.
         let condition_lhs = try!(self.expr(0));
         // Eat the closing bracket.
-        if self.advance() != Token::Rbracket {
-            Err(self.err(None, &"Expected ']'"))
-        } else {
-            let condition_rhs = Box::new(try!(self.projection_rhs(Token::Filter.lbp())));
-            Ok(Ast::Projection(
-                Box::new(lhs),
-                Box::new(Ast::Condition(Box::new(condition_lhs), condition_rhs))))
+        match self.advance() {
+            Token::Rbracket => {
+                let condition_rhs = Box::new(try!(self.projection_rhs(Token::Filter.lbp())));
+                Ok(Ast::Projection(
+                    Box::new(lhs),
+                    Box::new(Ast::Condition(Box::new(condition_lhs), condition_rhs))))
+            },
+            ref t @ _ => Err(self.err(t, &"Expected ']'", false))
         }
     }
 
@@ -308,7 +320,9 @@ impl Parser {
             &Token::Lbracket => true,
             &Token::Identifier(_) | &Token::QuotedIdentifier(_) | &Token::Star | &Token::Lbrace
                 | &Token::Ampersand | &Token::Filter => false,
-            _ => return Err(self.err(None, &"Expected identifier, '*', '{', '[', '&', or '[?'"))
+            t @ _ => {
+                return Err(self.err(t, &"Expected identifier, '*', '{', '[', '&', or '[?'", true))
+            }
         } {
             true => {
                 self.advance();
@@ -324,8 +338,8 @@ impl Parser {
         match match self.peek(0) {
             &Token::Dot => true,
             &Token::Lbracket | &Token::Filter => false,
-            p @ _ if p.lbp() < 10 => return Ok(Ast::CurrentNode),
-            _ => return Err(self.err(None, &"Expected '.', '[', or '[?'"))
+            ref t @ _ if t.lbp() < 10 => return Ok(Ast::CurrentNode),
+            ref t @ _ => return Err(self.err(t, &"Expected '.', '[', or '[?'", true))
         } {
             true => {
                 self.advance();
@@ -342,7 +356,7 @@ impl Parser {
                 let rhs = try!(self.projection_rhs(Token::Star.lbp()));
                 Ok(Ast::Projection(Box::new(lhs), Box::new(rhs)))
             },
-            ref t @ _ => Err(self.err(Some(t), &"Expected ']' for wildcard index"))
+            ref t @ _ => Err(self.err(t, &"Expected ']' for wildcard index", false))
         }
     }
 
@@ -364,21 +378,21 @@ impl Parser {
                     parts[pos] = Some(value);
                     match self.peek(0) {
                         &Token::Colon | &Token::Rbracket => (),
-                        t @ _ => return Err(self.err(Some(t), "Expected ':', or ']'"))
+                        t @ _ => return Err(self.err(t, "Expected ':', or ']'", true))
                     };
                 },
                 Token::Rbracket => break,
                 Token::Colon if pos >= 2 => {
-                    return Err(self.err(None, "Too many colons in slice expr"));
+                    return Err(self.err(&Token::Colon, "Too many colons in slice expr", false));
                 },
                 Token::Colon => {
                     pos += 1;
                     match self.peek(0) {
                         &Token::Number(_) | &Token::Colon | &Token::Rbracket => continue,
-                        _ => return Err(self.err(None, "Expected number, ':', or ']'"))
+                        ref t @ _ => return Err(self.err(t, "Expected number, ':', or ']'", true))
                     };
                 },
-                ref t @ _ => return Err(self.err(Some(t), "Expected number, ':', or ']'")),
+                ref t @ _ => return Err(self.err(t, "Expected number, ':', or ']'", false)),
             }
         }
 
@@ -413,7 +427,7 @@ impl Parser {
             if self.peek(0) == &Token::Comma {
                 self.advance();
                 if self.peek(0) == &closing {
-                    return Err(self.err(Some(self.peek(0)), "token cannot be directly after ','"));
+                    return Err(self.err(self.peek(0), "invalid token after ','", true));
                 }
             }
         }
