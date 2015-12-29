@@ -38,7 +38,7 @@ impl TreeInterpreter {
             &Ast::Subexpr(ref lhs, ref rhs) =>
                 self.interpret(try!(self.interpret(data, lhs)), rhs),
             &Ast::Identifier(ref f) => Ok(data.get_value(f).unwrap_or(self.arena.alloc_null())),
-            &Ast::CurrentNode => Ok(data.clone()),
+            &Ast::Identity => Ok(data.clone()),
             &Ast::Literal(ref json) => Ok(json.clone()),
             &Ast::Index(ref i) => {
                 match if *i >= 0 {
@@ -260,7 +260,7 @@ mod tests {
 
     #[test]
     fn interprets_current_node() {
-        let ast = Ast::CurrentNode;
+        let ast = Ast::Identity;
         let data = Rc::new(Variable::Bool(true));
         assert_eq!(Rc::new(Variable::Bool(true)), interpret(data, &ast).unwrap());
     }
@@ -469,7 +469,7 @@ mod tests {
     #[test]
     fn calls_functions() {
         let data = Rc::new(Variable::from_str("[1, 2, 3]").unwrap());
-        let ast = Ast::Function("length".to_string(), vec![Ast::CurrentNode]);
+        let ast = Ast::Function("length".to_string(), vec![Ast::Identity]);
         assert_eq!(Rc::new(Variable::U64(3)), interpret(data, &ast).unwrap());
     }
 

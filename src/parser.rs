@@ -154,7 +154,7 @@ impl Parser {
     #[inline(never)]
     fn nud(&mut self) -> ParseResult {
         match self.advance() {
-            Token::At => Ok(Ast::CurrentNode),
+            Token::At => Ok(Ast::Identity),
             Token::Identifier(value) => Ok(Ast::Identifier(value)),
             Token::QuotedIdentifier(value) => {
                 match self.peek(0) {
@@ -165,19 +165,19 @@ impl Parser {
                     _ => Ok(Ast::Identifier(value))
                 }
             },
-            Token::Star => self.parse_wildcard_values(Ast::CurrentNode),
+            Token::Star => self.parse_wildcard_values(Ast::Identity),
             Token::Literal(value) => Ok(Ast::Literal(value)),
             Token::Lbracket => {
                 match self.peek(0) {
                     &Token::Number(_) | &Token::Colon => self.parse_index(),
                     &Token::Star if self.peek(1) == &Token::Rbracket => {
                         self.advance();
-                        self.parse_wildcard_index(Ast::CurrentNode)
+                        self.parse_wildcard_index(Ast::Identity)
                     },
                     _ => self.parse_multi_list()
                 }
             },
-            Token::Flatten => self.parse_flatten(Ast::CurrentNode),
+            Token::Flatten => self.parse_flatten(Ast::Identity),
             Token::Lbrace => {
                 let mut pairs = vec![];
                 loop {
@@ -198,7 +198,7 @@ impl Parser {
                 Ok(Ast::Expref(Box::new(rhs)))
             },
             Token::Not => Ok(Ast::Not(Box::new(try!(self.expr(Token::Not.lbp()))))),
-            Token::Filter => self.parse_filter(Ast::CurrentNode),
+            Token::Filter => self.parse_filter(Ast::Identity),
             Token::Lparen => {
                 let result = try!(self.expr(0));
                 match self.advance() {
@@ -341,7 +341,7 @@ impl Parser {
         match match self.peek(0) {
             &Token::Dot => true,
             &Token::Lbracket | &Token::Filter => false,
-            ref t @ _ if t.lbp() < 10 => return Ok(Ast::CurrentNode),
+            ref t @ _ if t.lbp() < 10 => return Ok(Ast::Identity),
             ref t @ _ => return Err(self.err(t, &"Expected '.', '[', or '[?'", true))
         } {
             true => {

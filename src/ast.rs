@@ -8,7 +8,7 @@ use super::variable::Variable;
 pub enum Ast {
     Comparison(Comparator, Box<Ast>, Box<Ast>),
     Condition(Box<Ast>, Box<Ast>),
-    CurrentNode,
+    Identity,
     Expref(Box<Ast>),
     Flatten(Box<Ast>),
     Function(String, Vec<Ast>),
