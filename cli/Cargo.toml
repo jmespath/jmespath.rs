@@ -1,0 +1,14 @@
+[package]
+name = "jmespath-cli"
+version = "0.0.1"
+authors = ["Michael Dowling <mtdowling@gmail.com>"]
+license = "MIT"
+
+[dependencies]
+serde = "*"
+serde_json = "*"
+clap = "1"
+
+[dependencies.jmespath]
+path = ".."
+version = "0.0.1"
