@@ -5,6 +5,7 @@ use std::io::prelude::*;
 use std::io;
 use std::fs::File;
 use std::process::exit;
+use std::rc::Rc;
 
 use clap::{Arg, App};
 use jmespath::{Variable, Expression};
@@ -69,11 +70,17 @@ fn main() {
 
     match expr.search(json) {
         Err(e) => err_quit!(format!("{}", e), 4),
-        Ok(result) => {
-            match result.to_string() {
-                Some(s) => println!("{}", s),
-                None => err_quit!(format!("Error converting result to string: {:?}", result), 3),
-            }
+        Ok(result) => show_result(result, matches.is_present("unquoted"))
+    }
+}
+
+fn show_result(result: Rc<Variable>, unquoted: bool) {
+    if unquoted && result.is_string() {
+        println!("{}", result.as_string().unwrap());
+    } else {
+        match result.to_string() {
+            Some(s) => println!("{}", s),
+            None => err_quit!(format!("Error converting result to string: {:?}", result), 3),
         }
     }
 }
