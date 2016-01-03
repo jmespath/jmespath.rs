@@ -86,15 +86,14 @@ fn show_result(result: Rc<Variable>, unquoted: bool) {
 }
 
 fn read_file(label: &str, filename: &str) -> Result<String, String> {
-    let mut buffer = String::new();
-    let mut f = match File::open(filename) {
-        Ok(result) => result,
-        Err(e) => return Err(format!("Error opening {} file at {}: {}", label, filename, e))
-    };
-    if let Err(e) = f.read_to_string(&mut buffer) {
-        Err(format!("Error reading {} from {}: {}", label, filename, e))
-    } else {
-        Ok(buffer)
+    match File::open(filename) {
+        Err(e) => Err(format!("Error opening {} file at {}: {}", label, filename, e)),
+        Ok(mut file) => {
+            let mut buffer = String::new();
+            file.read_to_string(&mut buffer)
+                .map(|_| buffer)
+                .map_err(|e| format!("Error reading {} from {}: {}", label, filename, e))
+        }
     }
 }
 
