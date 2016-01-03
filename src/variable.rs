@@ -351,9 +351,8 @@ impl VariableArena {
 #[cfg(test)]
 mod tests {
     use std::rc::Rc;
-    use super::serde_json::Value;
-
-    use super::*;
+    use super::serde_json::{self, Value};
+    use super::Variable;
     use ast::{Ast, Comparator};
 
     #[test]
