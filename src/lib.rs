@@ -71,13 +71,34 @@ impl fmt::Display for Error {
 /// Runtime JMESPath error
 #[derive(Clone,Debug,PartialEq)]
 pub enum RuntimeError {
-    TooManyArguments { expected: usize, actual: usize },
-    NotEnoughArguments { expected: usize, actual: usize },
-    InvalidType { expected: String, actual: String, position: usize },
-    UnknownFunction { function: String },
     InvalidSlice,
-    InvalidReturnType { expected: String, actual: String, position: usize, invocation: usize },
-    InvalidKey { actual: String },
+    InvalidKey {
+        actual: String,
+    },
+    TooManyArguments {
+        expected: usize,
+        actual: usize,
+    },
+    NotEnoughArguments {
+        expected: usize,
+        actual: usize,
+    },
+    UnknownFunction {
+        function: String,
+    },
+    InvalidType {
+        expected: String,
+        actual: String,
+        actual_value: Rc<Variable>,
+        position: usize,
+    },
+    InvalidReturnType {
+        expected: String,
+        actual: String,
+        actual_value: Rc<Variable>,
+        position: usize,
+        invocation: usize,
+    },
 }
 
 impl fmt::Display for RuntimeError {
@@ -85,21 +106,25 @@ impl fmt::Display for RuntimeError {
         use self::RuntimeError::*;
         match self {
             &UnknownFunction { ref function } => {
-                write!(fmt, "call to undefined function {}", function)
+                write!(fmt, "Call to undefined function {}", function)
             },
             &TooManyArguments { ref expected, ref actual } => {
-                write!(fmt, "too many arguments, expected {}, found {}", expected, actual)
+                write!(fmt, "Too many arguments, expected {}, found {}", expected, actual)
             },
             &NotEnoughArguments { ref expected, ref actual } => {
-                write!(fmt, "not enough arguments, expected {}, found {}", expected, actual)
+                write!(fmt, "Not enough arguments, expected {}, found {}", expected, actual)
             },
-            &InvalidType { ref expected, ref actual, ref position } => {
-                write!(fmt, "argument {} must be a {:?}, {:?} given", position, expected, actual)
+            &InvalidType { ref expected, ref actual, ref position, ref actual_value } => {
+                write!(fmt, "Argument {} expects type {}, given {} {}",
+                            position, expected, actual,
+                            actual_value.to_string().unwrap_or(format!("{:?}", actual_value)))
             },
             &InvalidSlice => write!(fmt, "Invalid slice"),
-            &InvalidReturnType { ref expected, ref actual, ref position, ref invocation } => {
-                write!(fmt, "argument {} must return {:?} but returned {:?} on invocation {:?}",
-                       position, expected, actual, invocation)
+            &InvalidReturnType { ref expected, ref actual, ref position, ref invocation,
+                ref actual_value } => {
+                write!(fmt, "Argument {} must return {} but invocation {} returned {} {}",
+                       position, expected, invocation, actual,
+                       actual_value.to_string().unwrap_or(format!("{:?}", actual_value)))
             },
             &InvalidKey { ref actual } => {
                 write!(fmt, "Invalid key. Expected string, found {:?}", actual)

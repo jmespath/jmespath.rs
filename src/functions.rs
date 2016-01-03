@@ -132,6 +132,7 @@ macro_rules! validate {
                     return Err(RuntimeError::InvalidType {
                         expected: arg_types[k].to_string(),
                         actual: v.get_type().to_string(),
+                        actual_value: v.clone(),
                         position: k
                     });
                 }
@@ -150,6 +151,7 @@ macro_rules! validate {
                     return Err(RuntimeError::InvalidType {
                         expected: validator.to_string(),
                         actual: v.get_type().to_string(),
+                        actual_value: v.clone(),
                         position: k
                     });
                 }
@@ -176,6 +178,7 @@ macro_rules! min_and_max_by {
                 return Err(RuntimeError::InvalidReturnType {
                     expected: "expression->number|expression->string".to_string(),
                     actual: entered_type.to_string(),
+                    actual_value: initial.clone(),
                     position: 1,
                     invocation: 1
                 });
@@ -188,6 +191,7 @@ macro_rules! min_and_max_by {
                     return Err(RuntimeError::InvalidReturnType {
                         expected: format!("expression->{}", entered_type),
                         actual: mapped.get_type().to_string(),
+                        actual_value: mapped.clone(),
                         position: 1,
                         invocation: invocation
                     });
@@ -494,6 +498,7 @@ impl JPFunction for SortBy {
             return Err(RuntimeError::InvalidReturnType {
                 expected: "expression->string|expression->number".to_string(),
                 actual: first_type.to_string(),
+                actual_value: first_value.clone(),
                 position: 1,
                 invocation: 1
             });
@@ -505,6 +510,7 @@ impl JPFunction for SortBy {
                 return Err(RuntimeError::InvalidReturnType {
                     expected: format!("expression->{}", first_type),
                     actual: mapped_value.get_type().to_string(),
+                    actual_value: mapped_value.clone(),
                     position: 1,
                     invocation: invocation
                 });
