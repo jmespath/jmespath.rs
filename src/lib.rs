@@ -310,4 +310,9 @@ mod test {
         let var = Variable::from_str("{\"foo\":{\"bar\":true}}").unwrap();
         assert_eq!(Rc::new(Variable::Bool(true)), expr.search(var).unwrap());
     }
+
+    #[test]
+    fn can_search() {
+        assert_eq!(Rc::new(Variable::Bool(true)), search("`true`", ()).unwrap());
+    }
 }
