@@ -59,7 +59,7 @@ fn main() {
     };
 
     if matches.is_present("ast") {
-        println!("{:?}", expr.ast);
+        println!("{}", expr.ast);
         exit(0);
     }
 
@@ -78,7 +78,7 @@ fn show_result(result: Rc<Variable>, unquoted: bool) {
     if unquoted && result.is_string() {
         println!("{}", result.as_string().unwrap());
     } else {
-        match result.to_string() {
+        match result.to_pretty_string() {
             Some(s) => println!("{}", s),
             None => err_quit!(format!("Error converting result to string: {:?}", result), 3),
         }

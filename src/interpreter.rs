@@ -37,7 +37,7 @@ impl TreeInterpreter {
         match node {
             &Ast::Subexpr(ref lhs, ref rhs) =>
                 self.interpret(try!(self.interpret(data, lhs)), rhs),
-            &Ast::Identifier(ref f) => Ok(data.get_value(f).unwrap_or(self.arena.alloc_null())),
+            &Ast::Field(ref f) => Ok(data.get_value(f).unwrap_or(self.arena.alloc_null())),
             &Ast::Identity => Ok(data.clone()),
             &Ast::Literal(ref json) => Ok(json.clone()),
             &Ast::Index(ref i) => {
@@ -253,7 +253,7 @@ mod tests {
 
     #[test]
     fn interprets_identifier() {
-        let ast = Ast::Identifier("foo".to_string());
+        let ast = Ast::Field("foo".to_string());
         let data = Rc::new(Variable::from_str("{\"foo\":\"baz\"}").unwrap());
         assert_eq!(Rc::new(Variable::String("baz".to_string())), interpret(data, &ast).unwrap());
     }
@@ -274,8 +274,8 @@ mod tests {
 
     #[test]
     fn interprets_subexpr() {
-        let ast = Ast::Subexpr(Box::new(Ast::Identifier("foo".to_string())),
-                               Box::new(Ast::Identifier("bar".to_string())));
+        let ast = Ast::Subexpr(Box::new(Ast::Field("foo".to_string())),
+                               Box::new(Ast::Field("bar".to_string())));
         let data = Rc::new(Variable::from_str("{\"foo\":{\"bar\":\"baz\"}}").unwrap());
         assert_eq!(Rc::new(Variable::String("baz".to_string())), interpret(data, &ast).unwrap());
     }
@@ -304,16 +304,16 @@ mod tests {
 
     #[test]
     fn interprets_or_expr() {
-        let ast = Ast::Or(Box::new(Ast::Identifier("bar".to_string())),
-                          Box::new(Ast::Identifier("foo".to_string())));
+        let ast = Ast::Or(Box::new(Ast::Field("bar".to_string())),
+                          Box::new(Ast::Field("foo".to_string())));
         let data = Rc::new(Variable::from_str("{\"foo\":true}").unwrap());
         assert_eq!(Rc::new(Variable::Bool(true)), interpret(data, &ast).unwrap());
     }
 
     #[test]
     fn interprets_and_expr() {
-        let ast = Ast::And(Box::new(Ast::Identifier("bar".to_string())),
-                           Box::new(Ast::Identifier("foo".to_string())));
+        let ast = Ast::And(Box::new(Ast::Field("bar".to_string())),
+                           Box::new(Ast::Field("foo".to_string())));
         let data = Rc::new(Variable::from_str("{\"foo\":true, \"bar\":true}").unwrap());
         assert_eq!(Rc::new(Variable::Bool(true)), interpret(data, &ast).unwrap());
         let data = Rc::new(Variable::from_str("{\"foo\":true}").unwrap());
@@ -323,11 +323,11 @@ mod tests {
     #[test]
     fn interprets_not_expr() {
         let data = Rc::new(Variable::from_str("{\"a\":true,\"b\":0,\"c\":false}").unwrap());
-        let ast = Ast::Not(Box::new(Ast::Identifier("a".to_string())));
+        let ast = Ast::Not(Box::new(Ast::Field("a".to_string())));
         assert_eq!(Rc::new(Variable::Bool(false)), interpret(data.clone(), &ast).unwrap());
-        let ast = Ast::Not(Box::new(Ast::Identifier("b".to_string())));
+        let ast = Ast::Not(Box::new(Ast::Field("b".to_string())));
         assert_eq!(Rc::new(Variable::Bool(false)), interpret(data.clone(), &ast).unwrap());
-        let ast = Ast::Not(Box::new(Ast::Identifier("c".to_string())));
+        let ast = Ast::Not(Box::new(Ast::Field("c".to_string())));
         assert_eq!(Rc::new(Variable::Bool(true)), interpret(data.clone(), &ast).unwrap());
     }
 
@@ -393,8 +393,8 @@ mod tests {
     #[test]
     fn projection_on_non_array_returns_null() {
         let ast = Ast::Projection(
-            Box::new(Ast::Identifier("a".to_string())),
-            Box::new(Ast::Identifier("b".to_string())));
+            Box::new(Ast::Field("a".to_string())),
+            Box::new(Ast::Field("b".to_string())));
         let data = Rc::new(Variable::Bool(true));
         assert_eq!(Rc::new(Variable::Null), interpret(data, &ast).unwrap());
     }
@@ -403,8 +403,8 @@ mod tests {
     fn projection_applies_to_array() {
         let data = Rc::new(Variable::from_str("{\"a\": [{\"b\":1},{\"b\":2}]}").unwrap());
         let ast = Ast::Projection(
-            Box::new(Ast::Identifier("a".to_string())),
-            Box::new(Ast::Identifier("b".to_string())));
+            Box::new(Ast::Field("a".to_string())),
+            Box::new(Ast::Field("b".to_string())));
         assert_eq!(
             Rc::new(Variable::from_str("[1, 2]").unwrap()),
             interpret(data, &ast).unwrap());
@@ -413,14 +413,14 @@ mod tests {
     #[test]
     fn flatten_of_non_array_is_null() {
         let data = Rc::new(Variable::from_str("{\"a\": true}").unwrap());
-        let ast = Ast::Flatten(Box::new(Ast::Identifier("a".to_string())));
+        let ast = Ast::Flatten(Box::new(Ast::Field("a".to_string())));
         assert_eq!(Rc::new(Variable::Null), interpret(data, &ast).unwrap());
     }
 
     #[test]
     fn flattens_arrays() {
         let data = Rc::new(Variable::from_str("{\"a\": [1, [2, 3], 4, [[5]]]}").unwrap());
-        let ast = Ast::Flatten(Box::new(Ast::Identifier("a".to_string())));
+        let ast = Ast::Flatten(Box::new(Ast::Field("a".to_string())));
         assert_eq!(
             Rc::new(Variable::from_str("[1, 2, 3, 4, [5]]").unwrap()),
             interpret(data, &ast).unwrap());
@@ -435,8 +435,8 @@ mod tests {
     #[test]
     fn multi_list_creates_array() {
         let data = Rc::new(Variable::from_str("{\"a\": 1, \"b\": 2}").unwrap());
-        let ast = Ast::MultiList(vec![Ast::Identifier("a".to_string()),
-                                      Ast::Identifier("b".to_string())]);
+        let ast = Ast::MultiList(vec![Ast::Field("a".to_string()),
+                                      Ast::Field("b".to_string())]);
         assert_eq!(
             Rc::new(Variable::from_str("[1, 2]").unwrap()),
             interpret(data, &ast).unwrap());
@@ -454,11 +454,11 @@ mod tests {
         let ast = Ast::MultiHash(vec![
             KeyValuePair {
                 key: Ast::Literal(Rc::new(Variable::String("a".to_string()))),
-                value: Ast::Identifier("aye".to_string())
+                value: Ast::Field("aye".to_string())
             },
             KeyValuePair {
                 key: Ast::Literal(Rc::new(Variable::String("b".to_string()))),
-                value: Ast::Identifier("bee".to_string())
+                value: Ast::Field("bee".to_string())
             }
         ]);
         assert_eq!(

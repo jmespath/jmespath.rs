@@ -155,14 +155,14 @@ impl Parser {
     fn nud(&mut self) -> ParseResult {
         match self.advance() {
             Token::At => Ok(Ast::Identity),
-            Token::Identifier(value) => Ok(Ast::Identifier(value)),
+            Token::Identifier(value) => Ok(Ast::Field(value)),
             Token::QuotedIdentifier(value) => {
                 match self.peek(0) {
                     &Token::Lparen => {
                         Err(self.err(
                             &Token::Lparen, &"Quoted strings can't be a function name", true))
                     },
-                    _ => Ok(Ast::Identifier(value))
+                    _ => Ok(Ast::Field(value))
                 }
             },
             Token::Star => self.parse_wildcard_values(Ast::Identity),
@@ -253,7 +253,7 @@ impl Parser {
             },
             Token::Lparen => {
                 match left {
-                    Ast::Identifier(v) => {
+                    Ast::Field(v) => {
                         Ok(Ast::Function(v, try!(self.parse_list(Token::Rparen))))
                     },
                     _ => panic!("Implement parens")
@@ -284,7 +284,7 @@ impl Parser {
                     Err(self.err(self.peek(0), &"Expected ':' to follow key", true))
                 }
             },
-            ref t @ _ => Err(self.err(t, &"Expected Identifier to start key value pair", false))
+            ref t @ _ => Err(self.err(t, &"Expected Field to start key value pair", false))
         }
     }
 
@@ -322,7 +322,7 @@ impl Parser {
         match match self.peek(0) {
             &Token::Lbracket => true,
             &Token::Identifier(_) | &Token::QuotedIdentifier(_) | &Token::Star | &Token::Lbrace
-                | &Token::Ampersand | &Token::Filter => false,
+                | &Token::Ampersand => false,
             t @ _ => {
                 return Err(self.err(t, &"Expected identifier, '*', '{', '[', '&', or '[?'", true))
             }

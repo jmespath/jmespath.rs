@@ -117,7 +117,14 @@ impl Variable {
     /// Converts the Variable value to a JSON encoded string value.
     /// If any value in the Variable is an Expref, None is returned.
     pub fn to_string(&self) -> Option<String> {
-        self.to_json().map(|v| serde_json::to_string(&v).unwrap())
+        self.to_json().map(|v| serde_json::to_string(&v).unwrap_or("".to_string()))
+    }
+
+    /// Converts the Variable value to a pretty-printed JSON encoded
+    /// string value. If any value in the Variable is an Expref, None
+    /// is returned.
+    pub fn to_pretty_string(&self) -> Option<String> {
+        self.to_json().map(|v| serde_json::to_string_pretty(&v).unwrap_or("".to_string()))
     }
 
     /// Returns true if the Variable is an Array. Returns false otherwise.
@@ -557,6 +564,12 @@ mod tests {
     #[test]
     fn test_converts_to_string() {
         assert_eq!("true", Variable::Bool(true).to_string().unwrap());
+    }
+
+    #[test]
+    fn test_converts_to_pretty_string() {
+        assert_eq!("[\n  true\n]",
+                   Variable::from_str("[true]").unwrap().to_pretty_string().unwrap());
     }
 
     #[test]
