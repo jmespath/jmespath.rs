@@ -10,10 +10,10 @@ use std::rc::Rc;
 use clap::{Arg, App};
 use jmespath::{Variable, Expression};
 
-macro_rules! err_quit(
-    ($msg:expr, $code:expr) => (
+macro_rules! die(
+    ($msg:expr) => (
         match writeln!(&mut ::std::io::stderr(), "{}", $msg) {
-            Ok(_) => exit($code),
+            Ok(_) => exit(1),
             Err(x) => panic!("Unable to write to stderr: {}", x),
         }
     )
@@ -55,7 +55,7 @@ fn main() {
 
     let expr = match get_expr(matches.value_of("expr-file"), matches.value_of("expression")) {
         Ok(e) => e,
-        Err(e) => err_quit!(format!("{}", e), 2)
+        Err(e) => die!(e.to_string())
     };
 
     if matches.is_present("ast") {
@@ -65,11 +65,11 @@ fn main() {
 
     let json = match get_json(matches.value_of("filename")) {
         Ok(json) => json,
-        Err(e) => err_quit!(format!("{}", e), 1)
+        Err(e) => die!(e.to_string())
     };
 
     match expr.search(json) {
-        Err(e) => err_quit!(format!("{}", e), 4),
+        Err(e) => die!(e.to_string()),
         Ok(result) => show_result(result, matches.is_present("unquoted"))
     }
 }
@@ -80,7 +80,7 @@ fn show_result(result: Rc<Variable>, unquoted: bool) {
     } else {
         match result.to_pretty_string() {
             Some(s) => println!("{}", s),
-            None => err_quit!(format!("Error converting result to string: {:?}", result), 3),
+            None => die!(format!("Error converting result to string: {:?}", result)),
         }
     }
 }
@@ -89,10 +89,10 @@ fn read_file(label: &str, filename: &str) -> Result<String, String> {
     let mut buffer = String::new();
     let mut f = match File::open(filename) {
         Ok(result) => result,
-        Err(e) => return Err(format!("Error opening {} file at {:?}: {}", label, filename, e))
+        Err(e) => return Err(format!("Error opening {} file at {}: {}", label, filename, e))
     };
     if let Err(e) = f.read_to_string(&mut buffer) {
-        Err(format!("Error reading {} from {:?}: {}", label, filename, e))
+        Err(format!("Error reading {} from {}: {}", label, filename, e))
     } else {
         Ok(buffer)
     }
@@ -109,7 +109,7 @@ fn get_json(filename: Option<&str>) -> Result<Variable, String> {
             }
         }
     };
-    Variable::from_str(&buffer).map_err(|e| format!("Error parsing JSON: {:?}", e))
+    Variable::from_str(&buffer).map_err(|e| format!("Error parsing JSON: {}", e))
 }
 
 fn get_expr(expr_file: Option<&str>, expr_string: Option<&str>) -> Result<Expression, String> {
@@ -119,5 +119,5 @@ fn get_expr(expr_file: Option<&str>, expr_string: Option<&str>) -> Result<Expres
             let buffer = try!(read_file("expression", expr_file.unwrap()));
             Expression::new(&buffer)
         }
-    }.map_err(|e| format!("{}", e))
+    }.map_err(|e| e.to_string())
 }

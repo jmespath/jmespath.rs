@@ -79,7 +79,7 @@ impl Variable {
     pub fn from_str(s: &str) -> Result<Self, String> {
         serde_json::from_str(s)
             .map(|value| Self::from_json(&value))
-            .or_else(|err| Err(format!("{:?}", err).to_string()))
+            .map_err(|e| e.to_string())
     }
 
     /// Converts the Variable value to a JSON value.
@@ -374,7 +374,7 @@ mod tests {
     #[test]
     fn creates_variable_from_str() {
         assert_eq!(Ok(Variable::Bool(true)), Variable::from_str("true"));
-        assert_eq!(Err("SyntaxError(\"expected value\", 1, 1)".to_string()),
+        assert_eq!(Err("\"expected value\" at line 1 column 1".to_string()),
                    Variable::from_str("abc"));
     }
 

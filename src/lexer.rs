@@ -432,7 +432,7 @@ mod tests {
         assert_eq!(tokenize_queue("`a`"), vec![
             (0, Error {
                 value: "`a`".to_string(),
-                msg: "Unable to parse literal JSON: SyntaxError(\"expected value\", 1, 1)"
+                msg: "Unable to parse literal JSON: \"expected value\" at line 1 column 1"
                 .to_string()
             }),
             (3, Eof)
