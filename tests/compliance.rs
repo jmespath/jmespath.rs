@@ -16,7 +16,10 @@ trait TestAssertion {
     fn assert(&self, suite: &TestSuite, case: &TestCase) -> Result<(), String>;
 
     /// Attempts to parse an expression for a case, returning the expression or an error string.
-    fn try_parse(&self, suite: &TestSuite, case: &TestCase) -> Result<Expression, String> {
+    fn try_parse<'a>(&self,
+                     suite: &TestSuite,
+                     case: &'a TestCase)
+                     -> Result<Expression<'a>, String> {
         match Expression::new(&case.expression) {
             Err(e) => Err(self.err_message(suite, case, format!("{}", e))),
             Ok(expr) => Ok(expr)

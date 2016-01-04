@@ -4,7 +4,7 @@ use std::cmp::{max, min};
 use std::fmt;
 
 use super::RuntimeError;
-use super::interpreter::{TreeInterpreter, JPResult};
+use super::interpreter::{TreeInterpreter, SearchResult};
 use super::variable::Variable;
 
 /// Represents an argument type
@@ -88,7 +88,7 @@ impl fmt::Display for ArgumentType {
 /// JMESPath function
 pub trait JPFunction {
     /// Evaluates a function with the given arguments
-    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> JPResult;
+    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> SearchResult;
 }
 
 /// Boxed JPFunction
@@ -258,7 +258,7 @@ pub fn register_core_functions(functions: &mut Functions) {
 struct Abs;
 
 impl JPFunction for Abs {
-    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> JPResult {
+    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> SearchResult {
         validate![args, ArgumentType::Number];
         match *args[0] {
             Variable::I64(n) => Ok(intr.arena.alloc(n.abs())),
@@ -271,7 +271,7 @@ impl JPFunction for Abs {
 struct Avg;
 
 impl JPFunction for Avg {
-    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> JPResult {
+    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> SearchResult {
         validate!(args, ArgumentType::HomogeneousArray(vec![ArgumentType::Number]));
         let values = args[0].as_array().unwrap();
         let sum = values.iter()
@@ -284,7 +284,7 @@ impl JPFunction for Avg {
 struct Ceil;
 
 impl JPFunction for Ceil {
-    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> JPResult {
+    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> SearchResult {
         validate!(args, ArgumentType::Number);
         let n = args[0].as_f64().unwrap();
         Ok(intr.arena.alloc(n.ceil()))
@@ -294,7 +294,7 @@ impl JPFunction for Ceil {
 struct Contains;
 
 impl JPFunction for Contains {
-    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> JPResult {
+    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> SearchResult {
         validate!(args, ArgumentType::OneOf(vec![ArgumentType::String, ArgumentType::Array]),
             ArgumentType::Any);
         let ref haystack = args[0];
@@ -315,7 +315,7 @@ impl JPFunction for Contains {
 struct EndsWith;
 
 impl JPFunction for EndsWith {
-    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> JPResult {
+    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> SearchResult {
         validate!(args, ArgumentType::String, ArgumentType::String);
         let subject = args[0].as_string().unwrap();
         let search = args[1].as_string().unwrap();
@@ -326,7 +326,7 @@ impl JPFunction for EndsWith {
 struct Floor;
 
 impl JPFunction for Floor {
-    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> JPResult {
+    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> SearchResult {
         validate!(args, ArgumentType::Number);
         let n = args[0].as_f64().unwrap();
         Ok(intr.arena.alloc(n.floor()))
@@ -336,7 +336,7 @@ impl JPFunction for Floor {
 struct Join;
 
 impl JPFunction for Join {
-    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> JPResult {
+    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> SearchResult {
         validate!(args, ArgumentType::String,
             ArgumentType::HomogeneousArray(vec![ArgumentType::String]));
         let glue = args[0].as_string().unwrap();
@@ -353,7 +353,7 @@ impl JPFunction for Join {
 struct Keys;
 
 impl JPFunction for Keys {
-    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> JPResult {
+    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> SearchResult {
         validate!(args, ArgumentType::Object);
         let object = args[0].as_object().unwrap();
         let keys = object.keys()
@@ -366,7 +366,7 @@ impl JPFunction for Keys {
 struct Length;
 
 impl JPFunction for Length {
-    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> JPResult {
+    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> SearchResult {
         let acceptable = vec![ArgumentType::Array, ArgumentType::Object, ArgumentType::String];
         validate!(args, ArgumentType::OneOf(acceptable));
         match *args[0] {
@@ -382,7 +382,7 @@ impl JPFunction for Length {
 struct Map;
 
 impl JPFunction for Map {
-    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> JPResult {
+    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> SearchResult {
         validate!(args, ArgumentType::Expref, ArgumentType::Array);
         let ast = args[0].as_expref().unwrap();
         let values = args[1].as_array().unwrap();
@@ -397,7 +397,7 @@ impl JPFunction for Map {
 struct Max;
 
 impl JPFunction for Max {
-    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> JPResult {
+    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> SearchResult {
         min_and_max!(max, args, intr)
     }
 }
@@ -405,7 +405,7 @@ impl JPFunction for Max {
 struct Min;
 
 impl JPFunction for Min {
-    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> JPResult {
+    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> SearchResult {
         min_and_max!(min, args, intr)
     }
 }
@@ -413,7 +413,7 @@ impl JPFunction for Min {
 struct MaxBy;
 
 impl JPFunction for MaxBy {
-    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> JPResult {
+    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> SearchResult {
         min_and_max_by!(gt, args, intr)
     }
 }
@@ -421,7 +421,7 @@ impl JPFunction for MaxBy {
 struct MinBy;
 
 impl JPFunction for MinBy {
-    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> JPResult {
+    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> SearchResult {
         min_and_max_by!(lt, args, intr)
     }
 }
@@ -429,7 +429,7 @@ impl JPFunction for MinBy {
 struct Merge;
 
 impl JPFunction for Merge {
-    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> JPResult {
+    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> SearchResult {
         validate!(args, ArgumentType::Object ...ArgumentType::Object);
         let mut result = BTreeMap::new();
         for arg in args {
@@ -442,7 +442,7 @@ impl JPFunction for Merge {
 struct NotNull;
 
 impl JPFunction for NotNull {
-    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> JPResult {
+    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> SearchResult {
         validate!(args, ArgumentType::Any ...ArgumentType::Any);
         for arg in args {
             if !arg.is_null() {
@@ -456,7 +456,7 @@ impl JPFunction for NotNull {
 struct Reverse;
 
 impl JPFunction for Reverse {
-    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> JPResult {
+    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> SearchResult {
         validate!(args, ArgumentType::OneOf(vec![ArgumentType::Array, ArgumentType::String]));
         if args[0].is_array() {
             let mut values = args[0].as_array().unwrap().clone();
@@ -472,7 +472,7 @@ impl JPFunction for Reverse {
 struct Sort;
 
 impl JPFunction for Sort {
-    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> JPResult {
+    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> SearchResult {
         let acceptable = vec![ArgumentType::String, ArgumentType::Number];
         validate!(args, ArgumentType::HomogeneousArray(acceptable));
         let mut values = args[0].as_array().unwrap().clone();
@@ -484,7 +484,7 @@ impl JPFunction for Sort {
 struct SortBy;
 
 impl JPFunction for SortBy {
-    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> JPResult {
+    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> SearchResult {
         validate!(args, ArgumentType::Array, ArgumentType::Expref);
         let vals = args[0].as_array().unwrap().clone();
         if vals.is_empty() {
@@ -525,7 +525,7 @@ impl JPFunction for SortBy {
 struct StartsWith;
 
 impl JPFunction for StartsWith {
-    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> JPResult {
+    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> SearchResult {
         validate!(args, ArgumentType::String, ArgumentType::String);
         let subject = args[0].as_string().unwrap();
         let search = args[1].as_string().unwrap();
@@ -536,7 +536,7 @@ impl JPFunction for StartsWith {
 struct Sum;
 
 impl JPFunction for Sum {
-    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> JPResult {
+    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> SearchResult {
         validate!(args, ArgumentType::HomogeneousArray(vec![ArgumentType::Number]));
         let result = args[0].as_array().unwrap().iter().fold(
             0.0, |acc, item| acc + item.as_f64().unwrap());
@@ -547,7 +547,7 @@ impl JPFunction for Sum {
 struct ToArray;
 
 impl JPFunction for ToArray {
-    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> JPResult {
+    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> SearchResult {
         validate!(args, ArgumentType::Any);
         match *args[0] {
             Variable::Array(_) => Ok(args[0].clone()),
@@ -559,7 +559,7 @@ impl JPFunction for ToArray {
 struct ToNumber;
 
 impl JPFunction for ToNumber {
-    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> JPResult {
+    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> SearchResult {
         validate!(args, ArgumentType::Any);
         match *args[0] {
             Variable::I64(_) | Variable::F64(_) | Variable::U64(_) => Ok(args[0].clone()),
@@ -577,7 +577,7 @@ impl JPFunction for ToNumber {
 struct ToString;
 
 impl JPFunction for ToString {
-    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> JPResult {
+    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> SearchResult {
         validate!(args, ArgumentType::OneOf(vec![
             ArgumentType::Object, ArgumentType::Array, ArgumentType::Bool,
             ArgumentType::Number, ArgumentType::String, ArgumentType::Null]));
@@ -591,7 +591,7 @@ impl JPFunction for ToString {
 struct Type;
 
 impl JPFunction for Type {
-    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> JPResult {
+    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> SearchResult {
         validate!(args, ArgumentType::Any);
         Ok(intr.arena.alloc(args[0].get_type().to_string()))
     }
@@ -600,7 +600,7 @@ impl JPFunction for Type {
 struct Values;
 
 impl JPFunction for Values {
-    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> JPResult {
+    fn evaluate(&self, args: Vec<Rc<Variable>>, intr: &TreeInterpreter) -> SearchResult {
         validate!(args, ArgumentType::Object);
         let map = args[0].as_object().unwrap();
         Ok(intr.arena.alloc(map.values().cloned().collect::<Vec<Rc<Variable>>>()))

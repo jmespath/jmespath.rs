@@ -70,8 +70,7 @@ impl fmt::Display for ParseError {
     }
 }
 
-/// Encapsulates parser state to keep parsers stateless.
-pub struct Parser {
+struct Parser {
     /// Parsed tokens
     token_queue: VecDeque<TokenTuple>,
     /// Shared EOF token
@@ -83,7 +82,7 @@ pub struct Parser {
 }
 
 impl Parser {
-    pub fn new(expr: &str) -> Parser {
+    fn new(expr: &str) -> Parser {
         Parser {
             token_queue: tokenize(expr),
             eof_token: Token::Eof,
@@ -93,7 +92,7 @@ impl Parser {
     }
 
     /// Parses the expression into result containing an AST or ParseError.
-    pub fn parse(&mut self) -> ParseResult {
+    fn parse(&mut self) -> ParseResult {
         self.expr(0)
             .and_then(|result| {
                 // After parsing the expr, we should reach the end of the stream.
@@ -105,7 +104,7 @@ impl Parser {
     }
 
     #[inline]
-    pub fn advance(&mut self) -> Token {
+    fn advance(&mut self) -> Token {
         match self.token_queue.pop_front() {
             Some((pos, tok)) => {
                 self.pos = pos;
@@ -116,7 +115,7 @@ impl Parser {
     }
 
     #[inline]
-    pub fn peek(&self, lookahead: usize) -> &Token {
+    fn peek(&self, lookahead: usize) -> &Token {
         match self.token_queue.get(lookahead) {
             Some(&(_, ref t)) => t,
             None => &self.eof_token
@@ -124,7 +123,7 @@ impl Parser {
     }
 
     /// Returns a formatted ParseError with the given message.
-    pub fn err(&self, current_token: &Token, error_msg: &str, is_peek: bool) -> ParseError {
+    fn err(&self, current_token: &Token, error_msg: &str, is_peek: bool) -> ParseError {
         let mut actual_pos = self.pos;
         let mut buff = error_msg.to_string();
         match current_token {

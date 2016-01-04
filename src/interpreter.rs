@@ -7,7 +7,7 @@ use super::ast::Ast;
 use super::functions::{register_core_functions, JPFunction, Functions};
 use super::variable::{Variable, VariableArena};
 
-pub type JPResult = Result<Rc<Variable>, RuntimeError>;
+pub type SearchResult = Result<Rc<Variable>, RuntimeError>;
 
 /// TreeInterpreter recursively extracts data using an AST.
 pub struct TreeInterpreter {
@@ -28,12 +28,8 @@ impl TreeInterpreter {
         }
     }
 
-    pub fn register_fn(&mut self, fn_name: &str, f: Box<JPFunction>) {
-        self.functions.insert(fn_name.to_string(), f);
-    }
-
     /// Interprets the given data using an AST node.
-    pub fn interpret(&self, data: Rc<Variable>, node: &Ast) -> JPResult {
+    pub fn interpret(&self, data: Rc<Variable>, node: &Ast) -> SearchResult {
         match node {
             &Ast::Subexpr(ref lhs, ref rhs) =>
                 self.interpret(try!(self.interpret(data, lhs)), rhs),
@@ -247,7 +243,7 @@ mod tests {
     use variable::Variable;
 
     // Helper method for tests
-    fn interpret(data: Rc<Variable>, ast: &Ast) -> JPResult {
+    fn interpret(data: Rc<Variable>, ast: &Ast) -> SearchResult {
         TreeInterpreter::new().interpret(data, ast)
     }
 

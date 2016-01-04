@@ -21,8 +21,9 @@
 //! ```
 extern crate serde_json;
 
-pub use variable::{Variable, VariableArena};
-pub use interpreter::TreeInterpreter;
+pub use parser::{parse, ParseError};
+pub use variable::Variable;
+pub use interpreter::{TreeInterpreter, SearchResult};
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -31,23 +32,19 @@ use std::rc::Rc;
 use self::serde_json::Value;
 
 use ast::Ast;
-use parser::{parse, ParseError};
 
 pub mod ast;
-pub mod lexer;
-pub mod parser;
 pub mod functions;
+mod parser;
+mod lexer;
 mod interpreter;
 mod variable;
 
 /// Parses an expression and performs a search over data
-pub fn search<T>(expression: &str,
-                 data: T) -> Result<Rc<Variable>, Error>
-                 where T: IntoJMESPath {
-    match Expression::new(expression) {
-        Err(e) => Err(Error::Parse(e)),
-        Ok(expr) => expr.search(data).map_err(|e| Error::Runtime(e))
-    }
+pub fn search<T: IntoJMESPath>(expression: &str, data: T) -> Result<Rc<Variable>, Error> {
+    Expression::new(expression)
+        .map_err(|e| Error::from(e))
+        .and_then(|expr| expr.search(data).map_err(|e| Error::from(e)))
 }
 
 /// JMESPath error
@@ -65,6 +62,18 @@ impl fmt::Display for Error {
             &self::Error::Parse(ref err) => write!(fmt, "Parse error: {}", err),
             &self::Error::Runtime(ref err) => write!(fmt, "Runtime error: {}", err)
         }
+    }
+}
+
+impl From<RuntimeError> for Error {
+    fn from(err: RuntimeError) -> Error {
+        Error::Runtime(err)
+    }
+}
+
+impl From<ParseError> for Error {
+    fn from(err: ParseError) -> Error {
+        Error::Parse(err)
     }
 }
 
@@ -134,50 +143,53 @@ impl fmt::Display for RuntimeError {
 }
 
 /// A compiled JMESPath expression.
-pub struct Expression {
-    pub ast: Ast,
-    original: String,
-    tree_interpreter: TreeInterpreter
+pub struct Expression<'a> {
+    ast: Ast,
+    original: &'a str,
+    interpreter: TreeInterpreter
 }
 
-impl Expression {
+impl<'a> Expression<'a> {
     /// Creates a new JMESPath expression from an expression string.
-    pub fn new(expression: &str) -> Result<Expression, ParseError> {
-        Expression::with_tree_interpreter(expression, TreeInterpreter::new())
+    pub fn new(expression: &'a str) -> Result<Expression<'a>, ParseError> {
+        Expression::with_interpreter(expression, TreeInterpreter::new())
     }
 
     /// Creates a new JMESPath expression using a custom tree interpreter.
-    pub fn with_tree_interpreter(expression: &str,
-                                 tree_interpreter: TreeInterpreter)
-                                 -> Result<Expression, ParseError> {
+    pub fn with_interpreter(expression: &'a str,
+                            interpreter: TreeInterpreter)
+                            -> Result<Expression<'a>, ParseError> {
         Ok(Expression {
-            original: expression.to_string(),
+            original: expression,
             ast: try!(parse(expression)),
-            tree_interpreter: tree_interpreter
+            interpreter: interpreter
         })
     }
 
     /// Returns the result of searching data with the compiled expression.
-    pub fn search<S>(&self,
-                     data: S) -> Result<Rc<Variable>, RuntimeError>
-                     where S: IntoJMESPath {
-        self.tree_interpreter.interpret(data.into_jmespath(), &self.ast)
+    pub fn search<S: IntoJMESPath>(&self, data: S) -> SearchResult {
+        self.interpreter.interpret(data.into_jmespath(), &self.ast)
     }
 
     /// Returns the original string of this JMESPath expression.
-    pub fn as_str<'a>(&'a self) -> &'a str {
+    pub fn as_str(&self) -> &str {
         &self.original
+    }
+
+    /// Returns the parsed AST of this JMESPath expression.
+    pub fn as_ast(&self) -> &Ast {
+        &self.ast
     }
 }
 
-impl fmt::Display for Expression {
+impl<'a> fmt::Display for Expression<'a> {
     /// Shows the original jmespath expression.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.as_str())
     }
 }
 
-impl fmt::Debug for Expression {
+impl<'a> fmt::Debug for Expression<'a> {
     /// Shows the original jmespath expression.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Display::fmt(self, f)
@@ -185,7 +197,7 @@ impl fmt::Debug for Expression {
 }
 
 /// Equality comparison is based on the original string.
-impl PartialEq for Expression {
+impl<'a> PartialEq for Expression<'a> {
     fn eq(&self, other: &Expression) -> bool {
         self.as_str() == other.as_str()
     }

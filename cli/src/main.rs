@@ -53,20 +53,21 @@ fn main() {
             .required(true))
         .get_matches();
 
-    let expr = match get_expr(matches.value_of("expr-file"), matches.value_of("expression")) {
-        Ok(e) => e,
-        Err(e) => die!(e.to_string())
-    };
+    let file_expression = matches.value_of("expr-file")
+        .map(|f| read_file("expression", f));
+
+    let expr = if let Some(ref e) = file_expression {
+        Expression::new(e)
+    } else {
+        Expression::new(matches.value_of("expression").unwrap())
+    }.map_err(|e| die!(e.to_string())).unwrap();
 
     if matches.is_present("ast") {
-        println!("{}", expr.ast);
+        println!("{}", expr.as_ast());
         exit(0);
     }
 
-    let json = match get_json(matches.value_of("filename")) {
-        Ok(json) => json,
-        Err(e) => die!(e.to_string())
-    };
+    let json = get_json(matches.value_of("filename"));
 
     match expr.search(json) {
         Err(e) => die!(e.to_string()),
@@ -85,38 +86,31 @@ fn show_result(result: Rc<Variable>, unquoted: bool) {
     }
 }
 
-fn read_file(label: &str, filename: &str) -> Result<String, String> {
+fn read_file(label: &str, filename: &str) -> String {
     match File::open(filename) {
-        Err(e) => Err(format!("Error opening {} file at {}: {}", label, filename, e)),
+        Err(e) => die!(format!("Error opening {} file at {}: {}", label, filename, e)),
         Ok(mut file) => {
             let mut buffer = String::new();
             file.read_to_string(&mut buffer)
+                .map_err(|e| die!(format!("Error reading {} from {}: {}", label, filename, e)))
                 .map(|_| buffer)
-                .map_err(|e| format!("Error reading {} from {}: {}", label, filename, e))
+                .unwrap()
         }
     }
 }
 
-fn get_json(filename: Option<&str>) -> Result<Variable, String> {
+fn get_json(filename: Option<&str>) -> Variable {
     let buffer = match filename {
-        Some(f) => try!(read_file("JSON", f)),
+        Some(f) => read_file("JSON", f),
         None => {
             let mut buffer = String::new();
             match io::stdin().read_to_string(&mut buffer) {
                 Ok(_) => buffer,
-                Err(e) => return Err(format!("Error reading JSON from stdin: {}", e))
+                Err(e) => die!(format!("Error reading JSON from stdin: {}", e))
             }
         }
     };
-    Variable::from_str(&buffer).map_err(|e| format!("Error parsing JSON: {}", e))
-}
-
-fn get_expr(expr_file: Option<&str>, expr_string: Option<&str>) -> Result<Expression, String> {
-    match expr_string {
-        Some(s) => Expression::new(s),
-        None => {
-            let buffer = try!(read_file("expression", expr_file.unwrap()));
-            Expression::new(&buffer)
-        }
-    }.map_err(|e| e.to_string())
+    Variable::from_str(&buffer)
+        .map_err(|e| die!(format!("Error parsing JSON: {}", e)))
+        .unwrap()
 }
