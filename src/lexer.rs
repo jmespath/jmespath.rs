@@ -6,6 +6,7 @@ use std::collections::VecDeque;
 
 use self::Token::*;
 use super::variable::Variable;
+use super::parser::ParseError;
 
 /// Represents a lexical token of a JMESPath expression.
 #[derive(Clone, PartialEq, Debug)]
@@ -14,7 +15,6 @@ pub enum Token {
     QuotedIdentifier(String),
     Number(i32),
     Literal(Rc<Variable>),
-    Error { value: String, msg: String },
     Dot,
     Star,
     Flatten,
@@ -71,205 +71,246 @@ impl Token {
 pub type TokenTuple = (usize, Token);
 type CharIter<'a> = Peekable<CharIndices<'a>>;
 
-pub fn tokenize(expr: &str) -> VecDeque<TokenTuple> {
-    let last_position = expr.len();
-    let mut iter = expr.char_indices().peekable();
-    let mut tokens = VecDeque::new();
-    macro_rules! tok {
-        ($pos:expr, $tok:expr) => {{ iter.next(); tokens.push_back(($pos, $tok)); }};
+/// Tokenizes a JMESPath expression.
+pub fn tokenize(expr: &str) -> Result<VecDeque<TokenTuple>, ParseError> {
+    Lexer::new(expr).tokenize()
+}
+
+struct Lexer<'a> {
+    iter: Peekable<CharIndices<'a>>,
+    expr: &'a str
+}
+
+impl<'a> Lexer<'a> {
+    pub fn new(expr: &'a str) -> Lexer<'a> {
+        Lexer {
+            expr: expr,
+            iter: expr.char_indices().peekable()
+        }
     }
-    loop {
-        match iter.peek() {
-            Some(&(pos, ch)) => {
-                match ch {
-                    'a' ... 'z' | 'A' ... 'Z' | '_' =>
-                        tokens.push_back((pos, consume_identifier(&mut iter))),
-                    '.' => tok!(pos, Dot),
-                    '[' => tok!(pos, consume_lbracket(&mut iter)),
-                    '*' => tok!(pos, Star),
-                    '|' => tok!(pos, alt(&mut iter, &'|', Or, Pipe)),
-                    '@' => tok!(pos, At),
-                    ']' => tok!(pos, Rbracket),
-                    '{' => tok!(pos, Lbrace),
-                    '}' => tok!(pos, Rbrace),
-                    '&' => tok!(pos, alt(&mut iter, &'&', And, Ampersand)),
-                    '(' => tok!(pos, Lparen),
-                    ')' => tok!(pos, Rparen),
-                    ',' => tok!(pos, Comma),
-                    ':' => tok!(pos, Colon),
-                    '"' => tokens.push_back((pos, consume_quoted_identifier(&mut iter))),
-                    '\'' => tokens.push_back((pos, consume_raw_string(&mut iter))),
-                    '`' => tokens.push_back((pos, consume_literal(&mut iter))),
-                    '=' => tok!(pos, alt(&mut iter, &'=', Eq, Error {
-                        value: '='.to_string(),
-                        msg: "Did you mean \"==\"?".to_string() })),
-                    '>' => tok!(pos, alt(&mut iter, &'=', Gte, Gt)),
-                    '<' => tok!(pos, alt(&mut iter, &'=', Lte, Lt)),
-                    '!' => tok!(pos, alt(&mut iter, &'=', Ne, Not)),
-                    '0' ... '9' => tokens.push_back((pos, consume_number(&mut iter, false))),
-                    '-' => tokens.push_back((pos, consume_negative_number(&mut iter))),
-                    // Skip whitespace tokens
-                    ' ' | '\n' | '\t' | '\r' => {
-                        iter.next();
-                        continue;
-                    },
-                    c @ _ => tok!(pos, Error { value: c.to_string(), msg: "".to_string() })
+
+    fn tokenize(&mut self) -> Result<VecDeque<TokenTuple>, ParseError> {
+        let mut tokens = VecDeque::new();
+        let last_position = self.expr.len();
+        macro_rules! tok {
+            ($pos:expr, $tok:expr) => {{
+                self.iter.next();
+                tokens.push_back(($pos, $tok));
+            }};
+        }
+        loop {
+            match self.iter.peek() {
+                Some(&(pos, ch)) => {
+                    match ch {
+                        'a' ... 'z' | 'A' ... 'Z' | '_' =>
+                            tokens.push_back((pos, self.consume_identifier())),
+                        '.' => tok!(pos, Dot),
+                        '[' => tok!(pos, self.consume_lbracket()),
+                        '*' => tok!(pos, Star),
+                        '|' => tok!(pos, self.alt(&'|', Or, Pipe)),
+                        '@' => tok!(pos, At),
+                        ']' => tok!(pos, Rbracket),
+                        '{' => tok!(pos, Lbrace),
+                        '}' => tok!(pos, Rbrace),
+                        '&' => tok!(pos, self.alt(&'&', And, Ampersand)),
+                        '(' => tok!(pos, Lparen),
+                        ')' => tok!(pos, Rparen),
+                        ',' => tok!(pos, Comma),
+                        ':' => tok!(pos, Colon),
+                        '"' => tokens.push_back((pos, try!(self.consume_quoted_identifier(pos)))),
+                        '\'' => tokens.push_back((pos, try!(self.consume_raw_string(pos)))),
+                        '`' => tokens.push_back((pos, try!(self.consume_literal(pos)))),
+                        '=' => {
+                            tok!(pos, match self.iter.peek() {
+                                Some(&(_, c)) if c == '=' => {
+                                    self.iter.next();
+                                    Eq
+                                },
+                                _ => {
+                                    return Err(ParseError::new(
+                                        self.expr,
+                                        pos,
+                                        "'=' is not valid. Did you mean '=='?".to_string()
+                                    ))
+                                }
+                            })
+                        },
+                        '>' => tok!(pos, self.alt(&'=', Gte, Gt)),
+                        '<' => tok!(pos, self.alt(&'=', Lte, Lt)),
+                        '!' => tok!(pos, self.alt(&'=', Ne, Not)),
+                        '0' ... '9' => {
+                            tokens.push_back((pos, self.consume_number(false)))
+                        },
+                        '-' => tokens.push_back((pos, try!(self.consume_negative_number(pos)))),
+                        // Skip whitespace tokens
+                        ' ' | '\n' | '\t' | '\r' => {
+                            self.iter.next();
+                            continue;
+                        },
+                        c @ _ => {
+                            return Err(ParseError::new(
+                                self.expr,
+                                pos,
+                                format!("Invalid character: {}", c)
+                            ))
+                        }
+                    }
+                },
+                None => {
+                    tokens.push_back((last_position, Eof));
+                    return Ok(tokens);
                 }
+            }
+        }
+    }
+
+    // Consumes characters while the predicate function returns true.
+    #[inline]
+    fn consume_while<F>(&mut self,
+                        predicate: F) -> String
+                        where F: Fn(char) -> bool {
+        let mut buffer = self.iter.next().expect("Expected token").1.to_string();
+        loop {
+            match self.iter.peek() {
+                None => break,
+                Some(&(_, c)) if !predicate(c) => break,
+                Some(&(_, c)) => {
+                    buffer.push(c);
+                    self.iter.next();
+                }
+            }
+        }
+        buffer
+    }
+
+    // Consumes "[", "[]", "[?
+    #[inline]
+    fn consume_lbracket(&mut self) -> Token {
+        match self.iter.peek() {
+            Some(&(_, ']')) => {
+                self.iter.next();
+                Flatten
             },
-            None => {
-                tokens.push_back((last_position, Eof));
-                return tokens;
-            }
+            Some(&(_, '?')) => {
+                self.iter.next();
+                Filter
+            },
+            _ => Lbracket,
         }
     }
-}
 
-// Consumes characters while the predicate function returns true.
-#[inline]
-fn consume_while<F>(iter: &mut CharIter,
-                    predicate: F) -> String
-                    where F: Fn(char) -> bool {
-    let mut buffer = iter.next().expect("Expected token").1.to_string();
-    loop {
-        match iter.peek() {
-            None => break,
-            Some(&(_, c)) if !predicate(c) => break,
-            Some(&(_, c)) => {
+    // Consume identifiers: ( ALPHA / "_" ) *( DIGIT / ALPHA / "_" )
+    #[inline]
+    fn consume_identifier(&mut self) -> Token {
+        Identifier(self.consume_while(|c| {
+            match c {
+                'a' ... 'z' | '_' | 'A' ... 'Z' | '0' ... '9' => true,
+                _ => false
+            }
+        }))
+    }
+
+    // Consumes numbers: *"-" "0" / ( %x31-39 *DIGIT )
+    #[inline]
+    fn consume_number(&mut self, is_negative: bool) -> Token {
+        let lexeme = self.consume_while(|c| c.is_digit(10));
+        let numeric_value: i32 = lexeme.parse().expect("Expected valid number");
+        match is_negative {
+            true => Number(numeric_value * -1),
+            false => Number(numeric_value)
+        }
+    }
+
+    // Consumes a negative number
+    #[inline]
+    fn consume_negative_number(&mut self, pos: usize) -> Result<Token, ParseError> {
+        // Skip the "-" number token.
+        self.iter.next();
+        // Ensure that the next value is a number > 0
+        match self.iter.peek() {
+            Some(&(_, c)) if c.is_numeric() && c != '0' => Ok(self.consume_number(true)),
+            _ => Err(ParseError::new(
+                self.expr,
+                pos,
+                "'-' must be followed by numbers 1-9".to_string()
+            ))
+        }
+    }
+
+    // Consumes tokens inside of a closing character. The closing character
+    // can be escaped using a "\" character.
+    #[inline]
+    fn consume_inside<F>(&mut self,
+                         pos: usize,
+                         wrapper: char,
+                         invoke: F) -> Result<Token, ParseError>
+        where F: Fn(String) -> Result<Token, String>
+    {
+        let mut buffer = String::new();
+        // Skip the opening character.
+        self.iter.next();
+        while let Some((_, c)) = self.iter.next() {
+            if c == wrapper {
+                return invoke(buffer).map_err(|e| ParseError::new(self.expr, pos, e))
+            } else if c == '\\' {
                 buffer.push(c);
-                iter.next();
+                if let Some((_, c)) = self.iter.next() {
+                    buffer.push(c);
+                }
+            } else {
+                buffer.push(c)
             }
         }
+        // The token was not closed, so error with the string, including the
+        // wrapper (e.g., '"foo').
+        Err(ParseError::new(
+            self.expr,
+            pos,
+            format!("Unclosed {} delimiter: {}{}", wrapper, wrapper, buffer)
+        ))
     }
-    buffer
-}
 
-// Consumes "[", "[]", "[?
-#[inline]
-fn consume_lbracket(iter: &mut CharIter) -> Token {
-    match iter.peek() {
-        Some(&(_, ']')) => {
-            iter.next();
-            Flatten
-        },
-        Some(&(_, '?')) => {
-            iter.next();
-            Filter
-        },
-        _ => Lbracket,
-    }
-}
-
-// Consume identifiers: ( ALPHA / "_" ) *( DIGIT / ALPHA / "_" )
-#[inline]
-fn consume_identifier(iter: &mut CharIter) -> Token {
-    Identifier(consume_while(iter, |c| {
-        match c {
-            'a' ... 'z' | '_' | 'A' ... 'Z' | '0' ... '9' => true,
-            _ => false
-        }
-    }))
-}
-
-// Consumes numbers: *"-" "0" / ( %x31-39 *DIGIT )
-#[inline]
-fn consume_number(iter: &mut CharIter, is_negative: bool) -> Token {
-    let lexeme = consume_while(iter, |c| c.is_digit(10));
-    let numeric_value: i32 = lexeme.parse().expect("Expected valid number");
-    match is_negative {
-        true => Number(numeric_value * -1),
-        false => Number(numeric_value)
-    }
-}
-
-// Consumes a negative number
-#[inline]
-fn consume_negative_number(iter: &mut CharIter) -> Token {
-    // Skip the "-" number token.
-    iter.next();
-    // Ensure that the next value is a number > 0
-    match iter.peek() {
-        Some(&(_, c)) if c.is_numeric() && c != '0' => consume_number(iter, true),
-        _ => Error {
-            value: "-".to_string(),
-            msg: "Negative sign must be followed by numbers 1-9".to_string()
-        }
-    }
-}
-
-// Consumes tokens inside of a closing character. The closing character
-// can be escaped using a "\" character.
-#[inline]
-fn consume_inside<F>(iter: &mut CharIter, wrapper: char, invoke: F) -> Token
-    where F: Fn(String) -> Token
-{
-    let mut buffer = String::new();
-    // Skip the opening character.
-    iter.next();
-    while let Some((_, c)) = iter.next() {
-        if c == wrapper {
-            return invoke(buffer);
-        } else if c == '\\' {
-            buffer.push(c);
-            if let Some((_, c)) = iter.next() {
-                buffer.push(c);
+    // Consume and parse a quoted identifier token.
+    #[inline]
+    fn consume_quoted_identifier(&mut self, pos: usize) -> Result<Token, ParseError> {
+        self.consume_inside(pos, '"', |s| {
+            // JSON decode the string to expand escapes
+            match Variable::from_str(format!(r##""{}""##, s).as_ref()) {
+                // Convert the JSON value into a string literal.
+                Ok(j) => Ok(QuotedIdentifier(j.as_string().unwrap().to_string())),
+                Err(e) => Err(format!("Unable to parse quoted identifier {}: {}", s, e))
             }
-        } else {
-            buffer.push(c)
-        }
+        })
     }
-    // The token was not closed, so error with the string, including the
-    // wrapper (e.g., '"foo').
-    Error {
-        value: wrapper.to_string() + buffer.as_ref(),
-        msg: format!("Unclosed {} delimiter", wrapper)
+
+    #[inline]
+    fn consume_raw_string(&mut self, pos: usize) -> Result<Token, ParseError> {
+        // Note: we need to unescape here because the backslashes are passed through.
+        self.consume_inside(pos, '\'',
+            |s| Ok(Literal(Rc::new(Variable::String(s.replace("\\'", "'"))))))
     }
-}
 
-// Consume and parse a quoted identifier token.
-#[inline]
-fn consume_quoted_identifier(iter: &mut CharIter) -> Token {
-    consume_inside(iter, '"', |s| {
-        // JSON decode the string to expand escapes
-        match Variable::from_str(format!(r##""{}""##, s).as_ref()) {
-            // Convert the JSON value into a string literal.
-            Ok(j) => QuotedIdentifier(j.as_string().expect("Expected string").to_string()),
-            Err(e) => Error {
-                value: format!(r#""{}""#, s),
-                msg: format!("Unable to parse JSON value in quoted identifier: {}", e)
+    // Consume and parse a literal JSON token.
+    #[inline]
+    fn consume_literal(&mut self, pos: usize) -> Result<Token, ParseError> {
+        self.consume_inside(pos, '`', |s| {
+            let unescaped = s.replace("\\`", "`");
+            match Variable::from_str(unescaped.as_ref()) {
+                Ok(j) => Ok(Literal(Rc::new(j))),
+                Err(err) => Err(format!("Unable to parse literal JSON {}: {}", s, err))
             }
+        })
+    }
+
+    #[inline]
+    fn alt(&mut self, expected: &char, match_type: Token, else_type: Token) -> Token {
+        match self.iter.peek() {
+            Some(&(_, c)) if c == *expected => {
+                self.iter.next();
+                match_type
+            },
+            _ => else_type
         }
-    })
-}
-
-#[inline]
-fn consume_raw_string(iter: &mut CharIter) -> Token {
-    // Note: we need to unescape here because the backslashes are passed through.
-    consume_inside(iter, '\'', |s| Literal(Rc::new(Variable::String(s.replace("\\'", "'")))))
-}
-
-// Consume and parse a literal JSON token.
-#[inline]
-fn consume_literal(iter: &mut CharIter) -> Token {
-    consume_inside(iter, '`', |s| {
-        let unescapeed = s.replace("\\`", "`");
-        match Variable::from_str(unescapeed.as_ref()) {
-            Ok(j) => Literal(Rc::new(j)),
-            Err(err) => Error {
-                value: format!("`{}`", unescapeed),
-                msg: format!("Unable to parse literal JSON: {}", err)
-            }
-        }
-    })
-}
-
-#[inline]
-fn alt(iter: &mut CharIter, expected: &char, match_type: Token, else_type: Token) -> Token {
-    match iter.peek() {
-        Some(&(_, c)) if c == *expected => {
-            iter.next();
-            match_type
-        },
-        _ => else_type
     }
 }
 
@@ -282,7 +323,7 @@ mod tests {
     use variable::Variable;
 
     fn tokenize_queue(expr: &str) -> Vec<TokenTuple> {
-        let mut result = tokenize(expr);
+        let mut result = tokenize(expr).unwrap();
         let mut v = Vec::new();
         while let Some(node) = result.pop_front() {
             v.push(node);
@@ -332,13 +373,14 @@ mod tests {
 
     #[test]
     fn tokenize_eq_ne_test() {
-        assert_eq!(tokenize_queue("="), vec![(0, Error {
-            value: "=".to_string(),
-            msg: "Did you mean \"==\"?".to_string()
-        }), (1, Eof)]);
         assert_eq!(tokenize_queue("=="), vec![(0, Eq), (2, Eof)]);
         assert_eq!(tokenize_queue("!"), vec![(0, Not), (1, Eof)]);
         assert_eq!(tokenize_queue("!="), vec![(0, Ne), (2, Eof)]);
+    }
+
+    #[test]
+    fn ensures_eq_valid() {
+        assert!(tokenize("=").is_err());
     }
 
     #[test]
@@ -349,25 +391,13 @@ mod tests {
 
     #[test]
     fn tokenize_single_error_test() {
-        assert_eq!(tokenize_queue("~"), vec![(0, Error {
-            value: "~".to_string(),
-            msg: "".to_string()
-        }), (1, Eof)]);
+        assert!(tokenize("~").unwrap_err().message.contains("Invalid character: ~"));
     }
 
     #[test]
     fn tokenize_unclosed_errors_test() {
-        assert_eq!(tokenize_queue("\"foo"), vec![
-            (0, Error {value: "\"foo".to_string(), msg: "Unclosed \" delimiter".to_string() }),
-            (4, Eof)
-        ]);
-        assert_eq!(tokenize_queue("`foo"), vec![
-            (0, Error {
-                value: "`foo".to_string(),
-                msg: "Unclosed ` delimiter".to_string()
-            }),
-            (4, Eof)
-        ]);
+        assert!(tokenize("\"foo").unwrap_err().message.contains("Unclosed \" delimiter: \"foo"));
+        assert!(tokenize("`foo").unwrap_err().message.contains("Unclosed ` delimiter: `foo"));
     }
 
     #[test]
@@ -429,14 +459,7 @@ mod tests {
     #[test]
     fn tokenize_literal_test() {
         // Must enclose in quotes. See JEP 12.
-        assert_eq!(tokenize_queue("`a`"), vec![
-            (0, Error {
-                value: "`a`".to_string(),
-                msg: "Unable to parse literal JSON: \"expected value\" at line 1 column 1"
-                .to_string()
-            }),
-            (3, Eof)
-        ]);
+        assert!(tokenize("`a`").unwrap_err().message.contains("Unable to parse"));
         assert_eq!(tokenize_queue("`\"a\"`"), vec![
             (0, Literal(Rc::new(Variable::String("a".to_string())))),
             (5, Eof)
@@ -461,20 +484,13 @@ mod tests {
 
     #[test]
     fn tokenize_negative_number_test_failure() {
-        assert_eq!(tokenize_queue("-01"), vec![
-            (0, Error {
-                value: "-".to_string(),
-                msg: "Negative sign must be followed by numbers 1-9".to_string()
-            }),
-            (1, Number(1)),
-            (3, Eof)
-        ]);
+        assert!(tokenize("-01").unwrap_err().message.contains("'-'"));
     }
 
     #[test]
     fn tokenize_successive_test() {
         let expr = "foo.bar || `\"a\"` | 10";
-        let tokens = tokenize(expr);
+        let tokens = tokenize_queue(expr);
         assert_eq!(tokens[0], (0, Identifier("foo".to_string())));
         assert_eq!(tokens[1], (3, Dot));
         assert_eq!(tokens[2], (4, Identifier("bar".to_string())));
@@ -487,7 +503,7 @@ mod tests {
 
     #[test]
     fn tokenizes_slices() {
-        let tokens = tokenize("foo[0::-1]");
+        let tokens = tokenize_queue("foo[0::-1]");
         assert_eq!("[(0, Identifier(\"foo\")), (3, Lbracket), (4, Number(0)), (5, Colon), \
                      (6, Colon), (7, Number(-1)), (9, Rbracket), (10, Eof)]",
                    format!("{:?}", tokens));

@@ -11,26 +11,26 @@ pub type ParseResult = Result<Ast, ParseError>;
 
 /// Parses a JMESPath expression into an AST
 pub fn parse(expr: &str) -> ParseResult {
-    Parser::new(expr).parse()
+    Parser::new(expr).and_then(|mut p| p.parse())
 }
 
 /// Encountered when an invalid JMESPath expression is parsed.
 #[derive(Clone, PartialEq, Debug)]
 pub struct ParseError {
     /// The expression that failed to parse.
-    expression: String,
+    pub expression: String,
     /// The absolute position of the failure.
-    position: usize,
+    pub position: usize,
     /// The error message.
-    message: String,
+    pub message: String,
     /// The line number of the error.
-    line: usize,
+    pub line: usize,
     /// The column of the error.
-    column: usize,
+    pub column: usize,
 }
 
 impl ParseError {
-    fn new(expr: &str, position: usize, msg: String) -> ParseError {
+    pub fn new(expr: &str, position: usize, msg: String) -> ParseError {
         // Find each new line and create a formatted error message.
         let mut current_pos: usize = 0;
         let mut current_line: usize = 0;
@@ -82,13 +82,13 @@ struct Parser {
 }
 
 impl Parser {
-    fn new(expr: &str) -> Parser {
-        Parser {
-            token_queue: tokenize(expr),
+    fn new(expr: &str) -> Result<Parser, ParseError> {
+        Ok(Parser {
+            token_queue: try!(tokenize(expr)),
             eof_token: Token::Eof,
             pos: 0,
             expr: expr.to_string(),
-        }
+        })
     }
 
     /// Parses the expression into result containing an AST or ParseError.
@@ -126,12 +126,7 @@ impl Parser {
     fn err(&self, current_token: &Token, error_msg: &str, is_peek: bool) -> ParseError {
         let mut actual_pos = self.pos;
         let mut buff = error_msg.to_string();
-        match current_token {
-            &Token::Error { ref msg, .. } => {
-                buff.push_str(&format!(" -- {}", msg))
-            },
-            t @ _ => buff.push_str(&format!(" -- found {:?}", t))
-        }
+        buff.push_str(&format!(" -- found {:?}", current_token));
         if is_peek {
             if let Some(&(p, _)) = self.token_queue.get(0) {
                 actual_pos = p;
