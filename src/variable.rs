@@ -8,7 +8,7 @@ use std::iter::Iterator;
 
 use self::serde_json::Value;
 
-use super::IntoJMESPath;
+use super::ToJMESPath;
 use super::ast::{Ast, Comparator};
 
 /// JMESPath variable.
@@ -342,8 +342,8 @@ impl VariableArena {
 
     /// Convenience method to allocates a Variable.
     #[inline]
-    pub fn alloc<S>(&self, s: S) -> Rc<Variable> where S: IntoJMESPath {
-        s.into_jmespath()
+    pub fn alloc<S: ToJMESPath>(&self, s: S) -> Rc<Variable> {
+        s.to_jmespath()
     }
 }
 

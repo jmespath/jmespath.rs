@@ -41,7 +41,7 @@ mod interpreter;
 mod variable;
 
 /// Parses an expression and performs a search over data
-pub fn search<T: IntoJMESPath>(expression: &str, data: T) -> Result<Rc<Variable>, Error> {
+pub fn search<T: ToJMESPath>(expression: &str, data: T) -> Result<Rc<Variable>, Error> {
     Expression::new(expression)
         .map_err(|e| Error::from(e))
         .and_then(|expr| expr.search(data).map_err(|e| Error::from(e)))
@@ -167,8 +167,8 @@ impl<'a> Expression<'a> {
     }
 
     /// Returns the result of searching data with the compiled expression.
-    pub fn search<S: IntoJMESPath>(&self, data: S) -> SearchResult {
-        self.interpreter.interpret(data.into_jmespath(), &self.ast)
+    pub fn search<T: ToJMESPath>(&self, data: T) -> SearchResult {
+        self.interpreter.interpret(data.to_jmespath(), &self.ast)
     }
 
     /// Returns the original string of this JMESPath expression.
@@ -205,94 +205,100 @@ impl<'a> PartialEq for Expression<'a> {
 
 /// Converts a value into a reference-counted JMESPath Variable that
 /// can be used by the JMESPath runtime.
-pub trait IntoJMESPath {
-    fn into_jmespath(self) -> Rc<Variable>;
+pub trait ToJMESPath {
+    fn to_jmespath(self) -> Rc<Variable>;
 }
 
-impl IntoJMESPath for Rc<Variable> {
-    fn into_jmespath(self) -> Rc<Variable> {
+impl ToJMESPath for Rc<Variable> {
+    fn to_jmespath(self) -> Rc<Variable> {
         self
     }
 }
 
-impl IntoJMESPath for Variable {
-    fn into_jmespath(self) -> Rc<Variable> {
+impl ToJMESPath for Variable {
+    fn to_jmespath(self) -> Rc<Variable> {
         Rc::new(self)
     }
 }
 
-impl <'a> IntoJMESPath for &'a Value {
-    fn into_jmespath(self) -> Rc<Variable> {
+impl ToJMESPath for Value {
+    fn to_jmespath(self) -> Rc<Variable> {
+        Rc::new(Variable::from_json(&self))
+    }
+}
+
+impl <'a> ToJMESPath for &'a Value {
+    fn to_jmespath(self) -> Rc<Variable> {
         Rc::new(Variable::from_json(self))
     }
 }
 
-impl IntoJMESPath for bool {
-    fn into_jmespath(self) -> Rc<Variable> {
+impl ToJMESPath for bool {
+    fn to_jmespath(self) -> Rc<Variable> {
         Rc::new(Variable::Bool(self))
     }
 }
 
-impl IntoJMESPath for usize {
-    fn into_jmespath(self) -> Rc<Variable> {
+impl ToJMESPath for usize {
+    fn to_jmespath(self) -> Rc<Variable> {
         Rc::new(Variable::U64(self as u64))
     }
 }
 
-impl IntoJMESPath for u64 {
-    fn into_jmespath(self) -> Rc<Variable> {
+impl ToJMESPath for u64 {
+    fn to_jmespath(self) -> Rc<Variable> {
         Rc::new(Variable::U64(self))
     }
 }
 
-impl IntoJMESPath for f64 {
-    fn into_jmespath(self) -> Rc<Variable> {
+impl ToJMESPath for f64 {
+    fn to_jmespath(self) -> Rc<Variable> {
         Rc::new(Variable::F64(self))
     }
 }
 
-impl IntoJMESPath for i64 {
-    fn into_jmespath(self) -> Rc<Variable> {
+impl ToJMESPath for i64 {
+    fn to_jmespath(self) -> Rc<Variable> {
         Rc::new(Variable::I64(self))
     }
 }
 
 /// Creates a Variable::Null value.
-impl IntoJMESPath for () {
-    fn into_jmespath(self) -> Rc<Variable> {
+impl ToJMESPath for () {
+    fn to_jmespath(self) -> Rc<Variable> {
         Rc::new(Variable::Null)
     }
 }
 
-impl IntoJMESPath for String {
-    fn into_jmespath(self) -> Rc<Variable> {
+impl ToJMESPath for String {
+    fn to_jmespath(self) -> Rc<Variable> {
         Rc::new(Variable::String(self))
     }
 }
 
-impl <'a> IntoJMESPath for &'a str {
-    fn into_jmespath(self) -> Rc<Variable> {
+impl <'a> ToJMESPath for &'a str {
+    fn to_jmespath(self) -> Rc<Variable> {
         Rc::new(Variable::String(self.to_string()))
     }
 }
 
 /// Creates a Variable::Expref value.
-impl IntoJMESPath for Ast {
-    fn into_jmespath(self) -> Rc<Variable> {
+impl ToJMESPath for Ast {
+    fn to_jmespath(self) -> Rc<Variable> {
         Rc::new(Variable::Expref(self))
     }
 }
 
 /// Creates a Variable::Array value.
-impl IntoJMESPath for Vec<Rc<Variable>> {
-    fn into_jmespath(self) -> Rc<Variable> {
+impl ToJMESPath for Vec<Rc<Variable>> {
+    fn to_jmespath(self) -> Rc<Variable> {
         Rc::new(Variable::Array(self))
     }
 }
 
 /// Creates a Variable::Object value.
-impl IntoJMESPath for BTreeMap<String, Rc<Variable>> {
-    fn into_jmespath(self) -> Rc<Variable> {
+impl ToJMESPath for BTreeMap<String, Rc<Variable>> {
+    fn to_jmespath(self) -> Rc<Variable> {
         Rc::new(Variable::Object(self))
     }
 }
