@@ -3,10 +3,10 @@ extern crate jmespath;
 use std::fs;
 use std::fs::File;
 use std::io::Read;
-use std::rc::Rc;
 
+use jmespath::RcVar;
 use jmespath::RuntimeError;
-use jmespath::{Expression, Variable};
+use jmespath::Expression;
 
 type AssertionBox = Box<TestAssertion>;
 
@@ -35,13 +35,13 @@ trait TestAssertion {
 
 struct TestSuite {
     filename: String,
-    given: Rc<Variable>,
+    given: RcVar,
     cases: Vec<TestCase>,
 }
 
 impl TestSuite {
     /// Creates a test suite from parsed JSON data.
-    fn from_variable(filename: String, suite: &Rc<Variable>) -> TestSuite {
+    fn from_variable(filename: String, suite: &RcVar) -> TestSuite {
         TestSuite {
             filename: filename,
             given: suite.get_value("given").unwrap(),
@@ -63,7 +63,7 @@ struct TestCase {
 
 impl TestCase {
     /// Creates a test case from parsed JSON data.
-    fn from_variable(case: &Rc<Variable>) -> TestCase {
+    fn from_variable(case: &RcVar) -> TestCase {
         TestCase {
             expression: case.get_value("expression").unwrap().as_string().unwrap().clone(),
             expected_result: match case.get_value("error") {
@@ -157,7 +157,7 @@ impl TestAssertion for SyntaxError {
 
 /// Ensures that the expression is parsed and returns an expected result.
 struct ValidResult {
-    expected_result: Rc<Variable>
+    expected_result: RcVar
 }
 
 impl TestAssertion for ValidResult {

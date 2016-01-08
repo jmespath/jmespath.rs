@@ -1,4 +1,5 @@
 //! Module for parsing JMESPath expressions into an AST.
+
 use std::fmt;
 use std::collections::VecDeque;
 use std::rc::Rc;
@@ -17,15 +18,15 @@ pub fn parse(expr: &str) -> ParseResult {
 /// Encountered when an invalid JMESPath expression is parsed.
 #[derive(Clone, PartialEq, Debug)]
 pub struct ParseError {
-    /// The expression that failed to parse.
+    /// Expression that failed to parse.
     pub expression: String,
-    /// The absolute position of the failure.
+    /// Character position of the failure in the expression string.
     pub position: usize,
-    /// The error message.
+    /// Error message describing the parse error.
     pub message: String,
-    /// The line number of the error.
+    /// Line number of the error.
     pub line: usize,
-    /// The column of the error.
+    /// Column of the error.
     pub column: usize,
 }
 
@@ -214,7 +215,7 @@ impl Parser {
                     self.parse_wildcard_values(left)
                 } else {
                     let rhs = try!(self.parse_dot(Token::Dot.lbp()));
-                    Ok(Ast::Subexpr(Box::new(left), Box::new(rhs)))
+                    Ok(Ast::Subexpr { lhs: Box::new(left), rhs: Box::new(rhs) })
                 }
             },
             Token::Lbracket => {
@@ -224,8 +225,10 @@ impl Parser {
                     t @ _ => return Err(self.err(t, "Expected number, ':', or '*'", true))
                 } {
                     true => {
-                        Ok(Ast::Subexpr(Box::new(left),
-                                        Box::new(try!(self.parse_index()))))
+                        Ok(Ast::Subexpr {
+                            lhs: Box::new(left),
+                            rhs: Box::new(try!(self.parse_index()))
+                        })
                     },
                     false => {
                         self.advance();
@@ -235,20 +238,23 @@ impl Parser {
             },
             Token::Or => {
                 let rhs = try!(self.expr(Token::Or.lbp()));
-                Ok(Ast::Or(Box::new(left), Box::new(rhs)))
+                Ok(Ast::Or { lhs: Box::new(left), rhs: Box::new(rhs) })
             },
             Token::And => {
                 let rhs = try!(self.expr(Token::And.lbp()));
-                Ok(Ast::And(Box::new(left), Box::new(rhs)))
+                Ok(Ast::And { lhs: Box::new(left), rhs: Box::new(rhs) })
             },
             Token::Pipe => {
                 let rhs = try!(self.expr(Token::Pipe.lbp()));
-                Ok(Ast::Subexpr(Box::new(left), Box::new(rhs)))
+                Ok(Ast::Subexpr { lhs: Box::new(left), rhs: Box::new(rhs) })
             },
             Token::Lparen => {
                 match left {
                     Ast::Field(v) => {
-                        Ok(Ast::Function(v, try!(self.parse_list(Token::Rparen))))
+                        Ok(Ast::Function {
+                            name: v,
+                            args: try!(self.parse_list(Token::Rparen))
+                        })
                     },
                     _ => panic!("Implement parens")
                 }
@@ -292,9 +298,13 @@ impl Parser {
         match self.advance() {
             Token::Rbracket => {
                 let condition_rhs = Box::new(try!(self.projection_rhs(Token::Filter.lbp())));
-                Ok(Ast::Projection(
-                    Box::new(lhs),
-                    Box::new(Ast::Condition(Box::new(condition_lhs), condition_rhs))))
+                Ok(Ast::Projection {
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(Ast::Condition {
+                        predicate: Box::new(condition_lhs),
+                        then: condition_rhs
+                    })
+                })
             },
             ref t @ _ => Err(self.err(t, &"Expected ']'", false))
         }
@@ -302,13 +312,20 @@ impl Parser {
 
     fn parse_flatten(&mut self, lhs: Ast) -> ParseResult {
         let rhs = try!(self.projection_rhs(Token::Flatten.lbp()));
-        Ok(Ast::Projection(Box::new(Ast::Flatten(Box::new(lhs))), Box::new(rhs)))
+        Ok(Ast::Projection {
+            lhs: Box::new(Ast::Flatten(Box::new(lhs))),
+            rhs: Box::new(rhs)
+        })
     }
 
     /// Parses a comparator token into a Comparison (e.g., foo == bar)
     fn parse_comparator(&mut self, cmp: Comparator, lhs: Ast) -> ParseResult {
         let rhs = try!(self.expr(Token::Eq.lbp()));
-        Ok(Ast::Comparison(cmp, Box::new(lhs), Box::new(rhs)))
+        Ok(Ast::Comparison {
+            comparator: cmp,
+            lhs: Box::new(lhs),
+            rhs: Box::new(rhs)
+        })
     }
 
     /// Parses the right hand side of a dot expression.
@@ -351,7 +368,7 @@ impl Parser {
         match self.advance() {
             Token::Rbracket => {
                 let rhs = try!(self.projection_rhs(Token::Star.lbp()));
-                Ok(Ast::Projection(Box::new(lhs), Box::new(rhs)))
+                Ok(Ast::Projection { lhs: Box::new(lhs), rhs: Box::new(rhs) })
             },
             ref t @ _ => Err(self.err(t, &"Expected ']' for wildcard index", false))
         }
@@ -360,9 +377,10 @@ impl Parser {
     /// Creates a projection for "*"
     fn parse_wildcard_values(&mut self, lhs: Ast) -> ParseResult {
         let rhs = try!(self.projection_rhs(Token::Star.lbp()));
-        Ok(Ast::Projection(
-            Box::new(Ast::ObjectValues(Box::new(lhs))),
-            Box::new(rhs)))
+        Ok(Ast::Projection {
+            lhs: Box::new(Ast::ObjectValues(Box::new(lhs))),
+            rhs: Box::new(rhs)
+        })
     }
 
     /// Parses [0], [::-1], [0:-1], [0:1], etc...
@@ -398,9 +416,14 @@ impl Parser {
             Ok(Ast::Index(parts[0].unwrap()))
         } else {
             // Sliced array from start (e.g., [2:])
-            let lhs = Ast::Slice(parts[0], parts[1], parts[2].unwrap_or(1));
-            let rhs = try!(self.projection_rhs(Token::Star.lbp()));
-            Ok(Ast::Projection(Box::new(lhs), Box::new(rhs)))
+            Ok(Ast::Projection {
+                lhs: Box::new(Ast::Slice {
+                    start: parts[0],
+                    stop: parts[1],
+                    step: parts[2].unwrap_or(1)
+                }),
+                rhs: Box::new(try!(self.projection_rhs(Token::Star.lbp())))
+            })
         }
     }
 

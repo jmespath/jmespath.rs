@@ -1,18 +1,19 @@
-//! Extracts JSON data by interpreting a JMESPath AST
-use std::rc::Rc;
+//! Interprets JMESPath expressions
+
 use std::collections::{BTreeMap, HashMap};
 
+use super::RcVar;
 use super::RuntimeError;
 use super::ast::Ast;
 use super::functions::{register_core_functions, JPFunction, Functions};
-use super::variable::{Variable, VariableArena};
+use super::variable::{Variable, VariableAllocator};
 
-pub type SearchResult = Result<Rc<Variable>, RuntimeError>;
+pub type SearchResult = Result<RcVar, RuntimeError>;
 
 /// TreeInterpreter recursively extracts data using an AST.
 pub struct TreeInterpreter {
     /// Allocates runtime variables.
-    pub arena: VariableArena,
+    pub allocator: VariableAllocator,
     /// Provides a mapping between JMESPath function names and the function to execute.
     functions: Functions
 }
@@ -22,18 +23,24 @@ impl TreeInterpreter {
     pub fn new() -> TreeInterpreter {
         let mut functions = HashMap::new();
         register_core_functions(&mut functions);
+        Self::with_functions(functions)
+    }
+
+    /// Creates a new TreeInterpreter with a custom function map.
+    #[inline]
+    pub fn with_functions(functions: Functions) -> TreeInterpreter {
         TreeInterpreter {
-            arena: VariableArena::new(),
+            allocator: VariableAllocator::new(),
             functions: functions
         }
     }
 
     /// Interprets the given data using an AST node.
-    pub fn interpret(&self, data: Rc<Variable>, node: &Ast) -> SearchResult {
+    pub fn interpret(&self, data: RcVar, node: &Ast) -> SearchResult {
         match node {
-            &Ast::Subexpr(ref lhs, ref rhs) =>
+            &Ast::Subexpr { ref lhs, ref rhs } =>
                 self.interpret(try!(self.interpret(data, lhs)), rhs),
-            &Ast::Field(ref f) => Ok(data.get_value(f).unwrap_or(self.arena.alloc_null())),
+            &Ast::Field(ref f) => Ok(data.get_value(f).unwrap_or(self.allocator.alloc_null())),
             &Ast::Identity => Ok(data.clone()),
             &Ast::Literal(ref json) => Ok(json.clone()),
             &Ast::Index(ref i) => {
@@ -43,10 +50,10 @@ impl TreeInterpreter {
                     data.get_negative_index((-1 * i) as usize)
                 } {
                     Some(value) => Ok(value),
-                    None => Ok(self.arena.alloc_null())
+                    None => Ok(self.allocator.alloc_null())
                 }
             },
-            &Ast::Or(ref lhs, ref rhs) => {
+            &Ast::Or { ref lhs, ref rhs } => {
                 let left = try!(self.interpret(data.clone(), lhs));
                 if left.is_truthy() {
                     Ok(left)
@@ -54,7 +61,7 @@ impl TreeInterpreter {
                     self.interpret(data, rhs)
                 }
             },
-            &Ast::And(ref lhs, ref rhs) => {
+            &Ast::And { ref lhs, ref rhs } => {
                 let left = try!(self.interpret(data.clone(), lhs));
                 if !left.is_truthy() {
                     Ok(left)
@@ -64,39 +71,39 @@ impl TreeInterpreter {
             },
             &Ast::Not(ref expr) => {
                 let result = try!(self.interpret(data.clone(), expr));
-                Ok(self.arena.alloc_bool(!result.is_truthy()))
+                Ok(self.allocator.alloc_bool(!result.is_truthy()))
             },
             // Returns the resut of RHS if cond yields truthy value.
-            &Ast::Condition(ref cond, ref cond_rhs) => {
-                let cond_result = try!(self.interpret(data.clone(), cond));
+            &Ast::Condition { ref predicate, ref then } => {
+                let cond_result = try!(self.interpret(data.clone(), predicate));
                 if cond_result.is_truthy() {
-                    self.interpret(data, cond_rhs)
+                    self.interpret(data, then)
                 } else {
-                    Ok(self.arena.alloc_null())
+                    Ok(self.allocator.alloc_null())
                 }
             },
-            &Ast::Comparison(ref cmp, ref lhs, ref rhs) => {
+            &Ast::Comparison { ref comparator, ref lhs, ref rhs } => {
                 let left = try!(self.interpret(data.clone(), lhs));
                 let right = try!(self.interpret(data, rhs));
-                Ok(left.compare(cmp, &*right).map_or(
-                    self.arena.alloc_null(),
-                    |result| self.arena.alloc_bool(result)))
+                Ok(left.compare(comparator, &*right).map_or(
+                    self.allocator.alloc_null(),
+                    |result| self.allocator.alloc_bool(result)))
             },
             // Converts an object into a JSON array of its values.
             &Ast::ObjectValues(ref predicate) => {
                 let subject = try!(self.interpret(data, predicate));
                 match *subject {
                     Variable::Object(ref v) => {
-                        Ok(self.arena.alloc(v.values().cloned().collect::<Vec<Rc<Variable>>>()))
+                        Ok(self.allocator.alloc(v.values().cloned().collect::<Vec<RcVar>>()))
                     },
-                    _ => Ok(self.arena.alloc_null())
+                    _ => Ok(self.allocator.alloc_null())
                 }
             },
             // Passes the results of lhs into rhs if lhs yields an array and
             // each node of lhs that passes through rhs yields a non-null value.
-            &Ast::Projection(ref lhs, ref rhs) => {
+            &Ast::Projection { ref lhs, ref rhs } => {
                 match try!(self.interpret(data, lhs)).as_array() {
-                    None => Ok(self.arena.alloc_null()),
+                    None => Ok(self.allocator.alloc_null()),
                     Some(left) => {
                         let mut collected = vec![];
                         for element in left {
@@ -105,39 +112,39 @@ impl TreeInterpreter {
                                 collected.push(current);
                             }
                         }
-                        Ok(self.arena.alloc(collected))
+                        Ok(self.allocator.alloc(collected))
                     }
                 }
             },
             &Ast::Flatten(ref node) => {
                 match try!(self.interpret(data, node)).as_array() {
-                    None => Ok(self.arena.alloc_null()),
+                    None => Ok(self.allocator.alloc_null()),
                     Some(a) => {
-                        let mut collected: Vec<Rc<Variable>> = vec![];
+                        let mut collected: Vec<RcVar> = vec![];
                         for element in a {
                             match element.as_array() {
                                 Some(array) => collected.extend(array.iter().cloned()),
                                 _ => collected.push(element.clone())
                             }
                         }
-                        Ok(self.arena.alloc(collected))
+                        Ok(self.allocator.alloc(collected))
                     }
                 }
             },
             &Ast::MultiList(ref nodes) => {
                 if data.is_null() {
-                    Ok(self.arena.alloc_null())
+                    Ok(self.allocator.alloc_null())
                 } else {
                     let mut collected = vec![];
                     for node in nodes {
                         collected.push(try!(self.interpret(data.clone(), node)));
                     }
-                    Ok(self.arena.alloc(collected))
+                    Ok(self.allocator.alloc(collected))
                 }
             },
             &Ast::MultiHash(ref kvp_list) => {
                 if data.is_null() {
-                    Ok(self.arena.alloc_null())
+                    Ok(self.allocator.alloc_null())
                 } else {
                     let mut collected = BTreeMap::new();
                     for kvp in kvp_list {
@@ -151,27 +158,29 @@ impl TreeInterpreter {
                             });
                         }
                     }
-                    Ok(self.arena.alloc(collected))
+                    Ok(self.allocator.alloc(collected))
                 }
             },
-            &Ast::Function(ref fn_name, ref arg_nodes) => {
-                let mut args: Vec<Rc<Variable>> = vec![];
-                for arg in arg_nodes {
-                    args.push(try!(self.interpret(data.clone(), arg)));
+            &Ast::Function { ref name, ref args } => {
+                let mut fn_args: Vec<RcVar> = vec![];
+                for arg in args {
+                    fn_args.push(try!(self.interpret(data.clone(), arg)));
                 }
-                match self.functions.get(fn_name) {
-                    Some(f) => f.evaluate(args, self),
-                    None => Err(RuntimeError::UnknownFunction { function: fn_name.clone() })
+                match self.functions.get(name) {
+                    Some(f) => f.evaluate(fn_args, self),
+                    None => Err(RuntimeError::UnknownFunction { function: name.clone() })
                 }
             },
-            &Ast::Expref(ref ast) => Ok(self.arena.alloc(*ast.clone())),
-            &Ast::Slice(ref a, ref b, c) => {
-                if c == 0 {
+            &Ast::Expref(ref ast) => Ok(self.allocator.alloc(*ast.clone())),
+            &Ast::Slice { ref start, ref stop, step } => {
+                if step == 0 {
                     Err(RuntimeError::InvalidSlice)
                 } else {
                     match data.as_array() {
-                        Some(ref array) => Ok(self.arena.alloc(slice(array, a, b, c))),
-                        None => Ok(self.arena.alloc_null())
+                        Some(ref array) => {
+                            Ok(self.allocator.alloc(slice(array, start, stop, step)))
+                        },
+                        None => Ok(self.allocator.alloc_null())
                     }
                 }
             }
@@ -179,8 +188,8 @@ impl TreeInterpreter {
     }
 }
 
-fn slice(array: &Vec<Rc<Variable>>, start: &Option<i32>, stop: &Option<i32>, step: i32)
-    -> Vec<Rc<Variable>>
+fn slice(array: &Vec<RcVar>, start: &Option<i32>, stop: &Option<i32>, step: i32)
+    -> Vec<RcVar>
 {
     let mut result = vec![];
     let len = array.len() as i32;
@@ -239,11 +248,12 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::*;
+    use RcVar;
     use ast::{Ast, Comparator, KeyValuePair};
     use variable::Variable;
 
     // Helper method for tests
-    fn interpret(data: Rc<Variable>, ast: &Ast) -> SearchResult {
+    fn interpret(data: RcVar, ast: &Ast) -> SearchResult {
         TreeInterpreter::new().interpret(data, ast)
     }
 
@@ -270,8 +280,10 @@ mod tests {
 
     #[test]
     fn interprets_subexpr() {
-        let ast = Ast::Subexpr(Box::new(Ast::Field("foo".to_string())),
-                               Box::new(Ast::Field("bar".to_string())));
+        let ast = Ast::Subexpr {
+            lhs: Box::new(Ast::Field("foo".to_string())),
+            rhs: Box::new(Ast::Field("bar".to_string()))
+        };
         let data = Rc::new(Variable::from_str("{\"foo\":{\"bar\":\"baz\"}}").unwrap());
         assert_eq!(Rc::new(Variable::String("baz".to_string())), interpret(data, &ast).unwrap());
     }
@@ -300,16 +312,20 @@ mod tests {
 
     #[test]
     fn interprets_or_expr() {
-        let ast = Ast::Or(Box::new(Ast::Field("bar".to_string())),
-                          Box::new(Ast::Field("foo".to_string())));
+        let ast = Ast::Or {
+            lhs: Box::new(Ast::Field("bar".to_string())),
+            rhs: Box::new(Ast::Field("foo".to_string()))
+        };
         let data = Rc::new(Variable::from_str("{\"foo\":true}").unwrap());
         assert_eq!(Rc::new(Variable::Bool(true)), interpret(data, &ast).unwrap());
     }
 
     #[test]
     fn interprets_and_expr() {
-        let ast = Ast::And(Box::new(Ast::Field("bar".to_string())),
-                           Box::new(Ast::Field("foo".to_string())));
+        let ast = Ast::And {
+            lhs: Box::new(Ast::Field("bar".to_string())),
+            rhs: Box::new(Ast::Field("foo".to_string()))
+        };
         let data = Rc::new(Variable::from_str("{\"foo\":true, \"bar\":true}").unwrap());
         assert_eq!(Rc::new(Variable::Bool(true)), interpret(data, &ast).unwrap());
         let data = Rc::new(Variable::from_str("{\"foo\":true}").unwrap());
@@ -329,18 +345,20 @@ mod tests {
 
     #[test]
     fn interprets_cond_expr() {
-        let ast = Ast::Condition(
-            Box::new(Ast::Literal(Rc::new(Variable::Bool(true)))),
-            Box::new(Ast::Literal(Rc::new(Variable::String("foo".to_string())))));
+        let ast = Ast::Condition {
+            predicate: Box::new(Ast::Literal(Rc::new(Variable::Bool(true)))),
+            then: Box::new(Ast::Literal(Rc::new(Variable::String("foo".to_string()))))
+        };
         let data = Rc::new(Variable::Null);
         assert_eq!(Rc::new(Variable::String("foo".to_string())), interpret(data, &ast).unwrap());
     }
 
     #[test]
     fn interprets_cond_expr_negative() {
-        let ast = Ast::Condition(
-            Box::new(Ast::Literal(Rc::new(Variable::Bool(false)))),
-            Box::new(Ast::Literal(Rc::new(Variable::String("foo".to_string())))));
+        let ast = Ast::Condition {
+            predicate: Box::new(Ast::Literal(Rc::new(Variable::Bool(false)))),
+            then: Box::new(Ast::Literal(Rc::new(Variable::String("foo".to_string()))))
+        };
         let data = Rc::new(Variable::Null);
         assert_eq!(Rc::new(Variable::Null), interpret(data, &ast).unwrap());
     }
@@ -362,8 +380,11 @@ mod tests {
             };
             let lhs = Rc::new(Variable::from_str(test_case[0]).unwrap());
             let rhs = Rc::new(Variable::from_str(test_case[1]).unwrap());
-            let ast = Ast::Comparison(
-                cmp, Box::new(Ast::Literal(lhs)), Box::new(Ast::Literal(rhs)));
+            let ast = Ast::Comparison {
+                comparator: cmp,
+                lhs: Box::new(Ast::Literal(lhs)),
+                rhs: Box::new(Ast::Literal(rhs))
+            };
             let result = Variable::from_str(test_case[2]).unwrap();
             assert_eq!(Rc::new(result), interpret(Rc::new(Variable::Null), &ast).unwrap());
         }
@@ -388,9 +409,10 @@ mod tests {
 
     #[test]
     fn projection_on_non_array_returns_null() {
-        let ast = Ast::Projection(
-            Box::new(Ast::Field("a".to_string())),
-            Box::new(Ast::Field("b".to_string())));
+        let ast = Ast::Projection {
+            lhs: Box::new(Ast::Field("a".to_string())),
+            rhs: Box::new(Ast::Field("b".to_string()))
+        };
         let data = Rc::new(Variable::Bool(true));
         assert_eq!(Rc::new(Variable::Null), interpret(data, &ast).unwrap());
     }
@@ -398,9 +420,10 @@ mod tests {
     #[test]
     fn projection_applies_to_array() {
         let data = Rc::new(Variable::from_str("{\"a\": [{\"b\":1},{\"b\":2}]}").unwrap());
-        let ast = Ast::Projection(
-            Box::new(Ast::Field("a".to_string())),
-            Box::new(Ast::Field("b".to_string())));
+        let ast = Ast::Projection {
+            lhs: Box::new(Ast::Field("a".to_string())),
+            rhs: Box::new(Ast::Field("b".to_string()))
+        };
         assert_eq!(
             Rc::new(Variable::from_str("[1, 2]").unwrap()),
             interpret(data, &ast).unwrap());
@@ -465,14 +488,21 @@ mod tests {
     #[test]
     fn calls_functions() {
         let data = Rc::new(Variable::from_str("[1, 2, 3]").unwrap());
-        let ast = Ast::Function("length".to_string(), vec![Ast::Identity]);
+        let ast = Ast::Function {
+            name: "length".to_string(),
+            args: vec![Ast::Identity]
+        };
         assert_eq!(Rc::new(Variable::U64(3)), interpret(data, &ast).unwrap());
     }
 
     #[test]
     fn slices_arrays() {
         let data = Rc::new(Variable::from_str("[0, 1, 2, 3, 4]").unwrap());
-        let ast = Ast::Slice(Some(1), Some(3), 1);
+        let ast = Ast::Slice {
+            start: Some(1),
+            stop: Some(3),
+            step: 1
+        };
         assert_eq!(Rc::new(Variable::from_str("[1, 2]").unwrap()),
                    interpret(data, &ast).unwrap());
     }
@@ -480,7 +510,11 @@ mod tests {
     #[test]
     fn slices_arrays_with_negative_index() {
         let data = Rc::new(Variable::from_str("[0, 1, 2, 3, 4, 5, 6]").unwrap());
-        let ast = Ast::Slice(Some(-1), Some(3), -1);
+        let ast = Ast::Slice {
+            start: Some(-1),
+            stop: Some(3),
+            step: -1
+        };
         assert_eq!(Rc::new(Variable::from_str("[6, 5, 4]").unwrap()),
                    interpret(data, &ast).unwrap());
     }

@@ -1,9 +1,11 @@
 //! Module for tokenizing JMESPath expression.
+
 use std::rc::Rc;
 use std::iter::Peekable;
 use std::str::CharIndices;
 use std::collections::VecDeque;
 
+use super::RcVar;
 use self::Token::*;
 use super::variable::Variable;
 use super::parser::ParseError;
@@ -14,7 +16,7 @@ pub enum Token {
     Identifier(String),
     QuotedIdentifier(String),
     Number(i32),
-    Literal(Rc<Variable>),
+    Literal(RcVar),
     Dot,
     Star,
     Flatten,

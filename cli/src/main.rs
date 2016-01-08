@@ -5,9 +5,9 @@ use std::io::prelude::*;
 use std::io;
 use std::fs::File;
 use std::process::exit;
-use std::rc::Rc;
 
 use clap::{Arg, App};
+use jmespath::RcVar;
 use jmespath::{Variable, Expression};
 
 macro_rules! die(
@@ -75,7 +75,7 @@ fn main() {
     }
 }
 
-fn show_result(result: Rc<Variable>, unquoted: bool) {
+fn show_result(result: RcVar, unquoted: bool) {
     if unquoted && result.is_string() {
         println!("{}", result.as_string().unwrap());
     } else {

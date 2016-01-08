@@ -1,3 +1,5 @@
+//! Module for JMESPath runtime variables
+
 extern crate serde_json;
 
 use std::string::ToString;
@@ -8,6 +10,7 @@ use std::iter::Iterator;
 
 use self::serde_json::Value;
 
+use super::RcVar;
 use super::ToJMESPath;
 use super::ast::{Ast, Comparator};
 
@@ -23,8 +26,8 @@ pub enum Variable {
     I64(i64),
     U64(u64),
     F64(f64),
-    Array(Vec<Rc<Variable>>),
-    Object(BTreeMap<String, Rc<Variable>>),
+    Array(Vec<RcVar>),
+    Object(BTreeMap<String, RcVar>),
     Expref(Ast)
 }
 
@@ -59,14 +62,14 @@ impl Variable {
             &Value::U64(n) => Variable::U64(n),
             &Value::F64(f) => Variable::F64(f),
             &Value::Array(ref array) => {
-                let mut result: Vec<Rc<Variable>> = vec![];
+                let mut result: Vec<RcVar> = vec![];
                 for value in array.iter() {
                     result.push(Rc::new(Variable::from_json(value)));
                 }
                 Variable::Array(result)
             },
             &Value::Object(ref map) => {
-                let mut result: BTreeMap<String, Rc<Variable>> = BTreeMap::new();
+                let mut result: BTreeMap<String, RcVar> = BTreeMap::new();
                 for (key, value) in map.iter() {
                     result.insert(key.clone(), Rc::new(Variable::from_json(value)));
                 }
@@ -134,7 +137,7 @@ impl Variable {
 
     /// If the Variable value is an Array, returns the associated vector.
     /// Returns None otherwise.
-    pub fn as_array<'a>(&'a self) -> Option<&'a Vec<Rc<Variable>>> {
+    pub fn as_array<'a>(&'a self) -> Option<&'a Vec<RcVar>> {
         match self {
             &Variable::Array(ref array) => Some(&*array),
             _ => None
@@ -148,7 +151,7 @@ impl Variable {
 
     /// If the value is an Object, returns the associated BTreeMap.
     /// Returns None otherwise.
-    pub fn as_object<'a>(&'a self) -> Option<&'a BTreeMap<String, Rc<Variable>>> {
+    pub fn as_object<'a>(&'a self) -> Option<&'a BTreeMap<String, RcVar>> {
         match self {
             &Variable::Object(ref map) => Some(&*map),
             _ => None
@@ -233,7 +236,7 @@ impl Variable {
 
     /// Retrieves an index from the Variable if the Variable is an array.
     /// Returns None if not an array or if the index is not present.
-    pub fn get_index(&self, index: usize) -> Option<Rc<Variable>> {
+    pub fn get_index(&self, index: usize) -> Option<RcVar> {
         self.as_array()
             .and_then(|array| array.get(index))
             .map(|value| value.clone().clone())
@@ -243,7 +246,7 @@ impl Variable {
     /// Returns None if not an array or if the index is not present.
     /// The formula for determining the index position is length - index (i.e., an
     /// index of 0 or 1 is treated as the end of the array).
-    pub fn get_negative_index(&self, index: usize) -> Option<Rc<Variable>> {
+    pub fn get_negative_index(&self, index: usize) -> Option<RcVar> {
         self.as_array()
             .and_then(|array| {
                 let adjusted_index = max(index, 1);
@@ -258,7 +261,7 @@ impl Variable {
 
     /// Retrieves a key value from a Variable if the Variable is an object.
     /// Returns None if the Variable is not an object or if the field is not present.
-    pub fn get_value(&self, key: &str) -> Option<Rc<Variable>> {
+    pub fn get_value(&self, key: &str) -> Option<RcVar> {
         self.as_object()
             .and_then(|map| map.get(key))
             .map(|value| value.clone().clone())
@@ -306,19 +309,17 @@ impl Variable {
 }
 
 /// Handles the allocation of runtime Variables.
-/// Currently only used for common static values like null, true, false, etc.
-/// TODO: test out and benchmark interned object key strings.
 #[derive(Clone)]
-pub struct VariableArena {
-    true_bool: Rc<Variable>,
-    false_bool: Rc<Variable>,
-    null: Rc<Variable>
+pub struct VariableAllocator {
+    true_bool: RcVar,
+    false_bool: RcVar,
+    null: RcVar
 }
 
-impl VariableArena {
-    /// Create a new variable arena.
-    pub fn new() -> VariableArena {
-        VariableArena {
+impl VariableAllocator {
+    /// Create a new variable allocator.
+    pub fn new() -> VariableAllocator {
+        VariableAllocator {
             true_bool: Rc::new(Variable::Bool(true)),
             false_bool: Rc::new(Variable::Bool(false)),
             null: Rc::new(Variable::Null)
@@ -327,7 +328,7 @@ impl VariableArena {
 
     /// Allocate a boolean value using one of the shared references.
     #[inline]
-    pub fn alloc_bool(&self, value: bool) -> Rc<Variable> {
+    pub fn alloc_bool(&self, value: bool) -> RcVar {
         match value {
             true => self.true_bool.clone(),
             false => self.false_bool.clone()
@@ -336,13 +337,13 @@ impl VariableArena {
 
     /// Allocate a null value (uses the shared null value reference).
     #[inline]
-    pub fn alloc_null(&self) -> Rc<Variable> {
+    pub fn alloc_null(&self) -> RcVar {
         self.null.clone()
     }
 
     /// Convenience method to allocates a Variable.
     #[inline]
-    pub fn alloc<S: ToJMESPath>(&self, s: S) -> Rc<Variable> {
+    pub fn alloc<S: ToJMESPath>(&self, s: S) -> RcVar {
         s.to_jmespath()
     }
 }
