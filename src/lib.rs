@@ -47,7 +47,6 @@
 //! let expr = jmespath::Expression::new("foo").unwrap();
 //! assert_eq!("foo", expr.as_str());
 //! assert_eq!(&Ast::Field("foo".to_string()), expr.as_ast());
-//! assert_eq!("(Field foo)", expr.as_ast().to_string());
 //! ```
 //!
 //! # Using `jmespath::search`

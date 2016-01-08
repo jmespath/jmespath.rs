@@ -17,8 +17,8 @@ fn get_output(args: Vec<&str>) -> Result<String, String> {
 
 #[test]
 fn prints_ast() {
-    let output = get_output(vec!["--ast", "foo.bar"]).unwrap();
-    assert_eq!("(Subexpr\n    (Field foo)\n    (Field bar))\n", output);
+    let output = get_output(vec!["--ast", "foo"]).unwrap();
+    assert_eq!("Field(\n    \"foo\"\n)\n", output);
 }
 
 #[test]

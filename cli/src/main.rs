@@ -63,7 +63,7 @@ fn main() {
     }.map_err(|e| die!(e.to_string())).unwrap();
 
     if matches.is_present("ast") {
-        println!("{}", expr.as_ast());
+        println!("{:#?}", expr.as_ast());
         exit(0);
     }
 
