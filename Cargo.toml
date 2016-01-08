@@ -5,5 +5,5 @@ authors = ["Michael Dowling <mtdowling@gmail.com>"]
 license = "MIT"
 
 [dependencies]
-serde = "*"
-serde_json = "*"
+serde = "^0.6"
+serde_json = "^0.6"
