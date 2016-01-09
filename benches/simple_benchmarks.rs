@@ -112,3 +112,20 @@ fn bench_parse_and_interpret_seven_deep_subexpr(b: &mut Bencher) {
     let expression = jmespath::Expression::new(expr).unwrap();
     b.iter(|| expression.search(var.clone()));
 }
+
+#[bench]
+fn bench_deep_ands(b: &mut Bencher) {
+    let expr = "a && b && c && d && e && f && g && h && i && j && k && l && m && n && o && p && q && r && s && t && u && v && w && x && y && z";
+    let data = Variable::from_str("{\"a\":0,\"b\":1,\"c\":2,\"d\":3,\"e\":4,\"f\":5,\"g\":6,\"h\":7,\"i\":8,\"j\":9,\"k\":10,\"l\":11,\"m\":12,\"n\":13,\"o\":14,\"p\":15,\"q\":16,\"r\":17,\"s\":18,\"t\":19,\"u\":20,\"v\":21,\"w\":22,\"x\":23,\"y\":24,\"z\":25}");
+    let var = Rc::new(data.unwrap());
+    let expression = jmespath::Expression::new(expr).unwrap();
+    b.iter(|| expression.search(var.clone()));
+}
+
+#[bench]
+fn bench_lots_of_nulls(b: &mut Bencher) {
+    let expr = "[a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]";
+    let var = Rc::new(Variable::from_str("{}").unwrap());
+    let expression = jmespath::Expression::new(expr).unwrap();
+    b.iter(|| expression.search(var.clone()));
+}

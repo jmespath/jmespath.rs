@@ -245,8 +245,8 @@ impl<'a> Expression<'a> {
     pub fn search<T: ToJMESPath>(&self, data: T) -> SearchResult {
         let to_jmespath = data.to_jmespath();
         match self.interpreter {
-            Some(i) => i.interpret(to_jmespath, &self.ast),
-            None => TreeInterpreter::new().interpret(to_jmespath, &self.ast)
+            Some(i) => i.interpret(&to_jmespath, &self.ast),
+            None => TreeInterpreter::new().interpret(&to_jmespath, &self.ast)
         }
     }
 

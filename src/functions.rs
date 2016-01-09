@@ -187,7 +187,7 @@ macro_rules! min_and_max_by {
             }
             let ast = $args[1].as_expref().unwrap();
             // Map over the first value to get the homogeneous required return type
-            let initial = try!($interpreter.interpret(vals[0].clone(), &ast));
+            let initial = try!($interpreter.interpret(&vals[0], &ast));
             let entered_type = initial.get_type();
             if entered_type != "string" && entered_type != "number" {
                 return Err(RuntimeError::InvalidReturnType {
@@ -201,7 +201,7 @@ macro_rules! min_and_max_by {
             // Map over each value, finding the best candidate value and fail on error.
             let mut candidate = (vals[0].clone(), initial.clone());
             for (invocation, v) in vals.iter().enumerate().skip(1) {
-                let mapped = try!($interpreter.interpret(v.clone(), &ast));
+                let mapped = try!($interpreter.interpret(v, &ast));
                 if mapped.get_type() != entered_type {
                     return Err(RuntimeError::InvalidReturnType {
                         expected: format!("expression->{}", entered_type),
@@ -404,7 +404,7 @@ impl JPFunction for Map {
         let values = args[1].as_array().unwrap();
         let mut results = vec![];
         for value in values {
-            results.push(try!(intr.interpret(value.clone(), &ast)));
+            results.push(try!(intr.interpret(&value, &ast)));
         }
         Ok(intr.allocator.alloc(results))
     }
@@ -508,7 +508,7 @@ impl JPFunction for SortBy {
         }
         let ast = args[1].as_expref().unwrap();
         let mut mapped: Vec<(RcVar, RcVar)> = vec![];
-        let first_value = try!(intr.interpret(vals[0].clone(), &ast));
+        let first_value = try!(intr.interpret(&vals[0], &ast));
         let first_type = first_value.get_type();
         if first_type != "string" && first_type != "number" {
             return Err(RuntimeError::InvalidReturnType {
@@ -521,7 +521,7 @@ impl JPFunction for SortBy {
         }
         mapped.push((vals[0].clone(), first_value.clone()));
         for (invocation, v) in vals.iter().enumerate().skip(1) {
-            let mapped_value = try!(intr.interpret((*v).clone(), &ast));
+            let mapped_value = try!(intr.interpret(v, &ast));
             if mapped_value.get_type() != first_type {
                 return Err(RuntimeError::InvalidReturnType {
                     expected: format!("expression->{}", first_type),

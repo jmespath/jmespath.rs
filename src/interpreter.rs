@@ -36,10 +36,12 @@ impl TreeInterpreter {
     }
 
     /// Interprets the given data using an AST node.
-    pub fn interpret(&self, data: RcVar, node: &Ast) -> SearchResult {
+    pub fn interpret(&self, data: &RcVar, node: &Ast) -> SearchResult {
         match node {
-            &Ast::Subexpr { ref lhs, ref rhs } =>
-                self.interpret(try!(self.interpret(data, lhs)), rhs),
+            &Ast::Subexpr { ref lhs, ref rhs } => {
+                let left_result = try!(self.interpret(data, lhs));
+                self.interpret(&left_result, rhs)
+            },
             &Ast::Field(ref f) => Ok(data.get_value(f).unwrap_or(self.allocator.alloc_null())),
             &Ast::Identity => Ok(data.clone()),
             &Ast::Literal(ref json) => Ok(json.clone()),
@@ -54,7 +56,7 @@ impl TreeInterpreter {
                 }
             },
             &Ast::Or { ref lhs, ref rhs } => {
-                let left = try!(self.interpret(data.clone(), lhs));
+                let left = try!(self.interpret(data, lhs));
                 if left.is_truthy() {
                     Ok(left)
                 } else {
@@ -62,7 +64,7 @@ impl TreeInterpreter {
                 }
             },
             &Ast::And { ref lhs, ref rhs } => {
-                let left = try!(self.interpret(data.clone(), lhs));
+                let left = try!(self.interpret(data, lhs));
                 if !left.is_truthy() {
                     Ok(left)
                 } else {
@@ -70,12 +72,12 @@ impl TreeInterpreter {
                 }
             },
             &Ast::Not(ref expr) => {
-                let result = try!(self.interpret(data.clone(), expr));
+                let result = try!(self.interpret(data, expr));
                 Ok(self.allocator.alloc_bool(!result.is_truthy()))
             },
             // Returns the resut of RHS if cond yields truthy value.
             &Ast::Condition { ref predicate, ref then } => {
-                let cond_result = try!(self.interpret(data.clone(), predicate));
+                let cond_result = try!(self.interpret(data, predicate));
                 if cond_result.is_truthy() {
                     self.interpret(data, then)
                 } else {
@@ -83,7 +85,7 @@ impl TreeInterpreter {
                 }
             },
             &Ast::Comparison { ref comparator, ref lhs, ref rhs } => {
-                let left = try!(self.interpret(data.clone(), lhs));
+                let left = try!(self.interpret(data, lhs));
                 let right = try!(self.interpret(data, rhs));
                 Ok(left.compare(comparator, &*right).map_or(
                     self.allocator.alloc_null(),
@@ -107,7 +109,7 @@ impl TreeInterpreter {
                     Some(left) => {
                         let mut collected = vec![];
                         for element in left {
-                            let current = try!(self.interpret(element.clone(), rhs));
+                            let current = try!(self.interpret(element, rhs));
                             if !current.is_null() {
                                 collected.push(current);
                             }
@@ -137,7 +139,7 @@ impl TreeInterpreter {
                 } else {
                     let mut collected = vec![];
                     for node in nodes {
-                        collected.push(try!(self.interpret(data.clone(), node)));
+                        collected.push(try!(self.interpret(data, node)));
                     }
                     Ok(self.allocator.alloc(collected))
                 }
@@ -148,8 +150,8 @@ impl TreeInterpreter {
                 } else {
                     let mut collected = BTreeMap::new();
                     for kvp in kvp_list {
-                        let key = try!(self.interpret(data.clone(), &kvp.key));
-                        let value = try!(self.interpret(data.clone(), &kvp.value));
+                        let key = try!(self.interpret(data, &kvp.key));
+                        let value = try!(self.interpret(data, &kvp.value));
                         if let Variable::String(ref s) = *key {
                             collected.insert(s.to_string(), value);
                         } else {
@@ -164,7 +166,7 @@ impl TreeInterpreter {
             &Ast::Function { ref name, ref args } => {
                 let mut fn_args: Vec<RcVar> = vec![];
                 for arg in args {
-                    fn_args.push(try!(self.interpret(data.clone(), arg)));
+                    fn_args.push(try!(self.interpret(data, arg)));
                 }
                 match self.functions.get(name) {
                     Some(f) => f.evaluate(fn_args, self),
@@ -238,284 +240,5 @@ fn adjust_slice_endpoint(len: i32, mut endpoint: i32, step: i32) -> i32 {
         len - 1
     } else {
         len
-    }
-}
-
-
-#[cfg(test)]
-mod tests {
-    use std::rc::Rc;
-    use std::collections::BTreeMap;
-
-    use super::*;
-    use RcVar;
-    use ast::{Ast, Comparator, KeyValuePair};
-    use variable::Variable;
-
-    // Helper method for tests
-    fn interpret(data: RcVar, ast: &Ast) -> SearchResult {
-        TreeInterpreter::new().interpret(data, ast)
-    }
-
-    #[test]
-    fn interprets_identifier() {
-        let ast = Ast::Field("foo".to_string());
-        let data = Rc::new(Variable::from_str("{\"foo\":\"baz\"}").unwrap());
-        assert_eq!(Rc::new(Variable::String("baz".to_string())), interpret(data, &ast).unwrap());
-    }
-
-    #[test]
-    fn interprets_current_node() {
-        let ast = Ast::Identity;
-        let data = Rc::new(Variable::Bool(true));
-        assert_eq!(Rc::new(Variable::Bool(true)), interpret(data, &ast).unwrap());
-    }
-
-    #[test]
-    fn interprets_literal() {
-        let ast = Ast::Literal(Rc::new(Variable::Bool(true)));
-        let data = Rc::new(Variable::Object(BTreeMap::new()));
-        assert_eq!(Rc::new(Variable::Bool(true)), interpret(data, &ast).unwrap());
-    }
-
-    #[test]
-    fn interprets_subexpr() {
-        let ast = Ast::Subexpr {
-            lhs: Box::new(Ast::Field("foo".to_string())),
-            rhs: Box::new(Ast::Field("bar".to_string()))
-        };
-        let data = Rc::new(Variable::from_str("{\"foo\":{\"bar\":\"baz\"}}").unwrap());
-        assert_eq!(Rc::new(Variable::String("baz".to_string())), interpret(data, &ast).unwrap());
-    }
-
-    #[test]
-    fn interprets_index() {
-        let data = Rc::new(Variable::Array(vec![
-            Rc::new(Variable::Bool(false)),
-            Rc::new(Variable::Bool(true))]));
-        assert_eq!(Rc::new(Variable::Bool(true)),
-                   interpret(data.clone(), &Ast::Index(-1)).unwrap());
-        assert_eq!(Rc::new(Variable::Bool(false)),
-                   interpret(data.clone(), &Ast::Index(-2)).unwrap());
-        assert_eq!(Rc::new(Variable::Bool(false)),
-                   interpret(data.clone(), &Ast::Index(0)).unwrap());
-        assert_eq!(Rc::new(Variable::Bool(true)),
-                   interpret(data.clone(), &Ast::Index(1)).unwrap());
-    }
-
-    #[test]
-    fn interprets_index_when_not_array_as_null() {
-        let ast = Ast::Index(1);
-        let data = Rc::new(Variable::String("foo".to_string()));
-        assert_eq!(Rc::new(Variable::Null), interpret(data, &ast).unwrap());
-    }
-
-    #[test]
-    fn interprets_or_expr() {
-        let ast = Ast::Or {
-            lhs: Box::new(Ast::Field("bar".to_string())),
-            rhs: Box::new(Ast::Field("foo".to_string()))
-        };
-        let data = Rc::new(Variable::from_str("{\"foo\":true}").unwrap());
-        assert_eq!(Rc::new(Variable::Bool(true)), interpret(data, &ast).unwrap());
-    }
-
-    #[test]
-    fn interprets_and_expr() {
-        let ast = Ast::And {
-            lhs: Box::new(Ast::Field("bar".to_string())),
-            rhs: Box::new(Ast::Field("foo".to_string()))
-        };
-        let data = Rc::new(Variable::from_str("{\"foo\":true, \"bar\":true}").unwrap());
-        assert_eq!(Rc::new(Variable::Bool(true)), interpret(data, &ast).unwrap());
-        let data = Rc::new(Variable::from_str("{\"foo\":true}").unwrap());
-        assert_eq!(Rc::new(Variable::Null), interpret(data, &ast).unwrap());
-    }
-
-    #[test]
-    fn interprets_not_expr() {
-        let data = Rc::new(Variable::from_str("{\"a\":true,\"b\":0,\"c\":false}").unwrap());
-        let ast = Ast::Not(Box::new(Ast::Field("a".to_string())));
-        assert_eq!(Rc::new(Variable::Bool(false)), interpret(data.clone(), &ast).unwrap());
-        let ast = Ast::Not(Box::new(Ast::Field("b".to_string())));
-        assert_eq!(Rc::new(Variable::Bool(false)), interpret(data.clone(), &ast).unwrap());
-        let ast = Ast::Not(Box::new(Ast::Field("c".to_string())));
-        assert_eq!(Rc::new(Variable::Bool(true)), interpret(data.clone(), &ast).unwrap());
-    }
-
-    #[test]
-    fn interprets_cond_expr() {
-        let ast = Ast::Condition {
-            predicate: Box::new(Ast::Literal(Rc::new(Variable::Bool(true)))),
-            then: Box::new(Ast::Literal(Rc::new(Variable::String("foo".to_string()))))
-        };
-        let data = Rc::new(Variable::Null);
-        assert_eq!(Rc::new(Variable::String("foo".to_string())), interpret(data, &ast).unwrap());
-    }
-
-    #[test]
-    fn interprets_cond_expr_negative() {
-        let ast = Ast::Condition {
-            predicate: Box::new(Ast::Literal(Rc::new(Variable::Bool(false)))),
-            then: Box::new(Ast::Literal(Rc::new(Variable::String("foo".to_string()))))
-        };
-        let data = Rc::new(Variable::Null);
-        assert_eq!(Rc::new(Variable::Null), interpret(data, &ast).unwrap());
-    }
-
-    #[test]
-    fn interprets_comparison() {
-        // Left, right, result, comparator.
-        let cases = vec![vec!["true", "true", "true", "=="],
-                         vec!["true", "false", "false", "=="],
-                         vec!["true", "null", "false", "=="],
-                         vec!["null", "null", "true", "=="],
-                         vec!["10", "20", "false", ">"],
-                         vec!["10", "20", "true", "<"]];
-        for test_case in cases {
-            let cmp = match test_case[3] {
-                "==" => Comparator::Eq,
-                ">" => Comparator::Gt,
-                _ => Comparator::Lt,
-            };
-            let lhs = Rc::new(Variable::from_str(test_case[0]).unwrap());
-            let rhs = Rc::new(Variable::from_str(test_case[1]).unwrap());
-            let ast = Ast::Comparison {
-                comparator: cmp,
-                lhs: Box::new(Ast::Literal(lhs)),
-                rhs: Box::new(Ast::Literal(rhs))
-            };
-            let result = Variable::from_str(test_case[2]).unwrap();
-            assert_eq!(Rc::new(result), interpret(Rc::new(Variable::Null), &ast).unwrap());
-        }
-    }
-
-    #[test]
-    fn interprets_object_values_to_array_negative() {
-        let ast = Ast::ObjectValues(Box::new(Ast::Literal(Rc::new(Variable::Bool(false)))));
-        let data = Rc::new(Variable::Null);
-        assert_eq!(Rc::new(Variable::Null), interpret(data, &ast).unwrap());
-    }
-
-    #[test]
-    fn interprets_object_values_to_array_affirmative() {
-        let var = Rc::new(Variable::from_str("{\"foo\": \"bar\"}").unwrap());
-        let ast = Ast::ObjectValues(Box::new(Ast::Literal(var)));
-        let data = Rc::new(Variable::Null);
-        assert_eq!(
-            Rc::new(Variable::from_str("[\"bar\"]").unwrap()),
-            interpret(data, &ast).unwrap());
-    }
-
-    #[test]
-    fn projection_on_non_array_returns_null() {
-        let ast = Ast::Projection {
-            lhs: Box::new(Ast::Field("a".to_string())),
-            rhs: Box::new(Ast::Field("b".to_string()))
-        };
-        let data = Rc::new(Variable::Bool(true));
-        assert_eq!(Rc::new(Variable::Null), interpret(data, &ast).unwrap());
-    }
-
-    #[test]
-    fn projection_applies_to_array() {
-        let data = Rc::new(Variable::from_str("{\"a\": [{\"b\":1},{\"b\":2}]}").unwrap());
-        let ast = Ast::Projection {
-            lhs: Box::new(Ast::Field("a".to_string())),
-            rhs: Box::new(Ast::Field("b".to_string()))
-        };
-        assert_eq!(
-            Rc::new(Variable::from_str("[1, 2]").unwrap()),
-            interpret(data, &ast).unwrap());
-    }
-
-    #[test]
-    fn flatten_of_non_array_is_null() {
-        let data = Rc::new(Variable::from_str("{\"a\": true}").unwrap());
-        let ast = Ast::Flatten(Box::new(Ast::Field("a".to_string())));
-        assert_eq!(Rc::new(Variable::Null), interpret(data, &ast).unwrap());
-    }
-
-    #[test]
-    fn flattens_arrays() {
-        let data = Rc::new(Variable::from_str("{\"a\": [1, [2, 3], 4, [[5]]]}").unwrap());
-        let ast = Ast::Flatten(Box::new(Ast::Field("a".to_string())));
-        assert_eq!(
-            Rc::new(Variable::from_str("[1, 2, 3, 4, [5]]").unwrap()),
-            interpret(data, &ast).unwrap());
-    }
-
-    #[test]
-    fn multi_list_on_null_is_null() {
-        let ast = Ast::MultiList(vec![]);
-        assert_eq!(Rc::new(Variable::Null), interpret(Rc::new(Variable::Null), &ast).unwrap());
-    }
-
-    #[test]
-    fn multi_list_creates_array() {
-        let data = Rc::new(Variable::from_str("{\"a\": 1, \"b\": 2}").unwrap());
-        let ast = Ast::MultiList(vec![Ast::Field("a".to_string()),
-                                      Ast::Field("b".to_string())]);
-        assert_eq!(
-            Rc::new(Variable::from_str("[1, 2]").unwrap()),
-            interpret(data, &ast).unwrap());
-    }
-
-    #[test]
-    fn multi_hash_on_null_is_null() {
-        let ast = Ast::MultiHash(vec![]);
-        assert_eq!(Rc::new(Variable::Null), interpret(Rc::new(Variable::Null), &ast).unwrap());
-    }
-
-    #[test]
-    fn multi_hash_creates_object() {
-        let data = Rc::new(Variable::from_str("{\"aye\": 1, \"bee\": 2}").unwrap());
-        let ast = Ast::MultiHash(vec![
-            KeyValuePair {
-                key: Ast::Literal(Rc::new(Variable::String("a".to_string()))),
-                value: Ast::Field("aye".to_string())
-            },
-            KeyValuePair {
-                key: Ast::Literal(Rc::new(Variable::String("b".to_string()))),
-                value: Ast::Field("bee".to_string())
-            }
-        ]);
-        assert_eq!(
-            Rc::new(Variable::from_str("{\"a\": 1, \"b\": 2}").unwrap()),
-            interpret(data, &ast).unwrap());
-    }
-
-    #[test]
-    fn calls_functions() {
-        let data = Rc::new(Variable::from_str("[1, 2, 3]").unwrap());
-        let ast = Ast::Function {
-            name: "length".to_string(),
-            args: vec![Ast::Identity]
-        };
-        assert_eq!(Rc::new(Variable::U64(3)), interpret(data, &ast).unwrap());
-    }
-
-    #[test]
-    fn slices_arrays() {
-        let data = Rc::new(Variable::from_str("[0, 1, 2, 3, 4]").unwrap());
-        let ast = Ast::Slice {
-            start: Some(1),
-            stop: Some(3),
-            step: 1
-        };
-        assert_eq!(Rc::new(Variable::from_str("[1, 2]").unwrap()),
-                   interpret(data, &ast).unwrap());
-    }
-
-    #[test]
-    fn slices_arrays_with_negative_index() {
-        let data = Rc::new(Variable::from_str("[0, 1, 2, 3, 4, 5, 6]").unwrap());
-        let ast = Ast::Slice {
-            start: Some(-1),
-            stop: Some(3),
-            step: -1
-        };
-        assert_eq!(Rc::new(Variable::from_str("[6, 5, 4]").unwrap()),
-                   interpret(data, &ast).unwrap());
     }
 }
