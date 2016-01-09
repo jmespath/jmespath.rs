@@ -1,5 +1,7 @@
 language: rust
 
+sudo: false
+
 rust:
   - stable
   - beta
@@ -11,3 +13,9 @@ script:
 matrix:
   allow_failure:
     - rust: nightly
+
+env:
+  global:
+  - secure: "sK8Vz18E5bqkpWc4yRRmZGWOf8Z5Lp8yKFEq8z9nXPY6XTCOmR5Pf2Zh82wFWwxBYILxfmoONaEDNWE0CHv0grbTX3Cv613wd9mgTi/MyV/O1wC2E52S8JE+JbiHcImqFjhr0ycafvLL+hSSY0/h8ZCkektzu/1Ut2ahPmT+KZI="
+
+after_success: "./deploy_gh_pages.sh"
