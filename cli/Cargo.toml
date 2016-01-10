@@ -11,4 +11,4 @@ clap = "1"
 
 [dependencies.jmespath]
 path = ".."
-version = "0.0.1"
+version = "*"
