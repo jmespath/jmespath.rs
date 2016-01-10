@@ -4,6 +4,7 @@ use std::fmt;
 use std::collections::VecDeque;
 use std::rc::Rc;
 
+use super::Coordinates;
 use super::variable::Variable;
 use super::ast::{Ast, KeyValuePair, Comparator};
 use super::lexer::{tokenize, Token, TokenTuple};
@@ -20,75 +21,47 @@ pub fn parse(expr: &str) -> ParseResult {
 pub struct ParseError {
     /// Expression that failed to parse.
     pub expression: String,
-    /// Character position of the failure in the expression string.
-    pub position: usize,
     /// Error message describing the parse error.
     pub message: String,
-    /// Line number of the error.
-    pub line: usize,
-    /// Column of the error.
-    pub column: usize,
+    /// Position of the error.
+    pub position: Coordinates
 }
 
 impl ParseError {
     pub fn new(expr: &str, position: usize, msg: String) -> ParseError {
-        // Find each new line and create a formatted error message.
-        let mut current_pos: usize = 0;
-        let mut current_line: usize = 0;
-        let mut matched_col: usize = 0;
-        for l in expr.lines().collect::<Vec<&str>>() {
-            current_pos += l.len() + 1;
-            if current_pos > position {
-                matched_col = match current_line {
-                    0 => position,
-                    _ => current_pos.checked_sub(2 + position).unwrap_or(0)
-                };
-                break;
-            }
-            current_line += 1;
-        }
         ParseError {
             expression: expr.to_string(),
-            position: position,
-            line: current_line,
-            column: matched_col,
             message: msg,
+            position: Coordinates::from_absolute(expr, position)
         }
     }
 }
 
 impl fmt::Display for ParseError {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        let mut buff = self.expression.lines().take(self.line + 1).collect::<String>();
-        buff.push_str(&"\n");
-        buff.push_str(&(0..self.column).map(|_| ' ').collect::<String>());
-        buff.push_str(&"^\n");
-        if self.line > 0 {
-            buff.push_str(&self.expression.lines().skip(self.line).collect::<String>());
-        }
-        write!(fmt, "Parse error at line {}, col {}; {}\n{}",
-                    self.line, self.column, self.message, buff)
+        write!(fmt, "Parse error at {}; {}\n{}", self.position, self.message,
+                self.position.expression_with_carat(&self.expression))
     }
 }
 
-struct Parser {
+struct Parser<'a> {
     /// Parsed tokens
     token_queue: VecDeque<TokenTuple>,
     /// Shared EOF token
     eof_token: Token,
     /// Expression being parsed
-    expr: String,
+    expr: &'a str,
     /// The current character offset in the expression
     pos: usize,
 }
 
-impl Parser {
-    fn new(expr: &str) -> Result<Parser, ParseError> {
+impl<'a> Parser<'a> {
+    fn new(expr: &'a str) -> Result<Parser<'a>, ParseError> {
         Ok(Parser {
             token_queue: try!(tokenize(expr)),
             eof_token: Token::Eof,
             pos: 0,
-            expr: expr.to_string(),
+            expr: expr,
         })
     }
 

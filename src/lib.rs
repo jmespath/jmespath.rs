@@ -214,16 +214,85 @@ impl fmt::Display for RuntimeError {
     }
 }
 
+/// Defines a coordinate an an expression string.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Coordinates {
+    /// Absolute character position.
+    absolute: usize,
+    /// Line number of the coordinate.
+    line: usize,
+    /// Column of the line number.
+    column: usize,
+}
+
+impl Coordinates {
+    /// Create an expression coordinates struct based on an absolute
+    // position in the expression.
+    pub fn from_absolute(expr: &str, position: usize) -> Coordinates {
+        // Find each new line and create a formatted error message.
+        let mut current_line: usize = 0;
+        let mut current_col: usize = 0;
+        for c in expr.chars().take(position) {
+            match c {
+                '\n' => {
+                    current_line += 1;
+                    current_col = 0;
+                },
+                _ => current_col += 1
+            }
+        }
+        Coordinates {
+            line: current_line,
+            column: current_col,
+            absolute: position
+        }
+    }
+
+    fn inject_carat(&self, buff: &mut String) {
+        buff.push_str(&(0..self.column).map(|_| ' ').collect::<String>());
+        buff.push_str(&"^\n");
+    }
+
+    /// Returns a string that shows the expression and a carat pointing to
+    /// the coordinate.
+    pub fn expression_with_carat(&self, expr: &str) -> String {
+        let mut buff = String::new();
+        let mut matched = false;
+        let mut current_line = 0;
+        for c in expr.chars() {
+            buff.push(c);
+            if c == '\n' {
+                current_line += 1;
+                if current_line == self.line + 1 {
+                    matched = true;
+                    self.inject_carat(&mut buff);
+                }
+            }
+        }
+        if !matched {
+            buff.push('\n');
+            self.inject_carat(&mut buff);
+        }
+        buff
+    }
+}
+
+impl fmt::Display for Coordinates {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(fmt, "line {}, column {}", self.line, self.column)
+    }
+}
+
 /// A compiled JMESPath expression.
 pub struct Expression<'a> {
     ast: Ast,
-    original: &'a str,
+    original: String,
     interpreter: Option<&'a TreeInterpreter>
 }
 
 impl<'a> Expression<'a> {
     /// Creates a new JMESPath expression from an expression string.
-    pub fn new(expression: &'a str) -> Result<Expression<'a>, ParseError> {
+    pub fn new(expression: &str) -> Result<Expression<'a>, ParseError> {
         Expression::with_interpreter(expression, None)
     }
 
@@ -231,11 +300,11 @@ impl<'a> Expression<'a> {
     /// Customer interpreters may be desired when you wish to utilize custom
     /// JMESPath functions in your expressions.
     #[inline]
-    pub fn with_interpreter(expression: &'a str,
+    pub fn with_interpreter(expression: &str,
                             interpreter: Option<&'a TreeInterpreter>)
                             -> Result<Expression<'a>, ParseError> {
         Ok(Expression {
-            original: expression,
+            original: expression.to_string(),
             ast: try!(parse(expression)),
             interpreter: interpreter
         })
@@ -386,10 +455,11 @@ impl ToJMESPath for BTreeMap<String, RcVar> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use super::ast::Ast;
     use std::rc::Rc;
 
     #[test]
-    fn formats_expression_as_string() {
+    fn formats_expression_as_string_or_debug() {
         let expr = Expression::new("foo | baz").unwrap();
         assert_eq!("foo | baz/foo | baz", format!("{}/{:?}", expr, expr));
     }
@@ -411,5 +481,41 @@ mod test {
     #[test]
     fn can_search() {
         assert_eq!(Rc::new(Variable::Bool(true)), search("`true`", ()).unwrap());
+    }
+
+    #[test]
+    fn can_get_expression_ast() {
+        let expr = Expression::new("foo").unwrap();
+        assert_eq!(&Ast::Field("foo".to_string()), expr.as_ast());
+    }
+
+    #[test]
+    fn coordinates_can_be_created_from_string_with_new_lines() {
+        let expr = "foo\n..bar";
+        let coords = Coordinates::from_absolute(expr, 5);
+        assert_eq!(1, coords.line);
+        assert_eq!(1, coords.column);
+        assert_eq!(5, coords.absolute);
+        assert_eq!("foo\n..bar\n ^\n", coords.expression_with_carat(expr));
+    }
+
+    #[test]
+    fn coordinates_can_be_created_from_string_with_new_lines_pointing_to_non_last() {
+        let expr = "foo\n..bar\nbaz";
+        let coords = Coordinates::from_absolute(expr, 5);
+        assert_eq!(1, coords.line);
+        assert_eq!(1, coords.column);
+        assert_eq!(5, coords.absolute);
+        assert_eq!("foo\n..bar\n ^\nbaz", coords.expression_with_carat(expr));
+    }
+
+    #[test]
+    fn coordinates_can_be_created_from_string_with_no_new_lines() {
+        let expr = "foo..bar";
+        let coords = Coordinates::from_absolute(expr, 4);
+        assert_eq!(0, coords.line);
+        assert_eq!(4, coords.column);
+        assert_eq!(4, coords.absolute);
+        assert_eq!("foo..bar\n    ^\n", coords.expression_with_carat(expr));
     }
 }
