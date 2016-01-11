@@ -5,10 +5,9 @@ use std::iter::Peekable;
 use std::str::CharIndices;
 use std::collections::VecDeque;
 
-use super::RcVar;
+use super::{Error, ErrorReason, RcVar};
 use self::Token::*;
 use super::variable::Variable;
-use super::parser::ParseError;
 
 /// Represents a lexical token of a JMESPath expression.
 #[derive(Clone, PartialEq, Debug)]
@@ -74,7 +73,7 @@ pub type TokenTuple = (usize, Token);
 type CharIter<'a> = Peekable<CharIndices<'a>>;
 
 /// Tokenizes a JMESPath expression.
-pub fn tokenize(expr: &str) -> Result<VecDeque<TokenTuple>, ParseError> {
+pub fn tokenize(expr: &str) -> Result<VecDeque<TokenTuple>, Error> {
     Lexer::new(expr).tokenize()
 }
 
@@ -91,7 +90,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn tokenize(&mut self) -> Result<VecDeque<TokenTuple>, ParseError> {
+    fn tokenize(&mut self) -> Result<VecDeque<TokenTuple>, Error> {
         let mut tokens = VecDeque::new();
         let last_position = self.expr.len();
         macro_rules! tok {
@@ -129,11 +128,9 @@ impl<'a> Lexer<'a> {
                                     Eq
                                 },
                                 _ => {
-                                    return Err(ParseError::new(
-                                        self.expr,
-                                        pos,
+                                    return Err(Error::new(self.expr, pos, ErrorReason::Parse(
                                         "'=' is not valid. Did you mean '=='?".to_string()
-                                    ))
+                                    )))
                                 }
                             })
                         },
@@ -150,11 +147,9 @@ impl<'a> Lexer<'a> {
                             continue;
                         },
                         c @ _ => {
-                            return Err(ParseError::new(
-                                self.expr,
-                                pos,
+                            return Err(Error::new(self.expr, pos, ErrorReason::Parse(
                                 format!("Invalid character: {}", c)
-                            ))
+                            )))
                         }
                     }
                 },
@@ -225,17 +220,17 @@ impl<'a> Lexer<'a> {
 
     // Consumes a negative number
     #[inline]
-    fn consume_negative_number(&mut self, pos: usize) -> Result<Token, ParseError> {
+    fn consume_negative_number(&mut self, pos: usize) -> Result<Token, Error> {
         // Skip the "-" number token.
         self.iter.next();
         // Ensure that the next value is a number > 0
         match self.iter.peek() {
             Some(&(_, c)) if c.is_numeric() && c != '0' => Ok(self.consume_number(true)),
-            _ => Err(ParseError::new(
-                self.expr,
-                pos,
-                "'-' must be followed by numbers 1-9".to_string()
-            ))
+            _ => {
+                Err(Error::new(self.expr, pos, ErrorReason::Parse(
+                    "'-' must be followed by numbers 1-9".to_string()
+                )))
+            }
         }
     }
 
@@ -245,7 +240,7 @@ impl<'a> Lexer<'a> {
     fn consume_inside<F>(&mut self,
                          pos: usize,
                          wrapper: char,
-                         invoke: F) -> Result<Token, ParseError>
+                         invoke: F) -> Result<Token, Error>
         where F: Fn(String) -> Result<Token, String>
     {
         let mut buffer = String::new();
@@ -253,7 +248,9 @@ impl<'a> Lexer<'a> {
         self.iter.next();
         while let Some((_, c)) = self.iter.next() {
             if c == wrapper {
-                return invoke(buffer).map_err(|e| ParseError::new(self.expr, pos, e))
+                return invoke(buffer).map_err(|e| {
+                    Error::new(self.expr, pos, ErrorReason::Parse(e))
+                })
             } else if c == '\\' {
                 buffer.push(c);
                 if let Some((_, c)) = self.iter.next() {
@@ -265,16 +262,14 @@ impl<'a> Lexer<'a> {
         }
         // The token was not closed, so error with the string, including the
         // wrapper (e.g., '"foo').
-        Err(ParseError::new(
-            self.expr,
-            pos,
+        Err(Error::new(self.expr, pos, ErrorReason::Parse(
             format!("Unclosed {} delimiter: {}{}", wrapper, wrapper, buffer)
-        ))
+        )))
     }
 
     // Consume and parse a quoted identifier token.
     #[inline]
-    fn consume_quoted_identifier(&mut self, pos: usize) -> Result<Token, ParseError> {
+    fn consume_quoted_identifier(&mut self, pos: usize) -> Result<Token, Error> {
         self.consume_inside(pos, '"', |s| {
             // JSON decode the string to expand escapes
             match Variable::from_str(format!(r##""{}""##, s).as_ref()) {
@@ -286,7 +281,7 @@ impl<'a> Lexer<'a> {
     }
 
     #[inline]
-    fn consume_raw_string(&mut self, pos: usize) -> Result<Token, ParseError> {
+    fn consume_raw_string(&mut self, pos: usize) -> Result<Token, Error> {
         // Note: we need to unescape here because the backslashes are passed through.
         self.consume_inside(pos, '\'',
             |s| Ok(Literal(Rc::new(Variable::String(s.replace("\\'", "'"))))))
@@ -294,7 +289,7 @@ impl<'a> Lexer<'a> {
 
     // Consume and parse a literal JSON token.
     #[inline]
-    fn consume_literal(&mut self, pos: usize) -> Result<Token, ParseError> {
+    fn consume_literal(&mut self, pos: usize) -> Result<Token, Error> {
         self.consume_inside(pos, '`', |s| {
             let unescaped = s.replace("\\`", "`");
             match Variable::from_str(unescaped.as_ref()) {
@@ -393,13 +388,15 @@ mod tests {
 
     #[test]
     fn tokenize_single_error_test() {
-        assert!(tokenize("~").unwrap_err().message.contains("Invalid character: ~"));
+        assert!(tokenize("~").unwrap_err().to_string().contains("Invalid character: ~"));
     }
 
     #[test]
     fn tokenize_unclosed_errors_test() {
-        assert!(tokenize("\"foo").unwrap_err().message.contains("Unclosed \" delimiter: \"foo"));
-        assert!(tokenize("`foo").unwrap_err().message.contains("Unclosed ` delimiter: `foo"));
+        assert!(
+            tokenize("\"foo").unwrap_err().to_string().contains("Unclosed \" delimiter: \"foo"));
+        assert!(
+            tokenize("`foo").unwrap_err().to_string().contains("Unclosed ` delimiter: `foo"));
     }
 
     #[test]
@@ -461,7 +458,7 @@ mod tests {
     #[test]
     fn tokenize_literal_test() {
         // Must enclose in quotes. See JEP 12.
-        assert!(tokenize("`a`").unwrap_err().message.contains("Unable to parse"));
+        assert!(tokenize("`a`").unwrap_err().to_string().contains("Unable to parse"));
         assert_eq!(tokenize_queue("`\"a\"`"), vec![
             (0, Literal(Rc::new(Variable::String("a".to_string())))),
             (5, Eof)
@@ -486,7 +483,7 @@ mod tests {
 
     #[test]
     fn tokenize_negative_number_test_failure() {
-        assert!(tokenize("-01").unwrap_err().message.contains("'-'"));
+        assert!(tokenize("-01").unwrap_err().to_string().contains("'-'"));
     }
 
     #[test]

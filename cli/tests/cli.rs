@@ -18,14 +18,14 @@ fn get_output(args: Vec<&str>) -> Result<String, String> {
 #[test]
 fn prints_ast() {
     let output = get_output(vec!["--ast", "foo"]).unwrap();
-    assert_eq!("Field(\n    \"foo\"\n)\n", output);
+    assert_eq!("Field {\n    offset: 0,\n    name: \"foo\"\n}\n", output);
 }
 
 #[test]
 fn shows_parse_error_information_with_non_zero_rc() {
     let output = get_output(vec!["--ast", "foo{"]).unwrap_err();
-    assert_eq!("Parse error at line 0, col 3; Unexpected led token -- found Lbrace\n\
-                foo{\n   ^\n\n", output);
+    assert_eq!("Parse error: Unexpected led token -- found Lbrace (line 0, column 3)\nfoo{\
+               \n   ^\n\n", output);
 }
 
 #[test]
@@ -91,7 +91,7 @@ fn validates_expression_file_is_valid_expression() {
     let output = get_output(vec![
         "-e", "tests/fixtures/invalid-expression",
         "-f", "tests/fixtures/valid-json"]).unwrap_err();
-    assert!(output.contains("Parse error at line 0, col 4; Expected identifier"));
+    assert!(output.contains("Parse error"));
 }
 
 #[test]

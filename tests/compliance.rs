@@ -125,39 +125,41 @@ impl Assertion {
                 }
             },
             &Assertion::Error(ref error_type) => {
+                use jmespath::ErrorReason::*;
+                let result = self.try_parse(suite, case);
                 match error_type {
                     &ErrorType::InvalidArity => {
-                        match try!(self.try_parse(suite, case)).search(given.clone()) {
-                            Err(RuntimeError::NotEnoughArguments{..}) => Ok(()),
-                            Err(RuntimeError::TooManyArguments{..}) => Ok(()),
+                        match try!(result).search(given).map_err(|e| e.error_reason) {
+                            Err(Runtime(RuntimeError::NotEnoughArguments{..})) => Ok(()),
+                            Err(Runtime(RuntimeError::TooManyArguments{..})) => Ok(()),
                             Err(e) => Err(self.err_message(suite, case, format!("{}", e))),
                             Ok(r) => Err(self.err_message(suite, case, r.to_string().unwrap())),
                         }
                     },
                     &ErrorType::InvalidType => {
-                        match try!(self.try_parse(suite, case)).search(given.clone()) {
-                            Err(RuntimeError::InvalidType{..}) => Ok(()),
-                            Err(RuntimeError::InvalidReturnType{..}) => Ok(()),
+                        match try!(result).search(given).map_err(|e| e.error_reason) {
+                            Err(Runtime(RuntimeError::InvalidType{..})) => Ok(()),
+                            Err(Runtime(RuntimeError::InvalidReturnType{..})) => Ok(()),
                             Err(e) => Err(self.err_message(suite, case, format!("{}", e))),
                             Ok(r) => Err(self.err_message(suite, case, r.to_string().unwrap())),
                         }
                     },
                     &ErrorType::InvalidSlice => {
-                        match try!(self.try_parse(suite, case)).search(given.clone()) {
-                            Err(RuntimeError::InvalidSlice{..}) => Ok(()),
+                        match try!(result).search(given).map_err(|e| e.error_reason) {
+                            Err(Runtime(RuntimeError::InvalidSlice)) => Ok(()),
                             Err(e) => Err(self.err_message(suite, case, format!("{}", e))),
                             Ok(r) => Err(self.err_message(suite, case, r.to_string().unwrap())),
                         }
                     },
                     &ErrorType::UnknownFunction => {
-                        match try!(self.try_parse(suite, case)).search(given) {
-                            Err(RuntimeError::UnknownFunction{..}) => Ok(()),
+                        match try!(result).search(given).map_err(|e| e.error_reason) {
+                            Err(Runtime(RuntimeError::UnknownFunction(_))) => Ok(()),
                             Err(e) => Err(self.err_message(suite, case, format!("{}", e))),
                             Ok(r) => Err(self.err_message(suite, case, r.to_string().unwrap())),
                         }
                     },
                     &ErrorType::SyntaxError => {
-                        match Expression::new(&case.expression) {
+                        match result {
                             Err(_) => Ok(()),
                             Ok(expr) => {
                                 Err(self.err_message(suite, case, format!("Parsed {:?}", expr)))

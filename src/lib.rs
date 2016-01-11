@@ -54,10 +54,7 @@
 //! The `jmespath::search` function can be used for more simplified searching
 //! when expression reuse is not important. `jmespath::search` will compile
 //! the given expression and evaluate the expression against the provided
-//! data. If a parse error occurs, a `jmespath::Error::ParseError` is
-//! returned in a `Result`. If the expression is able to be parsed but an
-//! error occurs, a `jmespath::Error::Runtime` error is returned in a
-//! `Result`.
+//! data.
 //!
 //! ```
 //! use jmespath;
@@ -81,9 +78,8 @@
 
 extern crate serde_json;
 
-pub use parser::{parse, ParseError, ParseResult};
+pub use parser::{parse, ParseResult};
 pub use variable::Variable;
-pub use interpreter::{TreeInterpreter, SearchResult};
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -92,54 +88,76 @@ use std::rc::Rc;
 use self::serde_json::Value;
 
 use ast::Ast;
-use interpreter::Context;
+use interpreter::{TreeInterpreter, Context, SearchResult};
 
 pub mod ast;
 pub mod functions;
 mod parser;
 mod lexer;
-mod interpreter;
+pub mod interpreter;
 mod variable;
 
 pub type RcVar = Rc<Variable>;
 
 /// Parses an expression and performs a search over the data.
 pub fn search<T: ToJMESPath>(expression: &str, data: T) -> Result<RcVar, Error> {
-    Expression::new(expression)
-        .map_err(|e| Error::from(e))
-        .and_then(|expr| expr.search(data).map_err(|e| Error::from(e)))
+    Expression::new(expression).and_then(|expr| expr.search(data))
 }
 
-/// Aggregate JMESPath error for both parse and runtime errors.
+/// JMESPath error
 #[derive(Clone,Debug,PartialEq)]
-pub enum Error {
-    /// An error occurred while parsing an expression.
-    Parse(ParseError),
-    /// An error occurred while evaluating an expression.
-    Runtime(RuntimeError)
+pub struct Error {
+    /// Coordinates to where the error was encountered in the original
+    /// expression string.
+    pub coordinates: Coordinates,
+    /// Expression being evaluated.
+    pub expression: String,
+    /// Error reason information.
+    pub error_reason: ErrorReason
 }
 
-/// Displaying/to_string() of an error simply proxies to the wrapped error.
-impl fmt::Display for Error {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        match self {
-            &self::Error::Parse(ref err) => write!(fmt, "Parse error: {}", err),
-            &self::Error::Runtime(ref err) => write!(fmt, "Runtime error: {}", err)
+impl Error {
+    /// Create a new JMESPath Error
+    pub fn new(expr: &str, offset: usize, error_reason: ErrorReason) -> Error {
+        Error {
+            expression: expr.to_string(),
+            coordinates: Coordinates::from_offset(expr, offset),
+            error_reason: error_reason
+        }
+    }
+
+    /// Create a new JMESPath Error from a Context struct.
+    pub fn from_ctx(ctx: &Context, error_reason: ErrorReason) -> Error {
+        Error {
+            expression: ctx.expression.to_string(),
+            coordinates: ctx.create_coordinates(),
+            error_reason: error_reason
         }
     }
 }
 
-/// Converts a RuntimeError to an Error
-impl From<RuntimeError> for Error {
-    fn from(err: RuntimeError) -> Error {
-        Error::Runtime(err)
+impl fmt::Display for Error {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(fmt, "{} ({})\n{}", self.error_reason, self.coordinates,
+            self.coordinates.expression_with_carat(&self.expression))
     }
 }
 
-/// Converts a ParseError to an Error
-impl From<ParseError> for Error {
-    fn from(err: ParseError) -> Error {
-        Error::Parse(err)
+/// Error context provides specific details about an error.
+#[derive(Clone,Debug,PartialEq)]
+pub enum ErrorReason {
+    /// An error occurred while parsing an expression.
+    Parse(String),
+    /// An error occurred while evaluating an expression.
+    Runtime(RuntimeError)
+}
+
+impl fmt::Display for ErrorReason {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        match self {
+            &ErrorReason::Parse(ref e) => write!(fmt, "Parse error: {}", e),
+            &ErrorReason::Runtime(ref e) => write!(fmt, "Runtime error: {}", e),
+        }
     }
 }
 
@@ -147,40 +165,23 @@ impl From<ParseError> for Error {
 #[derive(Clone,Debug,PartialEq)]
 pub enum RuntimeError {
     /// Encountered when a slice expression uses a step of 0
-    InvalidSlice {
-        coordinates: Coordinates,
-        expression: String,
-    },
+    InvalidSlice,
     /// Encountered when a key is not a string.
-    InvalidKey {
-        coordinates: Coordinates,
-        expression: String,
-        actual: String,
-    },
+    InvalidKey(String),
     /// Encountered when too many arguments are provided to a function.
     TooManyArguments {
-        coordinates: Coordinates,
-        expression: String,
         expected: usize,
         actual: usize,
     },
     /// Encountered when too few arguments are provided to a function.
     NotEnoughArguments {
-        coordinates: Coordinates,
-        expression: String,
         expected: usize,
         actual: usize,
     },
     /// Encountered when an unknown function is called.
-    UnknownFunction {
-        coordinates: Coordinates,
-        expression: String,
-        function: String,
-    },
+    UnknownFunction(String),
     /// Encountered when a type of variable given to a function is invalid.
     InvalidType {
-        coordinates: Coordinates,
-        expression: String,
         expected: String,
         actual: String,
         actual_value: RcVar,
@@ -188,8 +189,6 @@ pub enum RuntimeError {
     },
     /// Encountered when an expression reference returns an invalid type.
     InvalidReturnType {
-        coordinates: Coordinates,
-        expression: String,
         expected: String,
         actual: String,
         actual_value: RcVar,
@@ -202,51 +201,45 @@ impl fmt::Display for RuntimeError {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         use self::RuntimeError::*;
         match self {
-            &UnknownFunction { ref function, ref coordinates, ref expression } => {
-                write!(fmt, "Call to undefined function {} at {}\n{}", function, coordinates,
-                    coordinates.expression_with_carat(expression))
+            &UnknownFunction(ref function) => {
+                write!(fmt, "Call to undefined function {}", function)
             },
-            &TooManyArguments { ref expected, ref actual, ref coordinates, ref expression } => {
-                write!(fmt, "Too many arguments, expected {}, found {} at {}\n{}", expected,
-                    actual, coordinates, coordinates.expression_with_carat(expression))
+            &TooManyArguments { ref expected, ref actual } => {
+                write!(fmt, "Too many arguments, expected {}, found {}", expected, actual)
             },
-            &NotEnoughArguments { ref expected, ref actual, ref coordinates, .. } => {
-                write!(fmt, "Not enough arguments, expected {}, found {} at {}", expected,
-                    actual, coordinates)
+            &NotEnoughArguments { ref expected, ref actual } => {
+                write!(fmt, "Not enough arguments, expected {}, found {}", expected, actual)
             },
-            &InvalidType { ref expected, ref actual, ref position, ref actual_value,
-                    ref coordinates, .. } => {
-                write!(fmt, "Argument {} expects type {}, given {} {} at {}",
+            &InvalidType { ref expected, ref actual, ref position, ref actual_value } => {
+                write!(fmt, "Argument {} expects type {}, given {} {}",
                     position, expected, actual,
-                    actual_value.to_string().unwrap_or(format!("{:?}", actual_value)),
-                    coordinates)
+                    actual_value.to_string().unwrap_or(format!("{:?}", actual_value)))
             },
-            &InvalidSlice { ref coordinates, .. } => {
-                write!(fmt, "Invalid slice at {}", coordinates)
+            &InvalidSlice => {
+                write!(fmt, "Invalid slice")
             },
             &InvalidReturnType { ref expected, ref actual, ref position, ref invocation,
-                    ref actual_value, ref coordinates,.. } => {
-                write!(fmt, "Argument {} must return {} but invocation {} returned {} {} at {}",
+                    ref actual_value } => {
+                write!(fmt, "Argument {} must return {} but invocation {} returned {} {}",
                     position, expected, invocation, actual,
-                    actual_value.to_string().unwrap_or(format!("{:?}", actual_value)),
-                    coordinates)
+                    actual_value.to_string().unwrap_or(format!("{:?}", actual_value)))
             },
-            &InvalidKey { ref actual, ref coordinates, .. } => {
-                write!(fmt, "Invalid key. Expected string, found {:?} at {}", actual, coordinates)
+            &InvalidKey(ref actual) => {
+                write!(fmt, "Invalid key. Expected string, found {:?}", actual)
             },
         }
     }
 }
 
-/// Defines a coordinate an an expression string.
+/// Defines the coordinates to a position in an expression string.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Coordinates {
     /// Absolute character position.
-    offset: usize,
+    pub offset: usize,
     /// Line number of the coordinate.
-    line: usize,
+    pub line: usize,
     /// Column of the line number.
-    column: usize,
+    pub column: usize,
 }
 
 impl Coordinates {
@@ -316,7 +309,7 @@ pub struct Expression<'a> {
 
 impl<'a> Expression<'a> {
     /// Creates a new JMESPath expression from an expression string.
-    pub fn new(expression: &str) -> Result<Expression<'a>, ParseError> {
+    pub fn new(expression: &str) -> Result<Expression<'a>, Error> {
         Expression::with_interpreter(expression, None)
     }
 
@@ -326,7 +319,7 @@ impl<'a> Expression<'a> {
     #[inline]
     pub fn with_interpreter(expression: &str,
                             interpreter: Option<&'a TreeInterpreter>)
-                            -> Result<Expression<'a>, ParseError> {
+                            -> Result<Expression<'a>, Error> {
         Ok(Expression {
             original: expression.to_string(),
             ast: try!(parse(expression)),

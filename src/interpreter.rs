@@ -2,12 +2,12 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use super::{Coordinates, RcVar, RuntimeError};
+use super::{Coordinates, RcVar, Error, ErrorReason, RuntimeError};
 use super::ast::Ast;
 use super::functions::{register_core_functions, JPFunction, Functions};
 use super::variable::{Variable, VariableAllocator};
 
-pub type SearchResult = Result<RcVar, RuntimeError>;
+pub type SearchResult = Result<RcVar, Error>;
 
 /// TreeInterpreter context object used primarily for error reporting.
 pub struct Context<'a> {
@@ -20,6 +20,7 @@ pub struct Context<'a> {
 }
 
 impl<'a> Context<'a> {
+    /// Create a coordinates struct from the context.
     pub fn create_coordinates(&self) -> Coordinates {
         Coordinates::from_offset(self.expression, self.offset)
     }
@@ -192,11 +193,9 @@ impl TreeInterpreter {
                         if let Variable::String(ref s) = *key {
                             collected.insert(s.to_string(), value);
                         } else {
-                            return Err(RuntimeError::InvalidKey {
-                                coordinates: ctx.create_coordinates(),
-                                expression: ctx.expression.to_string(),
-                                actual: key.get_type().to_string()
-                            });
+                            return Err(Error::from_ctx(ctx, ErrorReason::Runtime(
+                                RuntimeError::InvalidKey(key.get_type().to_string())
+                            )));
                         }
                     }
                     Ok(self.allocator.alloc(collected))
@@ -213,11 +212,9 @@ impl TreeInterpreter {
                 match self.functions.get(name) {
                     Some(f) => f.evaluate(fn_args, ctx),
                     None => {
-                        Err(RuntimeError::UnknownFunction {
-                            coordinates: ctx.create_coordinates(),
-                            expression: ctx.expression.to_string(),
-                            function: name.clone()
-                        })
+                        Err(Error::from_ctx(ctx, ErrorReason::Runtime(
+                            RuntimeError::UnknownFunction(name.clone())
+                        )))
                     }
                 }
             },
@@ -228,10 +225,7 @@ impl TreeInterpreter {
             &Ast::Slice { ref start, ref stop, step, ref offset } => {
                 ctx.offset = *offset;
                 if step == 0 {
-                    Err(RuntimeError::InvalidSlice {
-                        coordinates: ctx.create_coordinates(),
-                        expression: ctx.expression.to_string(),
-                    })
+                    Err(Error::from_ctx(ctx, ErrorReason::Runtime(RuntimeError::InvalidSlice)))
                 } else {
                     match data.as_array() {
                         Some(ref array) => {

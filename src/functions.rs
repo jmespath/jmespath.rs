@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::cmp::{max, min};
 use std::fmt;
 
-use super::{RcVar, RuntimeError};
+use super::{Error, ErrorReason, RcVar, RuntimeError};
 use super::interpreter::{Context, SearchResult};
 use super::variable::Variable;
 
@@ -117,23 +117,19 @@ pub type Functions = HashMap<String, FnBox>;
 #[inline]
 pub fn validate_arity(ctx: &Context,
                       expected: usize,
-                      actual: usize) -> Result<(), RuntimeError> {
+                      actual: usize) -> Result<(), Error> {
     if actual == expected {
         Ok(())
     } else if actual < expected {
-        Err(RuntimeError::NotEnoughArguments {
-            coordinates: ctx.create_coordinates(),
-            expression: ctx.expression.to_string(),
+        Err(Error::from_ctx(ctx, ErrorReason::Runtime(RuntimeError::NotEnoughArguments {
             expected: expected,
             actual: actual,
-        })
+        })))
     } else {
-        Err(RuntimeError::TooManyArguments {
-            coordinates: ctx.create_coordinates(),
-            expression: ctx.expression.to_string(),
+        Err(Error::from_ctx(ctx, ErrorReason::Runtime(RuntimeError::TooManyArguments {
             expected: expected,
             actual: actual,
-        })
+        })))
     }
 }
 
@@ -141,14 +137,12 @@ pub fn validate_arity(ctx: &Context,
 #[inline]
 pub fn validate_min_arity(ctx: &Context,
                           expected: usize,
-                          actual: usize) -> Result<(), RuntimeError> {
+                          actual: usize) -> Result<(), Error> {
     if actual < expected {
-        Err(RuntimeError::NotEnoughArguments {
-            coordinates: ctx.create_coordinates(),
-            expression: ctx.expression.to_string(),
+        Err(Error::from_ctx(ctx, ErrorReason::Runtime(RuntimeError::NotEnoughArguments {
             expected: expected,
             actual: actual
-        })
+        })))
     } else {
         Ok(())
     }
@@ -164,14 +158,12 @@ macro_rules! validate_args {
             try!(validate_arity($ctx, arg_types.len(), $args.len()));
             for (k, v) in $args.iter().enumerate() {
                 if !arg_types[k].is_valid(v) {
-                    return Err(RuntimeError::InvalidType {
-                        coordinates: $ctx.create_coordinates(),
-                        expression: $ctx.expression.to_string(),
+                    return Err(Error::from_ctx($ctx, ErrorReason::Runtime(RuntimeError::InvalidType {
                         expected: arg_types[k].to_string(),
                         actual: v.get_type().to_string(),
                         actual_value: v.clone(),
                         position: k
-                    });
+                    })));
                 }
             }
         }
@@ -185,14 +177,12 @@ macro_rules! validate_args {
             for (k, v) in $args.iter().enumerate() {
                 let validator = arg_types.get(k).unwrap_or(&variadic);
                 if !validator.is_valid(v) {
-                    return Err(RuntimeError::InvalidType {
-                        coordinates: $ctx.create_coordinates(),
-                        expression: $ctx.expression.to_string(),
+                    return Err(Error::from_ctx($ctx, ErrorReason::Runtime(RuntimeError::InvalidType {
                         expected: validator.to_string(),
                         actual: v.get_type().to_string(),
                         actual_value: v.clone(),
                         position: k
-                    });
+                    })));
                 }
             }
         }
@@ -214,30 +204,30 @@ macro_rules! min_and_max_by {
             let initial = try!($ctx.interpreter.interpret(&vals[0], &ast, $ctx));
             let entered_type = initial.get_type();
             if entered_type != "string" && entered_type != "number" {
-                return Err(RuntimeError::InvalidReturnType {
-                    coordinates: $ctx.create_coordinates(),
-                    expression: $ctx.expression.to_string(),
-                    expected: "expression->number|expression->string".to_string(),
-                    actual: entered_type.to_string(),
-                    actual_value: initial.clone(),
-                    position: 1,
-                    invocation: 1
-                });
+                return Err(Error::from_ctx($ctx,
+                    ErrorReason::Runtime(RuntimeError::InvalidReturnType {
+                        expected: "expression->number|expression->string".to_string(),
+                        actual: entered_type.to_string(),
+                        actual_value: initial.clone(),
+                        position: 1,
+                        invocation: 1
+                    }
+                )));
             }
             // Map over each value, finding the best candidate value and fail on error.
             let mut candidate = (vals[0].clone(), initial.clone());
             for (invocation, v) in vals.iter().enumerate().skip(1) {
                 let mapped = try!($ctx.interpreter.interpret(v, &ast, $ctx));
                 if mapped.get_type() != entered_type {
-                    return Err(RuntimeError::InvalidReturnType {
-                        coordinates: $ctx.create_coordinates(),
-                        expression: $ctx.expression.to_string(),
-                        expected: format!("expression->{}", entered_type),
-                        actual: mapped.get_type().to_string(),
-                        actual_value: mapped.clone(),
-                        position: 1,
-                        invocation: invocation
-                    });
+                    return Err(Error::from_ctx($ctx,
+                        ErrorReason::Runtime(RuntimeError::InvalidReturnType {
+                            expected: format!("expression->{}", entered_type),
+                            actual: mapped.get_type().to_string(),
+                            actual_value: mapped.clone(),
+                            position: 1,
+                            invocation: invocation
+                        }
+                    )));
                 }
                 if mapped.$operator(&candidate.1) {
                     candidate = (v.clone(), mapped);
@@ -542,29 +532,27 @@ impl JPFunction for SortBy {
         let first_value = try!(ctx.interpreter.interpret(&vals[0], &ast, ctx));
         let first_type = first_value.get_type();
         if first_type != "string" && first_type != "number" {
-            return Err(RuntimeError::InvalidReturnType {
-                coordinates: ctx.create_coordinates(),
-                expression: ctx.expression.to_string(),
+            return Err(Error::from_ctx(ctx, ErrorReason::Runtime(RuntimeError::InvalidReturnType {
                 expected: "expression->string|expression->number".to_string(),
                 actual: first_type.to_string(),
                 actual_value: first_value.clone(),
                 position: 1,
                 invocation: 1
-            });
+            })));
         }
         mapped.push((vals[0].clone(), first_value.clone()));
         for (invocation, v) in vals.iter().enumerate().skip(1) {
             let mapped_value = try!(ctx.interpreter.interpret(v, &ast, ctx));
             if mapped_value.get_type() != first_type {
-                return Err(RuntimeError::InvalidReturnType {
-                    coordinates: ctx.create_coordinates(),
-                    expression: ctx.expression.to_string(),
-                    expected: format!("expression->{}", first_type),
-                    actual: mapped_value.get_type().to_string(),
-                    actual_value: mapped_value.clone(),
-                    position: 1,
-                    invocation: invocation
-                });
+                return Err(Error::from_ctx(ctx,
+                    ErrorReason::Runtime(RuntimeError::InvalidReturnType {
+                        expected: format!("expression->{}", first_type),
+                        actual: mapped_value.get_type().to_string(),
+                        actual_value: mapped_value.clone(),
+                        position: 1,
+                        invocation: invocation
+                    }
+                )));
             }
             mapped.push((v.clone(), mapped_value));
         }

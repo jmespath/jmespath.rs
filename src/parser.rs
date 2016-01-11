@@ -1,47 +1,19 @@
 //! Module for parsing JMESPath expressions into an AST.
 
-use std::fmt;
 use std::collections::VecDeque;
 use std::rc::Rc;
 
-use super::Coordinates;
+use super::{Error, ErrorReason};
 use super::variable::Variable;
 use super::ast::{Ast, KeyValuePair, Comparator};
 use super::lexer::{tokenize, Token, TokenTuple};
 
-pub type ParseResult = Result<Ast, ParseError>;
+/// Result of parsing an expression.
+pub type ParseResult = Result<Ast, Error>;
 
 /// Parses a JMESPath expression into an AST
 pub fn parse(expr: &str) -> ParseResult {
     Parser::new(expr).and_then(|mut p| p.parse())
-}
-
-/// Encountered when an invalid JMESPath expression is parsed.
-#[derive(Clone, PartialEq, Debug)]
-pub struct ParseError {
-    /// Expression that failed to parse.
-    pub expression: String,
-    /// Error message describing the parse error.
-    pub message: String,
-    /// Position of the error.
-    pub position: Coordinates
-}
-
-impl ParseError {
-    pub fn new(expr: &str, position: usize, msg: String) -> ParseError {
-        ParseError {
-            expression: expr.to_string(),
-            message: msg,
-            position: Coordinates::from_offset(expr, position)
-        }
-    }
-}
-
-impl fmt::Display for ParseError {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(fmt, "Parse error at {}; {}\n{}", self.position, self.message,
-                self.position.expression_with_carat(&self.expression))
-    }
 }
 
 struct Parser<'a> {
@@ -56,7 +28,7 @@ struct Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
-    fn new(expr: &'a str) -> Result<Parser<'a>, ParseError> {
+    fn new(expr: &'a str) -> Result<Parser<'a>, Error> {
         Ok(Parser {
             token_queue: try!(tokenize(expr)),
             eof_token: Token::Eof,
@@ -65,7 +37,6 @@ impl<'a> Parser<'a> {
         })
     }
 
-    /// Parses the expression into result containing an AST or ParseError.
     #[inline]
     fn parse(&mut self) -> ParseResult {
         self.expr(0)
@@ -102,8 +73,8 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Returns a formatted ParseError with the given message.
-    fn err(&self, current_token: &Token, error_msg: &str, is_peek: bool) -> ParseError {
+    /// Returns a formatted error with the given message.
+    fn err(&self, current_token: &Token, error_msg: &str, is_peek: bool) -> Error {
         let mut actual_pos = self.offset;
         let mut buff = error_msg.to_string();
         buff.push_str(&format!(" -- found {:?}", current_token));
@@ -112,7 +83,7 @@ impl<'a> Parser<'a> {
                 actual_pos = p;
             }
         }
-        ParseError::new(&self.expr, actual_pos, buff)
+        Error::new(&self.expr, actual_pos, ErrorReason::Parse(buff))
     }
 
     /// Main parse function of the Pratt parser that parses while RBP < LBP
@@ -266,7 +237,7 @@ impl<'a> Parser<'a> {
     }
 
     #[inline(never)]
-    fn parse_kvp(&mut self) -> Result<KeyValuePair, ParseError> {
+    fn parse_kvp(&mut self) -> Result<KeyValuePair, Error> {
         match self.advance() {
             Token::Identifier(value) | Token::QuotedIdentifier(value) => {
                 if self.peek(0) == &Token::Colon {
@@ -467,7 +438,7 @@ impl<'a> Parser<'a> {
     ///
     /// Examples: [foo, bar], foo(bar), foo(), foo(baz, bar)
     #[inline(never)]
-    fn parse_list(&mut self, closing: Token) -> Result<Vec<Ast>, ParseError> {
+    fn parse_list(&mut self, closing: Token) -> Result<Vec<Ast>, Error> {
         let mut nodes = vec![];
         while self.peek(0) != &closing {
             nodes.push(try!(self.expr(0)));
