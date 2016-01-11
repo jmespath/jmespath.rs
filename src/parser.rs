@@ -32,7 +32,7 @@ impl ParseError {
         ParseError {
             expression: expr.to_string(),
             message: msg,
-            position: Coordinates::from_absolute(expr, position)
+            position: Coordinates::from_offset(expr, position)
         }
     }
 }
@@ -52,7 +52,7 @@ struct Parser<'a> {
     /// Expression being parsed
     expr: &'a str,
     /// The current character offset in the expression
-    pos: usize,
+    offset: usize,
 }
 
 impl<'a> Parser<'a> {
@@ -60,12 +60,13 @@ impl<'a> Parser<'a> {
         Ok(Parser {
             token_queue: try!(tokenize(expr)),
             eof_token: Token::Eof,
-            pos: 0,
+            offset: 0,
             expr: expr,
         })
     }
 
     /// Parses the expression into result containing an AST or ParseError.
+    #[inline]
     fn parse(&mut self) -> ParseResult {
         self.expr(0)
             .and_then(|result| {
@@ -79,12 +80,17 @@ impl<'a> Parser<'a> {
 
     #[inline]
     fn advance(&mut self) -> Token {
+        self.advance_with_pos().1
+    }
+
+    #[inline]
+    fn advance_with_pos(&mut self) -> (usize, Token) {
         match self.token_queue.pop_front() {
             Some((pos, tok)) => {
-                self.pos = pos;
-                tok
+                self.offset = pos;
+                (pos, tok)
             },
-            None => Token::Eof
+            None => (self.offset, Token::Eof)
         }
     }
 
@@ -98,7 +104,7 @@ impl<'a> Parser<'a> {
 
     /// Returns a formatted ParseError with the given message.
     fn err(&self, current_token: &Token, error_msg: &str, is_peek: bool) -> ParseError {
-        let mut actual_pos = self.pos;
+        let mut actual_pos = self.offset;
         let mut buff = error_msg.to_string();
         buff.push_str(&format!(" -- found {:?}", current_token));
         if is_peek {
@@ -110,7 +116,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Main parse function of the Pratt parser that parses while RBP < LBP
-    #[inline]
+    #[inline(never)]
     fn expr(&mut self, rbp: usize) -> ParseResult {
         let mut left = self.nud();
         while rbp < self.peek(0).lbp() {
@@ -121,31 +127,32 @@ impl<'a> Parser<'a> {
 
     #[inline(never)]
     fn nud(&mut self) -> ParseResult {
-        match self.advance() {
-            Token::At => Ok(Ast::Identity),
-            Token::Identifier(value) => Ok(Ast::Field(value)),
+        let (offset, token) = self.advance_with_pos();
+        match token {
+            Token::At => Ok(Ast::Identity { offset: offset }),
+            Token::Identifier(value) => Ok(Ast::Field { name: value, offset: offset }),
             Token::QuotedIdentifier(value) => {
                 match self.peek(0) {
                     &Token::Lparen => {
                         Err(self.err(
                             &Token::Lparen, &"Quoted strings can't be a function name", true))
                     },
-                    _ => Ok(Ast::Field(value))
+                    _ => Ok(Ast::Field { name: value, offset: offset })
                 }
             },
-            Token::Star => self.parse_wildcard_values(Ast::Identity),
-            Token::Literal(value) => Ok(Ast::Literal(value)),
+            Token::Star => self.parse_wildcard_values(Ast::Identity { offset: offset }),
+            Token::Literal(value) => Ok(Ast::Literal { value: value, offset: offset }),
             Token::Lbracket => {
                 match self.peek(0) {
                     &Token::Number(_) | &Token::Colon => self.parse_index(),
                     &Token::Star if self.peek(1) == &Token::Rbracket => {
                         self.advance();
-                        self.parse_wildcard_index(Ast::Identity)
+                        self.parse_wildcard_index(Ast::Identity { offset: offset })
                     },
                     _ => self.parse_multi_list()
                 }
             },
-            Token::Flatten => self.parse_flatten(Ast::Identity),
+            Token::Flatten => self.parse_flatten(Ast::Identity { offset: offset }),
             Token::Lbrace => {
                 let mut pairs = vec![];
                 loop {
@@ -159,14 +166,17 @@ impl<'a> Parser<'a> {
                         ref t @ _ => return Err(self.err(t, "Expected '}' or ','", false))
                     }
                 }
-                Ok(Ast::MultiHash(pairs))
+                Ok(Ast::MultiHash { elements: pairs, offset: offset })
             },
             Token::Ampersand => {
                 let rhs = try!(self.expr(Token::Ampersand.lbp()));
-                Ok(Ast::Expref(Box::new(rhs)))
+                Ok(Ast::Expref { ast: Box::new(rhs), offset: offset })
             },
-            Token::Not => Ok(Ast::Not(Box::new(try!(self.expr(Token::Not.lbp()))))),
-            Token::Filter => self.parse_filter(Ast::Identity),
+            Token::Not => Ok(Ast::Not {
+                node: Box::new(try!(self.expr(Token::Not.lbp()))),
+                offset: offset
+            }),
+            Token::Filter => self.parse_filter(Ast::Identity { offset: offset }),
             Token::Lparen => {
                 let result = try!(self.expr(0));
                 match self.advance() {
@@ -180,15 +190,21 @@ impl<'a> Parser<'a> {
 
     #[inline(never)]
     fn led(&mut self, left: Ast) -> ParseResult {
-        match self.advance() {
+        let (offset, token) = self.advance_with_pos();
+        match token {
             Token::Dot => {
                 if self.peek(0) == &Token::Star {
                     // Skip the star and parse the rhs
                     self.advance();
                     self.parse_wildcard_values(left)
                 } else {
+                    let offset = offset;
                     let rhs = try!(self.parse_dot(Token::Dot.lbp()));
-                    Ok(Ast::Subexpr { lhs: Box::new(left), rhs: Box::new(rhs) })
+                    Ok(Ast::Subexpr {
+                        offset: offset,
+                        lhs: Box::new(left),
+                        rhs: Box::new(rhs)
+                    })
                 }
             },
             Token::Lbracket => {
@@ -199,6 +215,7 @@ impl<'a> Parser<'a> {
                 } {
                     true => {
                         Ok(Ast::Subexpr {
+                            offset: offset,
                             lhs: Box::new(left),
                             rhs: Box::new(try!(self.parse_index()))
                         })
@@ -210,21 +227,25 @@ impl<'a> Parser<'a> {
                 }
             },
             Token::Or => {
+                let offset = offset;
                 let rhs = try!(self.expr(Token::Or.lbp()));
-                Ok(Ast::Or { lhs: Box::new(left), rhs: Box::new(rhs) })
+                Ok(Ast::Or { offset: offset, lhs: Box::new(left), rhs: Box::new(rhs) })
             },
             Token::And => {
+                let offset = offset;
                 let rhs = try!(self.expr(Token::And.lbp()));
-                Ok(Ast::And { lhs: Box::new(left), rhs: Box::new(rhs) })
+                Ok(Ast::And { offset: offset, lhs: Box::new(left), rhs: Box::new(rhs) })
             },
             Token::Pipe => {
+                let offset = offset;
                 let rhs = try!(self.expr(Token::Pipe.lbp()));
-                Ok(Ast::Subexpr { lhs: Box::new(left), rhs: Box::new(rhs) })
+                Ok(Ast::Subexpr { offset: offset, lhs: Box::new(left), rhs: Box::new(rhs) })
             },
             Token::Lparen => {
                 match left {
-                    Ast::Field(v) => {
+                    Ast::Field { name: v, .. } => {
                         Ok(Ast::Function {
+                            offset: offset,
                             name: v,
                             args: try!(self.parse_list(Token::Rparen))
                         })
@@ -244,13 +265,17 @@ impl<'a> Parser<'a> {
         }
     }
 
+    #[inline(never)]
     fn parse_kvp(&mut self) -> Result<KeyValuePair, ParseError> {
         match self.advance() {
             Token::Identifier(value) | Token::QuotedIdentifier(value) => {
                 if self.peek(0) == &Token::Colon {
                     self.advance();
                     Ok(KeyValuePair {
-                        key: Ast::Literal(Rc::new(Variable::String(value))),
+                        key: Ast::Literal {
+                            offset: self.offset,
+                            value: Rc::new(Variable::String(value))
+                        },
                         value: try!(self.expr(0))
                     })
                 } else {
@@ -264,6 +289,7 @@ impl<'a> Parser<'a> {
     /// Parses a filter token into a Projection that filters the right
     /// side of the projection using a Condition node. If the Condition node
     /// returns a truthy value, then the value is yielded by the projection.
+    #[inline(never)]
     fn parse_filter(&mut self, lhs: Ast) -> ParseResult {
         // Parse the LHS of the condition node.
         let condition_lhs = try!(self.expr(0));
@@ -272,8 +298,10 @@ impl<'a> Parser<'a> {
             Token::Rbracket => {
                 let condition_rhs = Box::new(try!(self.projection_rhs(Token::Filter.lbp())));
                 Ok(Ast::Projection {
+                    offset: self.offset,
                     lhs: Box::new(lhs),
                     rhs: Box::new(Ast::Condition {
+                        offset: self.offset,
                         predicate: Box::new(condition_lhs),
                         then: condition_rhs
                     })
@@ -283,18 +311,25 @@ impl<'a> Parser<'a> {
         }
     }
 
+    #[inline(never)]
     fn parse_flatten(&mut self, lhs: Ast) -> ParseResult {
         let rhs = try!(self.projection_rhs(Token::Flatten.lbp()));
         Ok(Ast::Projection {
-            lhs: Box::new(Ast::Flatten(Box::new(lhs))),
+            offset: self.offset,
+            lhs: Box::new(Ast::Flatten {
+                offset: self.offset,
+                node: Box::new(lhs)
+            }),
             rhs: Box::new(rhs)
         })
     }
 
     /// Parses a comparator token into a Comparison (e.g., foo == bar)
+    #[inline(never)]
     fn parse_comparator(&mut self, cmp: Comparator, lhs: Ast) -> ParseResult {
         let rhs = try!(self.expr(Token::Eq.lbp()));
         Ok(Ast::Comparison {
+            offset: self.offset,
             comparator: cmp,
             lhs: Box::new(lhs),
             rhs: Box::new(rhs)
@@ -302,6 +337,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Parses the right hand side of a dot expression.
+    #[inline(never)]
     fn parse_dot(&mut self, lbp: usize) -> ParseResult {
         match match self.peek(0) {
             &Token::Lbracket => true,
@@ -321,11 +357,12 @@ impl<'a> Parser<'a> {
 
     /// Parses the right hand side of a projection, using the given LBP to
     /// determine when to stop consuming tokens.
+    #[inline(never)]
     fn projection_rhs(&mut self, lbp: usize) -> ParseResult {
         match match self.peek(0) {
             &Token::Dot => true,
             &Token::Lbracket | &Token::Filter => false,
-            ref t @ _ if t.lbp() < 10 => return Ok(Ast::Identity),
+            ref t @ _ if t.lbp() < 10 => return Ok(Ast::Identity { offset: self.offset }),
             ref t @ _ => return Err(self.err(t, &"Expected '.', '[', or '[?'", true))
         } {
             true => {
@@ -337,26 +374,37 @@ impl<'a> Parser<'a> {
     }
 
     /// Creates a projection for "[*]"
+    #[inline(never)]
     fn parse_wildcard_index(&mut self, lhs: Ast) -> ParseResult {
         match self.advance() {
             Token::Rbracket => {
                 let rhs = try!(self.projection_rhs(Token::Star.lbp()));
-                Ok(Ast::Projection { lhs: Box::new(lhs), rhs: Box::new(rhs) })
+                Ok(Ast::Projection {
+                    offset: self.offset,
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs)
+                })
             },
             ref t @ _ => Err(self.err(t, &"Expected ']' for wildcard index", false))
         }
     }
 
     /// Creates a projection for "*"
+    #[inline(never)]
     fn parse_wildcard_values(&mut self, lhs: Ast) -> ParseResult {
         let rhs = try!(self.projection_rhs(Token::Star.lbp()));
         Ok(Ast::Projection {
-            lhs: Box::new(Ast::ObjectValues(Box::new(lhs))),
+            offset: self.offset,
+            lhs: Box::new(Ast::ObjectValues {
+                offset: self.offset,
+                node: Box::new(lhs)
+            }),
             rhs: Box::new(rhs)
         })
     }
 
     /// Parses [0], [::-1], [0:-1], [0:1], etc...
+    #[inline(never)]
     fn parse_index(&mut self) -> ParseResult {
         let mut parts = [None, None, None];
         let mut pos = 0;
@@ -386,11 +434,13 @@ impl<'a> Parser<'a> {
 
         if pos == 0 {
             // No colons were found, so this is a simple index extraction.
-            Ok(Ast::Index(parts[0].unwrap()))
+            Ok(Ast::Index { offset: self.offset, idx: parts[0].unwrap() })
         } else {
             // Sliced array from start (e.g., [2:])
             Ok(Ast::Projection {
+                offset: self.offset,
                 lhs: Box::new(Ast::Slice {
+                    offset: self.offset,
                     start: parts[0],
                     stop: parts[1],
                     step: parts[2].unwrap_or(1)
@@ -401,8 +451,12 @@ impl<'a> Parser<'a> {
     }
 
     /// Parses multi-select lists (e.g., "[foo, bar, baz]")
+    #[inline(never)]
     fn parse_multi_list(&mut self) -> ParseResult {
-        Ok(Ast::MultiList(try!(self.parse_list(Token::Rbracket))))
+        Ok(Ast::MultiList {
+            offset: self.offset,
+            elements: try!(self.parse_list(Token::Rbracket))
+        })
     }
 
     /// Parse a comma separated list of expressions until a closing token.
@@ -412,6 +466,7 @@ impl<'a> Parser<'a> {
     /// multi-list expressions because "[]" is tokenized as Token::Flatten.
     ///
     /// Examples: [foo, bar], foo(bar), foo(), foo(baz, bar)
+    #[inline(never)]
     fn parse_list(&mut self, closing: Token) -> Result<Vec<Ast>, ParseError> {
         let mut nodes = vec![];
         while self.peek(0) != &closing {

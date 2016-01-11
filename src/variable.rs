@@ -557,7 +557,7 @@ mod tests {
 
     #[test]
     fn test_converting_to_json_with_expref_returns_none() {
-        let var = Variable::Expref(Ast::Identity);
+        let var = Variable::Expref(Ast::Identity {offset: 0});
         assert!(var.to_json().is_none());
     }
 
@@ -574,7 +574,8 @@ mod tests {
 
     #[test]
     fn test_is_expref() {
-        assert_eq!(true, Variable::Expref(Ast::Identity).is_expref());
-        assert_eq!(&Ast::Identity, Variable::Expref(Ast::Identity).as_expref().unwrap());
+        assert_eq!(true, Variable::Expref(Ast::Identity {offset: 0}).is_expref());
+        assert_eq!(&Ast::Identity {offset: 0},
+            Variable::Expref(Ast::Identity {offset: 0}).as_expref().unwrap());
     }
 }

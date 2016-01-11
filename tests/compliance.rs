@@ -144,7 +144,7 @@ impl Assertion {
                     },
                     &ErrorType::InvalidSlice => {
                         match try!(self.try_parse(suite, case)).search(given.clone()) {
-                            Err(RuntimeError::InvalidSlice) => Ok(()),
+                            Err(RuntimeError::InvalidSlice{..}) => Ok(()),
                             Err(e) => Err(self.err_message(suite, case, format!("{}", e))),
                             Ok(r) => Err(self.err_message(suite, case, r.to_string().unwrap())),
                         }

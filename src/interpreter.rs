@@ -2,13 +2,28 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use super::RcVar;
-use super::RuntimeError;
+use super::{Coordinates, RcVar, RuntimeError};
 use super::ast::Ast;
 use super::functions::{register_core_functions, JPFunction, Functions};
 use super::variable::{Variable, VariableAllocator};
 
 pub type SearchResult = Result<RcVar, RuntimeError>;
+
+/// TreeInterpreter context object used primarily for error reporting.
+pub struct Context<'a> {
+    /// Tree interpreter used to make subsequent calls.
+    pub interpreter: &'a TreeInterpreter,
+    /// Original expression that is being interpreted.
+    pub expression: &'a str,
+    /// Offset being evaluated
+    pub offset: usize,
+}
+
+impl<'a> Context<'a> {
+    pub fn create_coordinates(&self) -> Coordinates {
+        Coordinates::from_offset(self.expression, self.offset)
+    }
+}
 
 /// TreeInterpreter recursively extracts data using an AST.
 pub struct TreeInterpreter {
@@ -36,64 +51,82 @@ impl TreeInterpreter {
     }
 
     /// Interprets the given data using an AST node.
-    pub fn interpret(&self, data: &RcVar, node: &Ast) -> SearchResult {
+    #[inline(never)]
+    pub fn interpret(&self, data: &RcVar, node: &Ast, ctx: &mut Context) -> SearchResult {
         match node {
-            &Ast::Subexpr { ref lhs, ref rhs } => {
-                let left_result = try!(self.interpret(data, lhs));
-                self.interpret(&left_result, rhs)
+            &Ast::Subexpr { ref lhs, ref rhs, ref offset } => {
+                ctx.offset = *offset;
+                let left_result = try!(self.interpret(data, lhs, ctx));
+                self.interpret(&left_result, rhs, ctx)
             },
-            &Ast::Field(ref f) => Ok(data.get_value(f).unwrap_or(self.allocator.alloc_null())),
-            &Ast::Identity => Ok(data.clone()),
-            &Ast::Literal(ref json) => Ok(json.clone()),
-            &Ast::Index(ref i) => {
-                match if *i >= 0 {
-                    data.get_index(*i as usize)
+            &Ast::Field { ref name, ref offset } => {
+                ctx.offset = *offset;
+                Ok(data.get_value(name).unwrap_or(self.allocator.alloc_null()))
+            },
+            &Ast::Identity { ref offset } => {
+                ctx.offset = *offset;
+                Ok(data.clone())
+            },
+            &Ast::Literal { ref value, ref offset } => {
+                ctx.offset = *offset;
+                Ok(value.clone())
+            },
+            &Ast::Index { ref idx, ref offset } => {
+                ctx.offset = *offset;
+                match if *idx >= 0 {
+                    data.get_index(*idx as usize)
                 } else {
-                    data.get_negative_index((-1 * i) as usize)
+                    data.get_negative_index((-1 * idx) as usize)
                 } {
                     Some(value) => Ok(value),
                     None => Ok(self.allocator.alloc_null())
                 }
             },
-            &Ast::Or { ref lhs, ref rhs } => {
-                let left = try!(self.interpret(data, lhs));
+            &Ast::Or { ref lhs, ref rhs, ref offset } => {
+                ctx.offset = *offset;
+                let left = try!(self.interpret(data, lhs, ctx));
                 if left.is_truthy() {
                     Ok(left)
                 } else {
-                    self.interpret(data, rhs)
+                    self.interpret(data, rhs, ctx)
                 }
             },
-            &Ast::And { ref lhs, ref rhs } => {
-                let left = try!(self.interpret(data, lhs));
+            &Ast::And { ref lhs, ref rhs, ref offset } => {
+                ctx.offset = *offset;
+                let left = try!(self.interpret(data, lhs, ctx));
                 if !left.is_truthy() {
                     Ok(left)
                 } else {
-                    self.interpret(data, rhs)
+                    self.interpret(data, rhs, ctx)
                 }
             },
-            &Ast::Not(ref expr) => {
-                let result = try!(self.interpret(data, expr));
+            &Ast::Not { ref node, ref offset } => {
+                ctx.offset = *offset;
+                let result = try!(self.interpret(data, node, ctx));
                 Ok(self.allocator.alloc_bool(!result.is_truthy()))
             },
             // Returns the resut of RHS if cond yields truthy value.
-            &Ast::Condition { ref predicate, ref then } => {
-                let cond_result = try!(self.interpret(data, predicate));
+            &Ast::Condition { ref predicate, ref then, ref offset } => {
+                ctx.offset = *offset;
+                let cond_result = try!(self.interpret(data, predicate, ctx));
                 if cond_result.is_truthy() {
-                    self.interpret(data, then)
+                    self.interpret(data, then, ctx)
                 } else {
                     Ok(self.allocator.alloc_null())
                 }
             },
-            &Ast::Comparison { ref comparator, ref lhs, ref rhs } => {
-                let left = try!(self.interpret(data, lhs));
-                let right = try!(self.interpret(data, rhs));
+            &Ast::Comparison { ref comparator, ref lhs, ref rhs, ref offset } => {
+                ctx.offset = *offset;
+                let left = try!(self.interpret(data, lhs, ctx));
+                let right = try!(self.interpret(data, rhs, ctx));
                 Ok(left.compare(comparator, &*right).map_or(
                     self.allocator.alloc_null(),
                     |result| self.allocator.alloc_bool(result)))
             },
             // Converts an object into a JSON array of its values.
-            &Ast::ObjectValues(ref predicate) => {
-                let subject = try!(self.interpret(data, predicate));
+            &Ast::ObjectValues { ref node, ref offset } => {
+                ctx.offset = *offset;
+                let subject = try!(self.interpret(data, node, ctx));
                 match *subject {
                     Variable::Object(ref v) => {
                         Ok(self.allocator.alloc(v.values().cloned().collect::<Vec<RcVar>>()))
@@ -103,13 +136,14 @@ impl TreeInterpreter {
             },
             // Passes the results of lhs into rhs if lhs yields an array and
             // each node of lhs that passes through rhs yields a non-null value.
-            &Ast::Projection { ref lhs, ref rhs } => {
-                match try!(self.interpret(data, lhs)).as_array() {
+            &Ast::Projection { ref lhs, ref rhs, ref offset } => {
+                ctx.offset = *offset;
+                match try!(self.interpret(data, lhs, ctx)).as_array() {
                     None => Ok(self.allocator.alloc_null()),
                     Some(left) => {
                         let mut collected = vec![];
                         for element in left {
-                            let current = try!(self.interpret(element, rhs));
+                            let current = try!(self.interpret(element, rhs, ctx));
                             if !current.is_null() {
                                 collected.push(current);
                             }
@@ -118,8 +152,9 @@ impl TreeInterpreter {
                     }
                 }
             },
-            &Ast::Flatten(ref node) => {
-                match try!(self.interpret(data, node)).as_array() {
+            &Ast::Flatten { ref node, ref offset } => {
+                ctx.offset = *offset;
+                match try!(self.interpret(data, node, ctx)).as_array() {
                     None => Ok(self.allocator.alloc_null()),
                     Some(a) => {
                         let mut collected: Vec<RcVar> = vec![];
@@ -133,29 +168,33 @@ impl TreeInterpreter {
                     }
                 }
             },
-            &Ast::MultiList(ref nodes) => {
+            &Ast::MultiList { ref elements, ref offset } => {
+                ctx.offset = *offset;
                 if data.is_null() {
                     Ok(self.allocator.alloc_null())
                 } else {
                     let mut collected = vec![];
-                    for node in nodes {
-                        collected.push(try!(self.interpret(data, node)));
+                    for node in elements {
+                        collected.push(try!(self.interpret(data, node, ctx)));
                     }
                     Ok(self.allocator.alloc(collected))
                 }
             },
-            &Ast::MultiHash(ref kvp_list) => {
+            &Ast::MultiHash { ref elements, ref offset } => {
+                ctx.offset = *offset;
                 if data.is_null() {
                     Ok(self.allocator.alloc_null())
                 } else {
                     let mut collected = BTreeMap::new();
-                    for kvp in kvp_list {
-                        let key = try!(self.interpret(data, &kvp.key));
-                        let value = try!(self.interpret(data, &kvp.value));
+                    for kvp in elements {
+                        let key = try!(self.interpret(data, &kvp.key, ctx));
+                        let value = try!(self.interpret(data, &kvp.value, ctx));
                         if let Variable::String(ref s) = *key {
                             collected.insert(s.to_string(), value);
                         } else {
                             return Err(RuntimeError::InvalidKey {
+                                coordinates: ctx.create_coordinates(),
+                                expression: ctx.expression.to_string(),
                                 actual: key.get_type().to_string()
                             });
                         }
@@ -163,20 +202,36 @@ impl TreeInterpreter {
                     Ok(self.allocator.alloc(collected))
                 }
             },
-            &Ast::Function { ref name, ref args } => {
+            &Ast::Function { ref name, ref args, ref offset } => {
+                ctx.offset = *offset;
                 let mut fn_args: Vec<RcVar> = vec![];
                 for arg in args {
-                    fn_args.push(try!(self.interpret(data, arg)));
+                    fn_args.push(try!(self.interpret(data, arg, ctx)));
                 }
+                // Reset the offset so that it points to the function being evaluated.
+                ctx.offset = *offset;
                 match self.functions.get(name) {
-                    Some(f) => f.evaluate(fn_args, self),
-                    None => Err(RuntimeError::UnknownFunction { function: name.clone() })
+                    Some(f) => f.evaluate(fn_args, ctx),
+                    None => {
+                        Err(RuntimeError::UnknownFunction {
+                            coordinates: ctx.create_coordinates(),
+                            expression: ctx.expression.to_string(),
+                            function: name.clone()
+                        })
+                    }
                 }
             },
-            &Ast::Expref(ref ast) => Ok(self.allocator.alloc(*ast.clone())),
-            &Ast::Slice { ref start, ref stop, step } => {
+            &Ast::Expref{ ref ast, ref offset } => {
+                ctx.offset = *offset;
+                Ok(self.allocator.alloc(*ast.clone()))
+            },
+            &Ast::Slice { ref start, ref stop, step, ref offset } => {
+                ctx.offset = *offset;
                 if step == 0 {
-                    Err(RuntimeError::InvalidSlice)
+                    Err(RuntimeError::InvalidSlice {
+                        coordinates: ctx.create_coordinates(),
+                        expression: ctx.expression.to_string(),
+                    })
                 } else {
                     match data.as_array() {
                         Some(ref array) => {

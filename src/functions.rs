@@ -4,9 +4,8 @@ use std::collections::{BTreeMap, HashMap};
 use std::cmp::{max, min};
 use std::fmt;
 
-use super::RcVar;
-use super::RuntimeError;
-use super::interpreter::{TreeInterpreter, SearchResult};
+use super::{RcVar, RuntimeError};
+use super::interpreter::{Context, SearchResult};
 use super::variable::Variable;
 
 /// Function argument types used when validating.
@@ -103,7 +102,7 @@ impl fmt::Display for ArgumentType {
 /// JMESPath function
 pub trait JPFunction {
     /// Evaluates a function with the given arguments
-    fn evaluate(&self, args: Vec<RcVar>, intr: &TreeInterpreter) -> SearchResult;
+    fn evaluate(&self, args: Vec<RcVar>, ctx: &mut Context) -> SearchResult;
 }
 
 /// Boxed JPFunction
@@ -112,23 +111,44 @@ pub type FnBox = Box<JPFunction + 'static>;
 /// Map of JMESPath function names to their implementation
 pub type Functions = HashMap<String, FnBox>;
 
-/// Validates the arity of a function.
+/// Validates the arity of a function. If the arity is invalid, a runtime
+/// error is returned with the relative position of the error and the
+/// expression that was being executed.
 #[inline]
-pub fn validate_arity(expected: usize, actual: usize) -> Result<(), RuntimeError> {
+pub fn validate_arity(ctx: &Context,
+                      expected: usize,
+                      actual: usize) -> Result<(), RuntimeError> {
     if actual == expected {
         Ok(())
     } else if actual < expected {
-        Err(RuntimeError::NotEnoughArguments { expected: expected, actual: actual })
+        Err(RuntimeError::NotEnoughArguments {
+            coordinates: ctx.create_coordinates(),
+            expression: ctx.expression.to_string(),
+            expected: expected,
+            actual: actual,
+        })
     } else {
-        Err(RuntimeError::TooManyArguments { expected: expected, actual: actual })
+        Err(RuntimeError::TooManyArguments {
+            coordinates: ctx.create_coordinates(),
+            expression: ctx.expression.to_string(),
+            expected: expected,
+            actual: actual,
+        })
     }
 }
 
 /// Validates the arity of a function.
 #[inline]
-pub fn validate_min_arity(expected: usize, actual: usize) -> Result<(), RuntimeError> {
+pub fn validate_min_arity(ctx: &Context,
+                          expected: usize,
+                          actual: usize) -> Result<(), RuntimeError> {
     if actual < expected {
-        Err(RuntimeError::NotEnoughArguments { expected: expected, actual: actual })
+        Err(RuntimeError::NotEnoughArguments {
+            coordinates: ctx.create_coordinates(),
+            expression: ctx.expression.to_string(),
+            expected: expected,
+            actual: actual
+        })
     } else {
         Ok(())
     }
@@ -138,13 +158,15 @@ pub fn validate_min_arity(expected: usize, actual: usize) -> Result<(), RuntimeE
 #[macro_export]
 macro_rules! validate_args {
     // Validate positional arguments only.
-    ($args:expr, $($x:expr),*) => (
+    ($ctx:expr, $args:expr, $($x:expr),*) => (
         {
             let arg_types: Vec<ArgumentType> = vec![$($x), *];
-            try!(validate_arity(arg_types.len(), $args.len()));
+            try!(validate_arity($ctx, arg_types.len(), $args.len()));
             for (k, v) in $args.iter().enumerate() {
                 if !arg_types[k].is_valid(v) {
                     return Err(RuntimeError::InvalidType {
+                        coordinates: $ctx.create_coordinates(),
+                        expression: $ctx.expression.to_string(),
                         expected: arg_types[k].to_string(),
                         actual: v.get_type().to_string(),
                         actual_value: v.clone(),
@@ -155,15 +177,17 @@ macro_rules! validate_args {
         }
     );
     // Validate positional arguments with a variadic validator.
-    ($args:expr, $($x:expr),* ...$variadic:expr ) => (
+    ($ctx:expr, $args:expr, $($x:expr),* ...$variadic:expr ) => (
         {
             let arg_types: Vec<ArgumentType> = vec![$($x), *];
             let variadic = $variadic;
-            try!(validate_min_arity(arg_types.len(), $args.len()));
+            try!(validate_min_arity($ctx, arg_types.len(), $args.len()));
             for (k, v) in $args.iter().enumerate() {
                 let validator = arg_types.get(k).unwrap_or(&variadic);
                 if !validator.is_valid(v) {
                     return Err(RuntimeError::InvalidType {
+                        coordinates: $ctx.create_coordinates(),
+                        expression: $ctx.expression.to_string(),
                         expected: validator.to_string(),
                         actual: v.get_type().to_string(),
                         actual_value: v.clone(),
@@ -177,20 +201,22 @@ macro_rules! validate_args {
 
 /// Macro used to implement max_by and min_by functions.
 macro_rules! min_and_max_by {
-    ($operator:ident, $args:expr, $interpreter:expr) => (
+    ($ctx:expr, $operator:ident, $args:expr) => (
         {
-            validate_args!($args, ArgumentType::Array, ArgumentType::Expref);
+            validate_args!($ctx, $args, ArgumentType::Array, ArgumentType::Expref);
             let vals = $args[0].as_array().unwrap();
             // Return null when there are not values in the array
             if vals.is_empty() {
-                return Ok($interpreter.allocator.alloc_null());
+                return Ok($ctx.interpreter.allocator.alloc_null());
             }
             let ast = $args[1].as_expref().unwrap();
             // Map over the first value to get the homogeneous required return type
-            let initial = try!($interpreter.interpret(&vals[0], &ast));
+            let initial = try!($ctx.interpreter.interpret(&vals[0], &ast, $ctx));
             let entered_type = initial.get_type();
             if entered_type != "string" && entered_type != "number" {
                 return Err(RuntimeError::InvalidReturnType {
+                    coordinates: $ctx.create_coordinates(),
+                    expression: $ctx.expression.to_string(),
                     expected: "expression->number|expression->string".to_string(),
                     actual: entered_type.to_string(),
                     actual_value: initial.clone(),
@@ -201,9 +227,11 @@ macro_rules! min_and_max_by {
             // Map over each value, finding the best candidate value and fail on error.
             let mut candidate = (vals[0].clone(), initial.clone());
             for (invocation, v) in vals.iter().enumerate().skip(1) {
-                let mapped = try!($interpreter.interpret(v, &ast));
+                let mapped = try!($ctx.interpreter.interpret(v, &ast, $ctx));
                 if mapped.get_type() != entered_type {
                     return Err(RuntimeError::InvalidReturnType {
+                        coordinates: $ctx.create_coordinates(),
+                        expression: $ctx.expression.to_string(),
                         expected: format!("expression->{}", entered_type),
                         actual: mapped.get_type().to_string(),
                         actual_value: mapped.clone(),
@@ -222,13 +250,13 @@ macro_rules! min_and_max_by {
 
 /// Macro used to implement max and min functions.
 macro_rules! min_and_max {
-    ($operator:ident, $args:expr, $interpreter:expr) => (
+    ($ctx:expr, $operator:ident, $args:expr) => (
         {
             let acceptable = vec![ArgumentType::String, ArgumentType::Number];
-            validate_args!($args, ArgumentType::HomogeneousArray(acceptable));
+            validate_args!($ctx, $args, ArgumentType::HomogeneousArray(acceptable));
             let values = $args[0].as_array().unwrap();
             if values.is_empty() {
-                Ok($interpreter.allocator.alloc_null())
+                Ok($ctx.interpreter.allocator.alloc_null())
             } else {
                 let result: RcVar = values
                     .iter()
@@ -273,11 +301,11 @@ pub fn register_core_functions(functions: &mut Functions) {
 struct Abs;
 
 impl JPFunction for Abs {
-    fn evaluate(&self, args: Vec<RcVar>, intr: &TreeInterpreter) -> SearchResult {
-        validate_args![args, ArgumentType::Number];
+    fn evaluate(&self, args: Vec<RcVar>, ctx: &mut Context) -> SearchResult {
+        validate_args![ctx, args, ArgumentType::Number];
         match *args[0] {
-            Variable::I64(n) => Ok(intr.allocator.alloc(n.abs())),
-            Variable::F64(f) => Ok(intr.allocator.alloc(f.abs())),
+            Variable::I64(n) => Ok(ctx.interpreter.allocator.alloc(n.abs())),
+            Variable::F64(f) => Ok(ctx.interpreter.allocator.alloc(f.abs())),
             _ => Ok(args[0].clone())
         }
     }
@@ -286,41 +314,43 @@ impl JPFunction for Abs {
 struct Avg;
 
 impl JPFunction for Avg {
-    fn evaluate(&self, args: Vec<RcVar>, intr: &TreeInterpreter) -> SearchResult {
-        validate_args!(args, ArgumentType::HomogeneousArray(vec![ArgumentType::Number]));
+    fn evaluate(&self, args: Vec<RcVar>, ctx: &mut Context) -> SearchResult {
+        validate_args!(ctx, args, ArgumentType::HomogeneousArray(vec![ArgumentType::Number]));
         let values = args[0].as_array().unwrap();
         let sum = values.iter()
             .map(|n| n.as_f64().unwrap())
             .fold(0f64, |a, ref b| a + b);
-        Ok(intr.allocator.alloc(sum / (values.len() as f64)))
+        Ok(ctx.interpreter.allocator.alloc(sum / (values.len() as f64)))
     }
 }
 
 struct Ceil;
 
 impl JPFunction for Ceil {
-    fn evaluate(&self, args: Vec<RcVar>, intr: &TreeInterpreter) -> SearchResult {
-        validate_args!(args, ArgumentType::Number);
+    fn evaluate(&self, args: Vec<RcVar>, ctx: &mut Context) -> SearchResult {
+        validate_args!(ctx, args, ArgumentType::Number);
         let n = args[0].as_f64().unwrap();
-        Ok(intr.allocator.alloc(n.ceil()))
+        Ok(ctx.interpreter.allocator.alloc(n.ceil()))
     }
 }
 
 struct Contains;
 
 impl JPFunction for Contains {
-    fn evaluate(&self, args: Vec<RcVar>, intr: &TreeInterpreter) -> SearchResult {
-        validate_args!(args,
+    fn evaluate(&self, args: Vec<RcVar>, ctx: &mut Context) -> SearchResult {
+        validate_args!(ctx, args,
             ArgumentType::OneOf(vec![ArgumentType::String, ArgumentType::Array]),
             ArgumentType::Any);
         let ref haystack = args[0];
         let ref needle = args[1];
         match **haystack {
-           Variable::Array(ref a) => Ok(intr.allocator.alloc_bool(a.contains(&needle))),
+           Variable::Array(ref a) => {
+               Ok(ctx.interpreter.allocator.alloc_bool(a.contains(&needle)))
+           },
            Variable::String(ref subj) => {
                match needle.as_string() {
-                   None => Ok(intr.allocator.alloc_bool(false)),
-                   Some(s) => Ok(intr.allocator.alloc_bool(subj.contains(s)))
+                   None => Ok(ctx.interpreter.allocator.alloc_bool(false)),
+                   Some(s) => Ok(ctx.interpreter.allocator.alloc_bool(subj.contains(s)))
                }
            },
            _ => unreachable!()
@@ -331,29 +361,29 @@ impl JPFunction for Contains {
 struct EndsWith;
 
 impl JPFunction for EndsWith {
-    fn evaluate(&self, args: Vec<RcVar>, intr: &TreeInterpreter) -> SearchResult {
-        validate_args!(args, ArgumentType::String, ArgumentType::String);
+    fn evaluate(&self, args: Vec<RcVar>, ctx: &mut Context) -> SearchResult {
+        validate_args!(ctx, args, ArgumentType::String, ArgumentType::String);
         let subject = args[0].as_string().unwrap();
         let search = args[1].as_string().unwrap();
-        Ok(intr.allocator.alloc_bool(subject.ends_with(search)))
+        Ok(ctx.interpreter.allocator.alloc_bool(subject.ends_with(search)))
     }
 }
 
 struct Floor;
 
 impl JPFunction for Floor {
-    fn evaluate(&self, args: Vec<RcVar>, intr: &TreeInterpreter) -> SearchResult {
-        validate_args!(args, ArgumentType::Number);
+    fn evaluate(&self, args: Vec<RcVar>, ctx: &mut Context) -> SearchResult {
+        validate_args!(ctx, args, ArgumentType::Number);
         let n = args[0].as_f64().unwrap();
-        Ok(intr.allocator.alloc(n.floor()))
+        Ok(ctx.interpreter.allocator.alloc(n.floor()))
     }
 }
 
 struct Join;
 
 impl JPFunction for Join {
-    fn evaluate(&self, args: Vec<RcVar>, intr: &TreeInterpreter) -> SearchResult {
-        validate_args!(args, ArgumentType::String,
+    fn evaluate(&self, args: Vec<RcVar>, ctx: &mut Context) -> SearchResult {
+        validate_args!(ctx, args, ArgumentType::String,
                        ArgumentType::HomogeneousArray(vec![ArgumentType::String]));
         let glue = args[0].as_string().unwrap();
         let values = args[1].as_array().unwrap();
@@ -362,34 +392,34 @@ impl JPFunction for Join {
             .cloned()
             .collect::<Vec<String>>()
             .join(&glue);
-        Ok(intr.allocator.alloc(result))
+        Ok(ctx.interpreter.allocator.alloc(result))
     }
 }
 
 struct Keys;
 
 impl JPFunction for Keys {
-    fn evaluate(&self, args: Vec<RcVar>, intr: &TreeInterpreter) -> SearchResult {
-        validate_args!(args, ArgumentType::Object);
+    fn evaluate(&self, args: Vec<RcVar>, ctx: &mut Context) -> SearchResult {
+        validate_args!(ctx, args, ArgumentType::Object);
         let object = args[0].as_object().unwrap();
         let keys = object.keys()
-            .map(|k| intr.allocator.alloc((*k).clone()))
+            .map(|k| ctx.interpreter.allocator.alloc((*k).clone()))
             .collect::<Vec<RcVar>>();
-        Ok(intr.allocator.alloc(keys))
+        Ok(ctx.interpreter.allocator.alloc(keys))
     }
 }
 
 struct Length;
 
 impl JPFunction for Length {
-    fn evaluate(&self, args: Vec<RcVar>, intr: &TreeInterpreter) -> SearchResult {
+    fn evaluate(&self, args: Vec<RcVar>, ctx: &mut Context) -> SearchResult {
         let acceptable = vec![ArgumentType::Array, ArgumentType::Object, ArgumentType::String];
-        validate_args!(args, ArgumentType::OneOf(acceptable));
+        validate_args!(ctx, args, ArgumentType::OneOf(acceptable));
         match *args[0] {
-            Variable::Array(ref a) => Ok(intr.allocator.alloc(a.len())),
-            Variable::Object(ref m) => Ok(intr.allocator.alloc(m.len())),
+            Variable::Array(ref a) => Ok(ctx.interpreter.allocator.alloc(a.len())),
+            Variable::Object(ref m) => Ok(ctx.interpreter.allocator.alloc(m.len())),
             // Note that we need to count the code points not the number of unicode characters
-            Variable::String(ref s) => Ok(intr.allocator.alloc(s.chars().count())),
+            Variable::String(ref s) => Ok(ctx.interpreter.allocator.alloc(s.chars().count())),
             _ => unreachable!()
         }
     }
@@ -398,89 +428,90 @@ impl JPFunction for Length {
 struct Map;
 
 impl JPFunction for Map {
-    fn evaluate(&self, args: Vec<RcVar>, intr: &TreeInterpreter) -> SearchResult {
-        validate_args!(args, ArgumentType::Expref, ArgumentType::Array);
+    fn evaluate(&self, args: Vec<RcVar>, ctx: &mut Context) -> SearchResult {
+        validate_args!(ctx, args, ArgumentType::Expref, ArgumentType::Array);
         let ast = args[0].as_expref().unwrap();
         let values = args[1].as_array().unwrap();
         let mut results = vec![];
         for value in values {
-            results.push(try!(intr.interpret(&value, &ast)));
+            results.push(try!(ctx.interpreter.interpret(&value, &ast, ctx)));
         }
-        Ok(intr.allocator.alloc(results))
+        Ok(ctx.interpreter.allocator.alloc(results))
     }
 }
 
 struct Max;
 
 impl JPFunction for Max {
-    fn evaluate(&self, args: Vec<RcVar>, intr: &TreeInterpreter) -> SearchResult {
-        min_and_max!(max, args, intr)
+    fn evaluate(&self, args: Vec<RcVar>, ctx: &mut Context) -> SearchResult {
+        min_and_max!(ctx, max, args)
     }
 }
 
 struct Min;
 
 impl JPFunction for Min {
-    fn evaluate(&self, args: Vec<RcVar>, intr: &TreeInterpreter) -> SearchResult {
-        min_and_max!(min, args, intr)
+    fn evaluate(&self, args: Vec<RcVar>, ctx: &mut Context) -> SearchResult {
+        min_and_max!(ctx, min, args)
     }
 }
 
 struct MaxBy;
 
 impl JPFunction for MaxBy {
-    fn evaluate(&self, args: Vec<RcVar>, intr: &TreeInterpreter) -> SearchResult {
-        min_and_max_by!(gt, args, intr)
+    fn evaluate(&self, args: Vec<RcVar>, ctx: &mut Context) -> SearchResult {
+        min_and_max_by!(ctx, gt, args)
     }
 }
 
 struct MinBy;
 
 impl JPFunction for MinBy {
-    fn evaluate(&self, args: Vec<RcVar>, intr: &TreeInterpreter) -> SearchResult {
-        min_and_max_by!(lt, args, intr)
+    fn evaluate(&self, args: Vec<RcVar>, ctx: &mut Context) -> SearchResult {
+        min_and_max_by!(ctx, lt, args)
     }
 }
 
 struct Merge;
 
 impl JPFunction for Merge {
-    fn evaluate(&self, args: Vec<RcVar>, intr: &TreeInterpreter) -> SearchResult {
-        validate_args!(args, ArgumentType::Object ...ArgumentType::Object);
+    fn evaluate(&self, args: Vec<RcVar>, ctx: &mut Context) -> SearchResult {
+        validate_args!(ctx, args, ArgumentType::Object ...ArgumentType::Object);
         let mut result = BTreeMap::new();
         for arg in args {
             result.extend(arg.as_object().unwrap().clone());
         }
-        Ok(intr.allocator.alloc(result))
+        Ok(ctx.interpreter.allocator.alloc(result))
     }
 }
 
 struct NotNull;
 
 impl JPFunction for NotNull {
-    fn evaluate(&self, args: Vec<RcVar>, intr: &TreeInterpreter) -> SearchResult {
-        validate_args!(args, ArgumentType::Any ...ArgumentType::Any);
+    fn evaluate(&self, args: Vec<RcVar>, ctx: &mut Context) -> SearchResult {
+        validate_args!(ctx, args, ArgumentType::Any ...ArgumentType::Any);
         for arg in args {
             if !arg.is_null() {
                 return Ok(arg.clone());
             }
         }
-        Ok(intr.allocator.alloc_null())
+        Ok(ctx.interpreter.allocator.alloc_null())
     }
 }
 
 struct Reverse;
 
 impl JPFunction for Reverse {
-    fn evaluate(&self, args: Vec<RcVar>, intr: &TreeInterpreter) -> SearchResult {
-        validate_args!(args, ArgumentType::OneOf(vec![ArgumentType::Array, ArgumentType::String]));
+    fn evaluate(&self, args: Vec<RcVar>, ctx: &mut Context) -> SearchResult {
+        validate_args!(ctx, args,
+            ArgumentType::OneOf(vec![ArgumentType::Array, ArgumentType::String]));
         if args[0].is_array() {
             let mut values = args[0].as_array().unwrap().clone();
             values.reverse();
-            Ok(intr.allocator.alloc(values))
+            Ok(ctx.interpreter.allocator.alloc(values))
         } else {
             let word: String = args[0].as_string().unwrap().chars().rev().collect();
-            Ok(intr.allocator.alloc(word))
+            Ok(ctx.interpreter.allocator.alloc(word))
         }
     }
 }
@@ -488,30 +519,32 @@ impl JPFunction for Reverse {
 struct Sort;
 
 impl JPFunction for Sort {
-    fn evaluate(&self, args: Vec<RcVar>, intr: &TreeInterpreter) -> SearchResult {
+    fn evaluate(&self, args: Vec<RcVar>, ctx: &mut Context) -> SearchResult {
         let acceptable = vec![ArgumentType::String, ArgumentType::Number];
-        validate_args!(args, ArgumentType::HomogeneousArray(acceptable));
+        validate_args!(ctx, args, ArgumentType::HomogeneousArray(acceptable));
         let mut values = args[0].as_array().unwrap().clone();
         values.sort();
-        Ok(intr.allocator.alloc(values))
+        Ok(ctx.interpreter.allocator.alloc(values))
     }
 }
 
 struct SortBy;
 
 impl JPFunction for SortBy {
-    fn evaluate(&self, args: Vec<RcVar>, intr: &TreeInterpreter) -> SearchResult {
-        validate_args!(args, ArgumentType::Array, ArgumentType::Expref);
+    fn evaluate(&self, args: Vec<RcVar>, ctx: &mut Context) -> SearchResult {
+        validate_args!(ctx, args, ArgumentType::Array, ArgumentType::Expref);
         let vals = args[0].as_array().unwrap().clone();
         if vals.is_empty() {
-            return Ok(intr.allocator.alloc(vals));
+            return Ok(ctx.interpreter.allocator.alloc(vals));
         }
         let ast = args[1].as_expref().unwrap();
         let mut mapped: Vec<(RcVar, RcVar)> = vec![];
-        let first_value = try!(intr.interpret(&vals[0], &ast));
+        let first_value = try!(ctx.interpreter.interpret(&vals[0], &ast, ctx));
         let first_type = first_value.get_type();
         if first_type != "string" && first_type != "number" {
             return Err(RuntimeError::InvalidReturnType {
+                coordinates: ctx.create_coordinates(),
+                expression: ctx.expression.to_string(),
                 expected: "expression->string|expression->number".to_string(),
                 actual: first_type.to_string(),
                 actual_value: first_value.clone(),
@@ -521,9 +554,11 @@ impl JPFunction for SortBy {
         }
         mapped.push((vals[0].clone(), first_value.clone()));
         for (invocation, v) in vals.iter().enumerate().skip(1) {
-            let mapped_value = try!(intr.interpret(v, &ast));
+            let mapped_value = try!(ctx.interpreter.interpret(v, &ast, ctx));
             if mapped_value.get_type() != first_type {
                 return Err(RuntimeError::InvalidReturnType {
+                    coordinates: ctx.create_coordinates(),
+                    expression: ctx.expression.to_string(),
                     expected: format!("expression->{}", first_type),
                     actual: mapped_value.get_type().to_string(),
                     actual_value: mapped_value.clone(),
@@ -534,40 +569,40 @@ impl JPFunction for SortBy {
             mapped.push((v.clone(), mapped_value));
         }
         mapped.sort_by(|a, b| a.1.cmp(&b.1));
-        Ok(intr.allocator.alloc(vals))
+        Ok(ctx.interpreter.allocator.alloc(vals))
     }
 }
 
 struct StartsWith;
 
 impl JPFunction for StartsWith {
-    fn evaluate(&self, args: Vec<RcVar>, intr: &TreeInterpreter) -> SearchResult {
-        validate_args!(args, ArgumentType::String, ArgumentType::String);
+    fn evaluate(&self, args: Vec<RcVar>, ctx: &mut Context) -> SearchResult {
+        validate_args!(ctx, args, ArgumentType::String, ArgumentType::String);
         let subject = args[0].as_string().unwrap();
         let search = args[1].as_string().unwrap();
-        Ok(intr.allocator.alloc_bool(subject.starts_with(search)))
+        Ok(ctx.interpreter.allocator.alloc_bool(subject.starts_with(search)))
     }
 }
 
 struct Sum;
 
 impl JPFunction for Sum {
-    fn evaluate(&self, args: Vec<RcVar>, intr: &TreeInterpreter) -> SearchResult {
-        validate_args!(args, ArgumentType::HomogeneousArray(vec![ArgumentType::Number]));
+    fn evaluate(&self, args: Vec<RcVar>, ctx: &mut Context) -> SearchResult {
+        validate_args!(ctx, args, ArgumentType::HomogeneousArray(vec![ArgumentType::Number]));
         let result = args[0].as_array().unwrap().iter().fold(
             0.0, |acc, item| acc + item.as_f64().unwrap());
-        Ok(intr.allocator.alloc(result))
+        Ok(ctx.interpreter.allocator.alloc(result))
     }
 }
 
 struct ToArray;
 
 impl JPFunction for ToArray {
-    fn evaluate(&self, args: Vec<RcVar>, intr: &TreeInterpreter) -> SearchResult {
-        validate_args!(args, ArgumentType::Any);
+    fn evaluate(&self, args: Vec<RcVar>, ctx: &mut Context) -> SearchResult {
+        validate_args!(ctx, args, ArgumentType::Any);
         match *args[0] {
             Variable::Array(_) => Ok(args[0].clone()),
-            _ => Ok(intr.allocator.alloc(vec![args[0].clone()]))
+            _ => Ok(ctx.interpreter.allocator.alloc(vec![args[0].clone()]))
         }
     }
 }
@@ -575,17 +610,17 @@ impl JPFunction for ToArray {
 struct ToNumber;
 
 impl JPFunction for ToNumber {
-    fn evaluate(&self, args: Vec<RcVar>, intr: &TreeInterpreter) -> SearchResult {
-        validate_args!(args, ArgumentType::Any);
+    fn evaluate(&self, args: Vec<RcVar>, ctx: &mut Context) -> SearchResult {
+        validate_args!(ctx, args, ArgumentType::Any);
         match *args[0] {
             Variable::I64(_) | Variable::F64(_) | Variable::U64(_) => Ok(args[0].clone()),
             Variable::String(ref s) => {
                 match Variable::from_str(s) {
-                    Ok(f)  => Ok(intr.allocator.alloc(f)),
-                    Err(_) => Ok(intr.allocator.alloc_null())
+                    Ok(f)  => Ok(ctx.interpreter.allocator.alloc(f)),
+                    Err(_) => Ok(ctx.interpreter.allocator.alloc_null())
                 }
             },
-            _ => Ok(intr.allocator.alloc_null())
+            _ => Ok(ctx.interpreter.allocator.alloc_null())
         }
     }
 }
@@ -593,13 +628,13 @@ impl JPFunction for ToNumber {
 struct ToString;
 
 impl JPFunction for ToString {
-    fn evaluate(&self, args: Vec<RcVar>, intr: &TreeInterpreter) -> SearchResult {
-        validate_args!(args, ArgumentType::OneOf(vec![
+    fn evaluate(&self, args: Vec<RcVar>, ctx: &mut Context) -> SearchResult {
+        validate_args!(ctx, args, ArgumentType::OneOf(vec![
             ArgumentType::Object, ArgumentType::Array, ArgumentType::Bool,
             ArgumentType::Number, ArgumentType::String, ArgumentType::Null]));
         match *args[0] {
             Variable::String(_) => Ok(args[0].clone()),
-            _ => Ok(intr.allocator.alloc(args[0].to_string().unwrap()))
+            _ => Ok(ctx.interpreter.allocator.alloc(args[0].to_string().unwrap()))
         }
     }
 }
@@ -607,18 +642,18 @@ impl JPFunction for ToString {
 struct Type;
 
 impl JPFunction for Type {
-    fn evaluate(&self, args: Vec<RcVar>, intr: &TreeInterpreter) -> SearchResult {
-        validate_args!(args, ArgumentType::Any);
-        Ok(intr.allocator.alloc(args[0].get_type().to_string()))
+    fn evaluate(&self, args: Vec<RcVar>, ctx: &mut Context) -> SearchResult {
+        validate_args!(ctx, args, ArgumentType::Any);
+        Ok(ctx.interpreter.allocator.alloc(args[0].get_type().to_string()))
     }
 }
 
 struct Values;
 
 impl JPFunction for Values {
-    fn evaluate(&self, args: Vec<RcVar>, intr: &TreeInterpreter) -> SearchResult {
-        validate_args!(args, ArgumentType::Object);
+    fn evaluate(&self, args: Vec<RcVar>, ctx: &mut Context) -> SearchResult {
+        validate_args!(ctx, args, ArgumentType::Object);
         let map = args[0].as_object().unwrap();
-        Ok(intr.allocator.alloc(map.values().cloned().collect::<Vec<RcVar>>()))
+        Ok(ctx.interpreter.allocator.alloc(map.values().cloned().collect::<Vec<RcVar>>()))
     }
 }

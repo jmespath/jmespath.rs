@@ -46,7 +46,7 @@
 //!
 //! let expr = jmespath::Expression::new("foo").unwrap();
 //! assert_eq!("foo", expr.as_str());
-//! assert_eq!(&Ast::Field("foo".to_string()), expr.as_ast());
+//! assert_eq!(&Ast::Field {name: "foo".to_string(), offset: 0}, expr.as_ast());
 //! ```
 //!
 //! # Using `jmespath::search`
@@ -92,6 +92,7 @@ use std::rc::Rc;
 use self::serde_json::Value;
 
 use ast::Ast;
+use interpreter::Context;
 
 pub mod ast;
 pub mod functions;
@@ -146,27 +147,40 @@ impl From<ParseError> for Error {
 #[derive(Clone,Debug,PartialEq)]
 pub enum RuntimeError {
     /// Encountered when a slice expression uses a step of 0
-    InvalidSlice,
+    InvalidSlice {
+        coordinates: Coordinates,
+        expression: String,
+    },
     /// Encountered when a key is not a string.
     InvalidKey {
+        coordinates: Coordinates,
+        expression: String,
         actual: String,
     },
     /// Encountered when too many arguments are provided to a function.
     TooManyArguments {
+        coordinates: Coordinates,
+        expression: String,
         expected: usize,
         actual: usize,
     },
     /// Encountered when too few arguments are provided to a function.
     NotEnoughArguments {
+        coordinates: Coordinates,
+        expression: String,
         expected: usize,
         actual: usize,
     },
     /// Encountered when an unknown function is called.
     UnknownFunction {
+        coordinates: Coordinates,
+        expression: String,
         function: String,
     },
     /// Encountered when a type of variable given to a function is invalid.
     InvalidType {
+        coordinates: Coordinates,
+        expression: String,
         expected: String,
         actual: String,
         actual_value: RcVar,
@@ -174,6 +188,8 @@ pub enum RuntimeError {
     },
     /// Encountered when an expression reference returns an invalid type.
     InvalidReturnType {
+        coordinates: Coordinates,
+        expression: String,
         expected: String,
         actual: String,
         actual_value: RcVar,
@@ -186,29 +202,37 @@ impl fmt::Display for RuntimeError {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         use self::RuntimeError::*;
         match self {
-            &UnknownFunction { ref function } => {
-                write!(fmt, "Call to undefined function {}", function)
+            &UnknownFunction { ref function, ref coordinates, ref expression } => {
+                write!(fmt, "Call to undefined function {} at {}\n{}", function, coordinates,
+                    coordinates.expression_with_carat(expression))
             },
-            &TooManyArguments { ref expected, ref actual } => {
-                write!(fmt, "Too many arguments, expected {}, found {}", expected, actual)
+            &TooManyArguments { ref expected, ref actual, ref coordinates, ref expression } => {
+                write!(fmt, "Too many arguments, expected {}, found {} at {}\n{}", expected,
+                    actual, coordinates, coordinates.expression_with_carat(expression))
             },
-            &NotEnoughArguments { ref expected, ref actual } => {
-                write!(fmt, "Not enough arguments, expected {}, found {}", expected, actual)
+            &NotEnoughArguments { ref expected, ref actual, ref coordinates, .. } => {
+                write!(fmt, "Not enough arguments, expected {}, found {} at {}", expected,
+                    actual, coordinates)
             },
-            &InvalidType { ref expected, ref actual, ref position, ref actual_value } => {
-                write!(fmt, "Argument {} expects type {}, given {} {}",
-                            position, expected, actual,
-                            actual_value.to_string().unwrap_or(format!("{:?}", actual_value)))
+            &InvalidType { ref expected, ref actual, ref position, ref actual_value,
+                    ref coordinates, .. } => {
+                write!(fmt, "Argument {} expects type {}, given {} {} at {}",
+                    position, expected, actual,
+                    actual_value.to_string().unwrap_or(format!("{:?}", actual_value)),
+                    coordinates)
             },
-            &InvalidSlice => write!(fmt, "Invalid slice"),
+            &InvalidSlice { ref coordinates, .. } => {
+                write!(fmt, "Invalid slice at {}", coordinates)
+            },
             &InvalidReturnType { ref expected, ref actual, ref position, ref invocation,
-                ref actual_value } => {
-                write!(fmt, "Argument {} must return {} but invocation {} returned {} {}",
-                       position, expected, invocation, actual,
-                       actual_value.to_string().unwrap_or(format!("{:?}", actual_value)))
+                    ref actual_value, ref coordinates,.. } => {
+                write!(fmt, "Argument {} must return {} but invocation {} returned {} {} at {}",
+                    position, expected, invocation, actual,
+                    actual_value.to_string().unwrap_or(format!("{:?}", actual_value)),
+                    coordinates)
             },
-            &InvalidKey { ref actual } => {
-                write!(fmt, "Invalid key. Expected string, found {:?}", actual)
+            &InvalidKey { ref actual, ref coordinates, .. } => {
+                write!(fmt, "Invalid key. Expected string, found {:?} at {}", actual, coordinates)
             },
         }
     }
@@ -218,7 +242,7 @@ impl fmt::Display for RuntimeError {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Coordinates {
     /// Absolute character position.
-    absolute: usize,
+    offset: usize,
     /// Line number of the coordinate.
     line: usize,
     /// Column of the line number.
@@ -226,13 +250,13 @@ pub struct Coordinates {
 }
 
 impl Coordinates {
-    /// Create an expression coordinates struct based on an absolute
+    /// Create an expression coordinates struct based on an offset
     // position in the expression.
-    pub fn from_absolute(expr: &str, position: usize) -> Coordinates {
+    pub fn from_offset(expr: &str, offset: usize) -> Coordinates {
         // Find each new line and create a formatted error message.
         let mut current_line: usize = 0;
         let mut current_col: usize = 0;
-        for c in expr.chars().take(position) {
+        for c in expr.chars().take(offset) {
             match c {
                 '\n' => {
                     current_line += 1;
@@ -244,7 +268,7 @@ impl Coordinates {
         Coordinates {
             line: current_line,
             column: current_col,
-            absolute: position
+            offset: offset
         }
     }
 
@@ -314,8 +338,23 @@ impl<'a> Expression<'a> {
     pub fn search<T: ToJMESPath>(&self, data: T) -> SearchResult {
         let to_jmespath = data.to_jmespath();
         match self.interpreter {
-            Some(i) => i.interpret(&to_jmespath, &self.ast),
-            None => TreeInterpreter::new().interpret(&to_jmespath, &self.ast)
+            Some(i) => {
+                let mut ctx = Context {
+                    interpreter: i,
+                    expression: &self.original,
+                    offset: 0
+                };
+                i.interpret(&to_jmespath, &self.ast, &mut ctx)
+            },
+            None => {
+                let interpreter = TreeInterpreter::new();
+                let mut ctx = Context {
+                    interpreter: &interpreter,
+                    expression: &self.original,
+                    offset: 0
+                };
+                interpreter.interpret(&to_jmespath, &self.ast, &mut ctx)
+            }
         }
     }
 
@@ -486,36 +525,36 @@ mod test {
     #[test]
     fn can_get_expression_ast() {
         let expr = Expression::new("foo").unwrap();
-        assert_eq!(&Ast::Field("foo".to_string()), expr.as_ast());
+        assert_eq!(&Ast::Field {offset: 0, name: "foo".to_string()}, expr.as_ast());
     }
 
     #[test]
     fn coordinates_can_be_created_from_string_with_new_lines() {
         let expr = "foo\n..bar";
-        let coords = Coordinates::from_absolute(expr, 5);
+        let coords = Coordinates::from_offset(expr, 5);
         assert_eq!(1, coords.line);
         assert_eq!(1, coords.column);
-        assert_eq!(5, coords.absolute);
+        assert_eq!(5, coords.offset);
         assert_eq!("foo\n..bar\n ^\n", coords.expression_with_carat(expr));
     }
 
     #[test]
     fn coordinates_can_be_created_from_string_with_new_lines_pointing_to_non_last() {
         let expr = "foo\n..bar\nbaz";
-        let coords = Coordinates::from_absolute(expr, 5);
+        let coords = Coordinates::from_offset(expr, 5);
         assert_eq!(1, coords.line);
         assert_eq!(1, coords.column);
-        assert_eq!(5, coords.absolute);
+        assert_eq!(5, coords.offset);
         assert_eq!("foo\n..bar\n ^\nbaz", coords.expression_with_carat(expr));
     }
 
     #[test]
     fn coordinates_can_be_created_from_string_with_no_new_lines() {
         let expr = "foo..bar";
-        let coords = Coordinates::from_absolute(expr, 4);
+        let coords = Coordinates::from_offset(expr, 4);
         assert_eq!(0, coords.line);
         assert_eq!(4, coords.column);
-        assert_eq!(4, coords.absolute);
+        assert_eq!(4, coords.offset);
         assert_eq!("foo..bar\n    ^\n", coords.expression_with_carat(expr));
     }
 }
