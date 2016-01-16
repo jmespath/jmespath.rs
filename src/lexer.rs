@@ -70,7 +70,9 @@ impl Token {
     }
 }
 
+/// A tuple of the token position and the token.
 pub type TokenTuple = (usize, Token);
+
 type CharIter<'a> = Peekable<CharIndices<'a>>;
 
 /// Tokenizes a JMESPath expression.
@@ -94,59 +96,45 @@ impl<'a> Lexer<'a> {
     fn tokenize(&mut self) -> Result<VecDeque<TokenTuple>, Error> {
         let mut tokens = VecDeque::new();
         let last_position = self.expr.len();
-        macro_rules! tok {
-            ($pos:expr, $tok:expr) => {{
-                self.iter.next();
-                tokens.push_back(($pos, $tok));
-            }};
-        }
         loop {
-            match self.iter.peek() {
-                Some(&(pos, ch)) => {
+            match self.iter.next() {
+                Some((pos, ch)) => {
                     match ch {
                         'a' ... 'z' | 'A' ... 'Z' | '_' =>
-                            tokens.push_back((pos, self.consume_identifier())),
-                        '.' => tok!(pos, Dot),
-                        '[' => tok!(pos, self.consume_lbracket()),
-                        '*' => tok!(pos, Star),
-                        '|' => tok!(pos, self.alt(&'|', Or, Pipe)),
-                        '@' => tok!(pos, At),
-                        ']' => tok!(pos, Rbracket),
-                        '{' => tok!(pos, Lbrace),
-                        '}' => tok!(pos, Rbrace),
-                        '&' => tok!(pos, self.alt(&'&', And, Ampersand)),
-                        '(' => tok!(pos, Lparen),
-                        ')' => tok!(pos, Rparen),
-                        ',' => tok!(pos, Comma),
-                        ':' => tok!(pos, Colon),
+                            tokens.push_back((pos, self.consume_identifier(ch))),
+                        '.' => tokens.push_back((pos, Dot)),
+                        '[' => tokens.push_back((pos, self.consume_lbracket())),
+                        '*' => tokens.push_back((pos, Star)),
+                        '|' => tokens.push_back((pos, self.alt(&'|', Or, Pipe))),
+                        '@' => tokens.push_back((pos, At)),
+                        ']' => tokens.push_back((pos, Rbracket)),
+                        '{' => tokens.push_back((pos, Lbrace)),
+                        '}' => tokens.push_back((pos, Rbrace)),
+                        '&' => tokens.push_back((pos, self.alt(&'&', And, Ampersand))),
+                        '(' => tokens.push_back((pos, Lparen)),
+                        ')' => tokens.push_back((pos, Rparen)),
+                        ',' => tokens.push_back((pos, Comma)),
+                        ':' => tokens.push_back((pos, Colon)),
                         '"' => tokens.push_back((pos, try!(self.consume_quoted_identifier(pos)))),
                         '\'' => tokens.push_back((pos, try!(self.consume_raw_string(pos)))),
                         '`' => tokens.push_back((pos, try!(self.consume_literal(pos)))),
                         '=' => {
-                            tok!(pos, match self.iter.peek() {
-                                Some(&(_, c)) if c == '=' => {
-                                    self.iter.next();
-                                    Eq
-                                },
+                            match self.iter.next() {
+                                Some((_, c)) if c == '=' => tokens.push_back((pos, Eq)),
                                 _ => {
                                     return Err(Error::new(self.expr, pos, ErrorReason::Parse(
                                         "'=' is not valid. Did you mean '=='?".to_string()
                                     )))
                                 }
-                            })
+                            }
                         },
-                        '>' => tok!(pos, self.alt(&'=', Gte, Gt)),
-                        '<' => tok!(pos, self.alt(&'=', Lte, Lt)),
-                        '!' => tok!(pos, self.alt(&'=', Ne, Not)),
-                        '0' ... '9' => {
-                            tokens.push_back((pos, self.consume_number(false)))
-                        },
+                        '>' => tokens.push_back((pos, self.alt(&'=', Gte, Gt))),
+                        '<' => tokens.push_back((pos, self.alt(&'=', Lte, Lt))),
+                        '!' => tokens.push_back((pos, self.alt(&'=', Ne, Not))),
+                        '0' ... '9' => tokens.push_back((pos, self.consume_number(ch, false))),
                         '-' => tokens.push_back((pos, try!(self.consume_negative_number(pos)))),
                         // Skip whitespace tokens
-                        ' ' | '\n' | '\t' | '\r' => {
-                            self.iter.next();
-                            continue;
-                        },
+                        ' ' | '\n' | '\t' | '\r' => {},
                         c @ _ => {
                             return Err(Error::new(self.expr, pos, ErrorReason::Parse(
                                 format!("Invalid character: {}", c)
@@ -165,9 +153,9 @@ impl<'a> Lexer<'a> {
     // Consumes characters while the predicate function returns true.
     #[inline]
     fn consume_while<F>(&mut self,
+                        mut buffer: String,
                         predicate: F) -> String
                         where F: Fn(char) -> bool {
-        let mut buffer = self.iter.next().expect("Expected token").1.to_string();
         loop {
             match self.iter.peek() {
                 None => break,
@@ -199,8 +187,8 @@ impl<'a> Lexer<'a> {
 
     // Consume identifiers: ( ALPHA / "_" ) *( DIGIT / ALPHA / "_" )
     #[inline]
-    fn consume_identifier(&mut self) -> Token {
-        Identifier(self.consume_while(|c| {
+    fn consume_identifier(&mut self, first_char: char) -> Token {
+        Identifier(self.consume_while(first_char.to_string(), |c| {
             match c {
                 'a' ... 'z' | '_' | 'A' ... 'Z' | '0' ... '9' => true,
                 _ => false
@@ -210,8 +198,8 @@ impl<'a> Lexer<'a> {
 
     // Consumes numbers: *"-" "0" / ( %x31-39 *DIGIT )
     #[inline]
-    fn consume_number(&mut self, is_negative: bool) -> Token {
-        let lexeme = self.consume_while(|c| c.is_digit(10));
+    fn consume_number(&mut self, first_char: char, is_negative: bool) -> Token {
+        let lexeme = self.consume_while(first_char.to_string(), |c| c.is_digit(10));
         let numeric_value: i32 = lexeme.parse().expect("Expected valid number");
         match is_negative {
             true => Number(numeric_value * -1),
@@ -222,11 +210,11 @@ impl<'a> Lexer<'a> {
     // Consumes a negative number
     #[inline]
     fn consume_negative_number(&mut self, pos: usize) -> Result<Token, Error> {
-        // Skip the "-" number token.
-        self.iter.next();
         // Ensure that the next value is a number > 0
-        match self.iter.peek() {
-            Some(&(_, c)) if c.is_numeric() && c != '0' => Ok(self.consume_number(true)),
+        match self.iter.next() {
+            Some((_, c)) if c.is_numeric() && c != '0' => {
+                Ok(self.consume_number(c, true))
+            },
             _ => {
                 Err(Error::new(self.expr, pos, ErrorReason::Parse(
                     "'-' must be followed by numbers 1-9".to_string()
@@ -245,8 +233,6 @@ impl<'a> Lexer<'a> {
         where F: Fn(String) -> Result<Token, String>
     {
         let mut buffer = String::new();
-        // Skip the opening character.
-        self.iter.next();
         while let Some((_, c)) = self.iter.next() {
             if c == wrapper {
                 return invoke(buffer).map_err(|e| {
