@@ -2,6 +2,7 @@
 
 use std::fmt;
 
+use super::lexer::Token;
 use super::RcVar;
 use super::Coordinates;
 
@@ -213,4 +214,18 @@ pub enum Comparator {
     Gt,
     /// Greater than or equal to (e.g., `>=`)
     Gte,
+}
+
+impl Comparator {
+    /// Get the binding power of the operator.
+    pub fn lbp(&self) -> usize {
+        match self {
+            &Comparator::Eq => Token::Eq.lbp(),
+            &Comparator::Ne => Token::Ne.lbp(),
+            &Comparator::Lt => Token::Lt.lbp(),
+            &Comparator::Lte => Token::Lte.lbp(),
+            &Comparator::Gt => Token::Gt.lbp(),
+            &Comparator::Gte => Token::Gte.lbp(),
+        }
+    }
 }

@@ -45,6 +45,7 @@ pub enum Token {
 
 impl Token {
     /// Provides the left binding power of the token.
+    #[inline]
     pub fn lbp(&self) -> usize {
         match *self {
             Pipe     => 1,
