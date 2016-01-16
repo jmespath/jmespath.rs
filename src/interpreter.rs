@@ -20,6 +20,17 @@ pub struct Context<'a> {
 }
 
 impl<'a> Context<'a> {
+    /// Create a new context struct.
+    pub fn new(interpreter: &'a TreeInterpreter,
+               expression: &'a str,
+               offset: usize) -> Context<'a> {
+        Context {
+            interpreter: interpreter,
+            expression: expression,
+            offset: offset
+        }
+    }
+
     /// Create a coordinates struct from the context.
     pub fn create_coordinates(&self) -> Coordinates {
         Coordinates::from_offset(self.expression, self.offset)

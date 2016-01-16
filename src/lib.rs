@@ -332,20 +332,12 @@ impl<'a> Expression<'a> {
         let to_jmespath = data.to_jmespath();
         match self.interpreter {
             Some(i) => {
-                let mut ctx = Context {
-                    interpreter: i,
-                    expression: &self.original,
-                    offset: 0
-                };
+                let mut ctx = Context::new(i, &self.original, 0);
                 i.interpret(&to_jmespath, &self.ast, &mut ctx)
             },
             None => {
                 let interpreter = TreeInterpreter::new();
-                let mut ctx = Context {
-                    interpreter: &interpreter,
-                    expression: &self.original,
-                    offset: 0
-                };
+                let mut ctx = Context::new(&interpreter, &self.original, 0);
                 interpreter.interpret(&to_jmespath, &self.ast, &mut ctx)
             }
         }
