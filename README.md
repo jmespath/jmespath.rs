@@ -21,7 +21,7 @@ let expr = jmespath::Expression::new("foo.bar | baz").unwrap();
 
 // Parse some JSON data into a JMESPath variable
 let json_str = "{\"foo\":{\"bar\":{\"baz\":true}}}";
-let data = jmespath::Variable::from_str(json_str).unwrap();
+let data = jmespath::Variable::from_json(json_str).unwrap();
 
 // Search the data with the compiled expression
 let result = expr.search(data).unwrap();
