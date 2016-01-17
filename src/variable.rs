@@ -3,16 +3,17 @@
 extern crate serde;
 extern crate serde_json;
 
-use std::fmt;
-use std::string::ToString;
-use std::cmp::{max, Ordering};
-use std::rc::Rc;
 use std::collections::BTreeMap;
+use std::cmp::{max, Ordering};
+use std::fmt;
 use std::iter::Iterator;
+use std::rc::Rc;
+use std::string::ToString;
 
 use self::serde::de;
 use self::serde::ser;
 use self::serde::Serialize;
+use self::serde_json::error::Error;
 
 use super::RcVar;
 use super::ast::{Ast, Comparator};
@@ -73,6 +74,11 @@ impl Variable {
         let mut ser = Serializer::new();
         value.serialize(&mut ser).ok().unwrap();
         ser.unwrap()
+    }
+
+    /// Converts a JMESPath `Variable` to a `serde::de::Deserialize` type.
+    pub fn to_deserialize<T: de::Deserialize>(&self) -> Result<T, Error> {
+        serde_json::from_value(serde_json::to_value(&self))
     }
 
     /// Returns true if the Variable is an Array. Returns false otherwise.
@@ -871,5 +877,15 @@ mod tests {
     fn test_creates_variable_from_tuple_serialization() {
         let t = (true, false);
         assert_eq!("[true,false]", Variable::from_serialize(&t).to_string());
+    }
+
+    #[test]
+    fn test_can_round_trip_to_and_from_value() {
+        let value1 = Value::Array(vec![Value::Bool(true), Value::Bool(false)]);
+        let variable = Variable::from_serialize(&value1);
+        assert_eq!("[true,false]", variable.to_string());
+        let value2: Value = variable.to_deserialize().unwrap();
+        assert_eq!(value1, value2);
+        assert_eq!("[true,false]", serde_json::to_string(&value2).unwrap());
     }
 }

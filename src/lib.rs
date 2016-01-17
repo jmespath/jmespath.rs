@@ -79,6 +79,21 @@
 //! `serde::ser::Serialize` trait can be searched without needing explicit
 //! coercions. This includes a number of common types, including serde's
 //! `serde_json::Value` enum.
+//!
+//! The return value of searching data with JMESPath is also an `RcVar` (an
+//! `Rc<Variable>`). `Variable` has a number of helper methods that make
+//! it a data type that can be used directly, or you can convert `Variable`
+//! to any serde value implementing `serde::de::Deserialize`.
+//!
+//! ```
+//! // Search an arbitrary data type that implements serde::ser::Serialize
+//! let data = vec![true, false];
+//! // Get the result as an RcVar
+//! let result = jmespath::search("[0]", data).unwrap();
+//! // Convert the result to a type that implements serde::de::Deserialize
+//! let my_bool: bool = result.to_deserialize().unwrap();
+//! assert_eq!(true, my_bool);
+//! ```
 
 extern crate serde;
 extern crate serde_json;
