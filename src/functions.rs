@@ -603,7 +603,7 @@ impl JPFunction for ToNumber {
         match *args[0] {
             Variable::I64(_) | Variable::F64(_) | Variable::U64(_) => Ok(args[0].clone()),
             Variable::String(ref s) => {
-                match Variable::from_str(s) {
+                match Variable::from_json(s) {
                     Ok(f)  => Ok(ctx.interpreter.allocator.alloc(f)),
                     Err(_) => Ok(ctx.interpreter.allocator.alloc_null())
                 }
@@ -622,7 +622,7 @@ impl JPFunction for ToString {
             ArgumentType::Number, ArgumentType::String, ArgumentType::Null]));
         match *args[0] {
             Variable::String(_) => Ok(args[0].clone()),
-            _ => Ok(ctx.interpreter.allocator.alloc(args[0].to_string().unwrap()))
+            _ => Ok(ctx.interpreter.allocator.alloc(args[0].to_string()))
         }
     }
 }

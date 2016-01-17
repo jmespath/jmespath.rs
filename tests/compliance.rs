@@ -114,10 +114,10 @@ impl Assertion {
                     Ok(r) => {
                         match r.as_string() {
                             Some(s) if s != expected_result.as_string().unwrap() => {
-                                Err(self.err_message(suite, case, r.to_string().unwrap()))
+                                Err(self.err_message(suite, case, r.to_string()))
                             },
                             Some(_) if r != expected_result.clone() => {
-                                Err(self.err_message(suite, case, r.to_string().unwrap()))
+                                Err(self.err_message(suite, case, r.to_string()))
                             },
                             _ => Ok(())
                         }
@@ -133,7 +133,7 @@ impl Assertion {
                             Err(Runtime(RuntimeError::NotEnoughArguments{..})) => Ok(()),
                             Err(Runtime(RuntimeError::TooManyArguments{..})) => Ok(()),
                             Err(e) => Err(self.err_message(suite, case, format!("{}", e))),
-                            Ok(r) => Err(self.err_message(suite, case, r.to_string().unwrap())),
+                            Ok(r) => Err(self.err_message(suite, case, r.to_string())),
                         }
                     },
                     &ErrorType::InvalidType => {
@@ -141,21 +141,21 @@ impl Assertion {
                             Err(Runtime(RuntimeError::InvalidType{..})) => Ok(()),
                             Err(Runtime(RuntimeError::InvalidReturnType{..})) => Ok(()),
                             Err(e) => Err(self.err_message(suite, case, format!("{}", e))),
-                            Ok(r) => Err(self.err_message(suite, case, r.to_string().unwrap())),
+                            Ok(r) => Err(self.err_message(suite, case, r.to_string())),
                         }
                     },
                     &ErrorType::InvalidSlice => {
                         match try!(result).search(given).map_err(|e| e.error_reason) {
                             Err(Runtime(RuntimeError::InvalidSlice)) => Ok(()),
                             Err(e) => Err(self.err_message(suite, case, format!("{}", e))),
-                            Ok(r) => Err(self.err_message(suite, case, r.to_string().unwrap())),
+                            Ok(r) => Err(self.err_message(suite, case, r.to_string())),
                         }
                     },
                     &ErrorType::UnknownFunction => {
                         match try!(result).search(given).map_err(|e| e.error_reason) {
                             Err(Runtime(RuntimeError::UnknownFunction(_))) => Ok(()),
                             Err(e) => Err(self.err_message(suite, case, format!("{}", e))),
-                            Ok(r) => Err(self.err_message(suite, case, r.to_string().unwrap())),
+                            Ok(r) => Err(self.err_message(suite, case, r.to_string())),
                         }
                     },
                     &ErrorType::SyntaxError => {
@@ -224,11 +224,11 @@ impl<'a> TestSuite<'a> {
         for case in case_array {
             cases.push(try!(TestCase::from_json(case).map_err(|e| e.to_string())));
         }
-
+        let value = try!(suite.get("given").ok_or("No given value".to_string())).clone();
+        let given = try!(serde_json::from_value::<Variable>(value).map_err(|e| format!("{}", e)));
         Ok(TestSuite {
             filename: filename,
-            given: Rc::new(Variable::from_json(try!(
-                suite.get("given").ok_or("No given value".to_string())))),
+            given: Rc::new(given),
             cases: cases
         })
     }
@@ -304,8 +304,9 @@ impl TestCase {
             assertion: match case.get("error") {
                 Some(err) => Assertion::Error(try!(ErrorType::from_json(err))),
                 None if case.contains_key("result") => {
-                    let value = Rc::new(Variable::from_json(case.get("result").unwrap()));
-                    Assertion::ValidResult(value)
+                    let value = case.get("result").unwrap();
+                    let var = serde_json::from_value::<Variable>(value.clone()).unwrap();
+                    Assertion::ValidResult(Rc::new(var))
                 },
                 None if case.contains_key("bench") => {
                     Assertion::Bench(try!(BenchType::from_json(case.get("bench").unwrap())))

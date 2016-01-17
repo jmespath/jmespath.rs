@@ -95,14 +95,6 @@ fn validates_expression_file_is_valid_expression() {
 }
 
 #[test]
-fn fails_when_result_is_expression() {
-    let output = get_output(vec![
-        "-f", "tests/fixtures/valid-json",
-        "&foo"]).unwrap_err();
-    assert!(output.contains("Error converting result to string"));
-}
-
-#[test]
 fn can_read_json_from_stdin() {
     use std::io::prelude::*;
     let mut child = Command::new(JPBIN)

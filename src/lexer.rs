@@ -259,7 +259,7 @@ impl<'a> Lexer<'a> {
     fn consume_quoted_identifier(&mut self, pos: usize) -> Result<Token, Error> {
         self.consume_inside(pos, '"', |s| {
             // JSON decode the string to expand escapes
-            match Variable::from_str(format!(r##""{}""##, s).as_ref()) {
+            match Variable::from_json(format!(r##""{}""##, s).as_ref()) {
                 // Convert the JSON value into a string literal.
                 Ok(j) => Ok(QuotedIdentifier(j.as_string().unwrap().to_string())),
                 Err(e) => Err(format!("Unable to parse quoted identifier {}: {}", s, e))
@@ -279,7 +279,7 @@ impl<'a> Lexer<'a> {
     fn consume_literal(&mut self, pos: usize) -> Result<Token, Error> {
         self.consume_inside(pos, '`', |s| {
             let unescaped = s.replace("\\`", "`");
-            match Variable::from_str(unescaped.as_ref()) {
+            match Variable::from_json(unescaped.as_ref()) {
                 Ok(j) => Ok(Literal(Rc::new(j))),
                 Err(err) => Err(format!("Unable to parse literal JSON {}: {}", s, err))
             }

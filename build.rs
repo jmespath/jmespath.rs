@@ -123,7 +123,7 @@ fn parse_{}(b: &mut Bencher) {{
         f.write_all(format!("\
 #[bench]
 fn full_{}(b: &mut Bencher) {{
-    let data = Variable::from_str({:?}).expect(\"Invalid JSON given\");
+    let data = Variable::from_json({:?}).expect(\"Invalid JSON given\");
     b.iter(|| Expression::new({:?}).unwrap().search(data.clone()));
 }}
 
@@ -145,7 +145,7 @@ fn generate_test(filename: &str,
 #[test]
 fn test_{}() {{
     let case: TestCase = TestCase::from_str({:?}).unwrap();
-    let data = Rc::new(Variable::from_str({:?}).unwrap());
+    let data = Rc::new(Variable::from_json({:?}).unwrap());
     case.assert({:?}, data).unwrap();
 }}
 

@@ -1,4 +1,5 @@
 extern crate clap;
+extern crate serde_json;
 extern crate jmespath;
 
 use std::io::prelude::*;
@@ -79,10 +80,11 @@ fn show_result(result: RcVar, unquoted: bool) {
     if unquoted && result.is_string() {
         println!("{}", result.as_string().unwrap());
     } else {
-        match result.to_pretty_string() {
-            Some(s) => println!("{}", s),
-            None => die!(format!("Error converting result to string: {:?}", result)),
-        }
+        let mut out = io::stdout();
+        serde_json::to_writer_pretty(&mut out, &result)
+            .map(|_| out.write(&['\n' as u8]))
+            .map_err(|e| die!(format!("Error converting result to string: {}", e)))
+            .ok();
     }
 }
 
@@ -110,7 +112,7 @@ fn get_json(filename: Option<&str>) -> Variable {
             }
         }
     };
-    Variable::from_str(&buffer)
+    Variable::from_json(&buffer)
         .map_err(|e| die!(format!("Error parsing JSON: {}", e)))
         .unwrap()
 }
