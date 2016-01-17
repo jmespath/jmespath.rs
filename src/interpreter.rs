@@ -1,12 +1,16 @@
 //! Interprets JMESPath expressions
 
+extern crate serde;
+
 use std::rc::Rc;
 use std::collections::{BTreeMap, HashMap};
 
-use super::{Coordinates, RcVar, Error, ErrorReason, RuntimeError, ToJMESPath};
+use super::{Coordinates, RcVar, Error, ErrorReason, RuntimeError};
 use super::ast::Ast;
 use super::functions::{register_core_functions, JPFunction, Functions};
 use super::variable::Variable;
+
+use self::serde::Serialize;
 
 pub type SearchResult = Result<RcVar, Error>;
 
@@ -41,8 +45,8 @@ impl<'a> Context<'a> {
 
     /// Convenience method to allocates a Variable.
     #[inline]
-    pub fn alloc<S: ToJMESPath>(&self, s: S) -> RcVar {
-        s.to_jmespath()
+    pub fn alloc<S: Serialize>(&self, s: S) -> RcVar {
+        Rc::new(Variable::from_serialize(&s))
     }
 
     /// Create a coordinates struct from the context.

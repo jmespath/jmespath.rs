@@ -72,9 +72,13 @@
 //! shared, reference counted data to be used by the JMESPath interpreter at
 //! runtime.
 //!
-//! Any value that implements the `jmespath::ToJMESPath` trait can be
-//! searched without needing explicit coercions. This includes a number of
-//! common types, including serde's `serde_json::Value` enum.
+//! Because `jmespath::Variable` implements `serde::ser::Serialize`, many
+//! existing types can be searched without needing an explicit coercion,
+//! and any type that needs coercion can be implemented using serde's macros
+//! or code generation capabilities. Any value that implements the
+//! `serde::ser::Serialize` trait can be searched without needing explicit
+//! coercions. This includes a number of common types, including serde's
+//! `serde_json::Value` enum.
 
 extern crate serde;
 extern crate serde_json;
@@ -101,7 +105,7 @@ mod variable;
 pub type RcVar = Rc<Variable>;
 
 /// Parses an expression and performs a search over the data.
-pub fn search<T: ToJMESPath>(expression: &str, data: T) -> Result<RcVar, Error> {
+pub fn search<T: Serialize>(expression: &str, data: T) -> Result<RcVar, Error> {
     Expression::new(expression).and_then(|expr| expr.search(data))
 }
 
@@ -327,17 +331,19 @@ impl<'a> Expression<'a> {
     }
 
     /// Returns the result of searching data with the compiled expression.
-    pub fn search<T: ToJMESPath>(&self, data: T) -> SearchResult {
-        let to_jmespath = data.to_jmespath();
+    pub fn search<T: Serialize>(&self, data: T) -> SearchResult {
+        let mut ser = Serializer::new();
+        data.serialize(&mut ser).ok().unwrap();
+        let data = Rc::new(ser.unwrap());
         match self.interpreter {
             Some(i) => {
                 let mut ctx = Context::new(i, &self.original);
-                i.interpret(&to_jmespath, &self.ast, &mut ctx)
+                i.interpret(&data, &self.ast, &mut ctx)
             },
             None => {
                 let interpreter = TreeInterpreter::new();
                 let mut ctx = Context::new(&interpreter, &self.original);
-                interpreter.interpret(&to_jmespath, &self.ast, &mut ctx)
+                interpreter.interpret(&data, &self.ast, &mut ctx)
             }
         }
     }
@@ -374,32 +380,9 @@ impl<'a> PartialEq for Expression<'a> {
     }
 }
 
-/// Converts a value into a reference-counted JMESPath Variable that
-/// can be used by the JMESPath runtime.
-pub trait ToJMESPath {
-    fn to_jmespath(self) -> RcVar;
-}
-
-/// Creates a Rc<Variable> from a serde serializable value.
-impl<T: Serialize> ToJMESPath for T {
-    fn to_jmespath(self) -> RcVar {
-        let mut ser = Serializer::new();
-        self.serialize(&mut ser).ok().unwrap();
-        Rc::new(ser.unwrap())
-    }
-}
-
-/// Creates a Variable::Expref value bound to the Ast node.
-impl ToJMESPath for Ast {
-    fn to_jmespath(self) -> RcVar {
-        Rc::new(Variable::Expref(self))
-    }
-}
-
 #[cfg(test)]
 mod test {
     use std::rc::Rc;
-    use std::collections::BTreeMap;
 
     use super::*;
     use super::ast::Ast;
@@ -463,36 +446,5 @@ mod test {
         assert_eq!(4, coords.column);
         assert_eq!(4, coords.offset);
         assert_eq!("foo..bar\n    ^\n", coords.expression_with_carat(expr));
-    }
-
-    /// Basic smoke tests for ToJMESPath to ensure the types doesn't get screwed up.
-    #[test]
-    fn create_jmespath_from_types() {
-        use ToJMESPath;
-        assert_eq!(Rc::new(Variable::String("foo".to_string())), "foo".to_jmespath());
-        assert_eq!(Rc::new(Variable::String("foo".to_string())), "foo".to_string().to_jmespath());
-        assert_eq!(Rc::new(Variable::Bool(true)), true.to_jmespath());
-        assert_eq!(Rc::new(Variable::Bool(false)), false.to_jmespath());
-        assert_eq!(Rc::new(Variable::I64(-1)), (-1).to_jmespath());
-        assert_eq!(Rc::new(Variable::U64(1)), 1.to_jmespath());
-        assert_eq!(Rc::new(Variable::F64(1.5)), 1.5.to_jmespath());
-        assert_eq!(
-            vec![vec![()]].to_jmespath(),
-            Rc::new(Variable::Array(vec![
-                Rc::new(Variable::Array(vec![
-                    Rc::new(Variable::Null)
-                ]))
-            ])));
-        assert_eq!(
-            vec!["a", "b"].to_jmespath(),
-            Rc::new(Variable::Array(vec![
-                Rc::new(Variable::String("a".to_string())),
-                Rc::new(Variable::String("b".to_string()))
-            ])));
-        let mut map = BTreeMap::new();
-        map.insert("foo", "bar");
-        let mut expected = BTreeMap::new();
-        expected.insert("foo".to_string(), Rc::new(Variable::String("bar".to_string())));
-        assert_eq!(Rc::new(Variable::Object(expected)), map.to_jmespath());
     }
 }

@@ -12,6 +12,7 @@ use std::iter::Iterator;
 
 use self::serde::de;
 use self::serde::ser;
+use self::serde::Serialize;
 
 use super::RcVar;
 use super::ast::{Ast, Comparator};
@@ -67,8 +68,8 @@ impl Variable {
         serde_json::from_str::<Variable>(s).map_err(|e| e.to_string())
     }
 
-    /// Create a JMESPath variable from a `T`
-    pub fn from_value<T: ser::Serialize>(value: &T) -> Variable {
+    /// Create a JMESPath `Variable` from a `serde::se::Serialize` type.
+    pub fn from_serialize<T: ser::Serialize>(value: &T) -> Variable {
         let mut ser = Serializer::new();
         value.serialize(&mut ser).ok().unwrap();
         ser.unwrap()
@@ -467,7 +468,7 @@ impl ser::Serializer for Serializer {
                                 value: T) -> Result<(), ()>
                                 where T: ser::Serialize {
         let mut values = BTreeMap::new();
-        values.insert(String::from(variant), Rc::new(Variable::from_value(&value)));
+        values.insert(String::from(variant), Rc::new(Variable::from_serialize(&value)));
         self.state.push(State::Value(Variable::Object(values)));
         Ok(())
     }
@@ -834,41 +835,41 @@ mod tests {
     /// Tests that the Serde serialization directly to Variable works correctly.
     #[test]
     fn test_creates_variable_from_scalar_serialization() {
-        assert_eq!("\"foo\"", Variable::from_value(&"foo").to_string());
-        assert_eq!("\"foo\"", Variable::from_value(&"foo".to_string()).to_string());
-        assert_eq!("\"f\"", Variable::from_value(&'f').to_string());
-        assert_eq!("1", Variable::from_value(&1).to_string());
-        assert_eq!("1", Variable::from_value(&(1 as i64)).to_string());
-        assert_eq!("-1", Variable::from_value(&-1).to_string());
-        assert_eq!("1.5", Variable::from_value(&1.5).to_string());
-        assert_eq!("true", Variable::from_value(&true).to_string());
-        assert_eq!("false", Variable::from_value(&false).to_string());
-        assert_eq!("null", Variable::from_value(&()).to_string());
+        assert_eq!("\"foo\"", Variable::from_serialize(&"foo").to_string());
+        assert_eq!("\"foo\"", Variable::from_serialize(&"foo".to_string()).to_string());
+        assert_eq!("\"f\"", Variable::from_serialize(&'f').to_string());
+        assert_eq!("1", Variable::from_serialize(&1).to_string());
+        assert_eq!("1", Variable::from_serialize(&(1 as i64)).to_string());
+        assert_eq!("-1", Variable::from_serialize(&-1).to_string());
+        assert_eq!("1.5", Variable::from_serialize(&1.5).to_string());
+        assert_eq!("true", Variable::from_serialize(&true).to_string());
+        assert_eq!("false", Variable::from_serialize(&false).to_string());
+        assert_eq!("null", Variable::from_serialize(&()).to_string());
         let null_val: Option<bool> = None;
-        assert_eq!("null", Variable::from_value(&null_val).to_string());
+        assert_eq!("null", Variable::from_serialize(&null_val).to_string());
     }
 
     #[test]
     fn test_creates_variable_from_vec_serialization() {
         let empty_vec: Vec<String> = Vec::new();
-        assert_eq!("[]", Variable::from_value(&empty_vec).to_string());
-        assert_eq!("[\"abc\"]", Variable::from_value(&vec!["abc"]).to_string());
+        assert_eq!("[]", Variable::from_serialize(&empty_vec).to_string());
+        assert_eq!("[\"abc\"]", Variable::from_serialize(&vec!["abc"]).to_string());
         let s_vec: Vec<Vec<&'static str>> = vec![vec!["foo", "baz"], vec!["bar"]];
-        assert_eq!("[[\"foo\",\"baz\"],[\"bar\"]]", Variable::from_value(&s_vec).to_string());
+        assert_eq!("[[\"foo\",\"baz\"],[\"bar\"]]", Variable::from_serialize(&s_vec).to_string());
     }
 
     #[test]
     fn test_creates_variable_from_map_serialization() {
         let empty_map: BTreeMap<String, String> = BTreeMap::new();
-        assert_eq!("{}", Variable::from_value(&empty_map).to_string());
+        assert_eq!("{}", Variable::from_serialize(&empty_map).to_string());
         let mut b_map: BTreeMap<&'static str, bool> = BTreeMap::new();
         b_map.insert("foo", true);
-        assert_eq!("{\"foo\":true}", Variable::from_value(&b_map).to_string());
+        assert_eq!("{\"foo\":true}", Variable::from_serialize(&b_map).to_string());
     }
 
     #[test]
     fn test_creates_variable_from_tuple_serialization() {
         let t = (true, false);
-        assert_eq!("[true,false]", Variable::from_value(&t).to_string());
+        assert_eq!("[true,false]", Variable::from_serialize(&t).to_string());
     }
 }
