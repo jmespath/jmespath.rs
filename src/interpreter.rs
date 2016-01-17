@@ -1,11 +1,12 @@
 //! Interprets JMESPath expressions
 
+use std::rc::Rc;
 use std::collections::{BTreeMap, HashMap};
 
-use super::{Coordinates, RcVar, Error, ErrorReason, RuntimeError};
+use super::{Coordinates, RcVar, Error, ErrorReason, RuntimeError, ToJMESPath};
 use super::ast::Ast;
 use super::functions::{register_core_functions, JPFunction, Functions};
-use super::variable::{Variable, VariableAllocator};
+use super::variable::Variable;
 
 pub type SearchResult = Result<RcVar, Error>;
 
@@ -17,18 +18,31 @@ pub struct Context<'a> {
     pub expression: &'a str,
     /// Offset being evaluated
     pub offset: usize,
+    /// A shared null variable for faster null allocation.
+    null: RcVar
 }
 
 impl<'a> Context<'a> {
     /// Create a new context struct.
-    pub fn new(interpreter: &'a TreeInterpreter,
-               expression: &'a str,
-               offset: usize) -> Context<'a> {
+    pub fn new(interpreter: &'a TreeInterpreter, expression: &'a str) -> Context<'a> {
         Context {
             interpreter: interpreter,
             expression: expression,
-            offset: offset
+            offset: 0,
+            null: Rc::new(Variable::Null)
         }
+    }
+
+    /// Allocate a null value (uses the shared null value reference).
+    #[inline]
+    pub fn alloc_null(&self) -> RcVar {
+        self.null.clone()
+    }
+
+    /// Convenience method to allocates a Variable.
+    #[inline]
+    pub fn alloc<S: ToJMESPath>(&self, s: S) -> RcVar {
+        s.to_jmespath()
     }
 
     /// Create a coordinates struct from the context.
@@ -39,8 +53,6 @@ impl<'a> Context<'a> {
 
 /// TreeInterpreter recursively extracts data using an AST.
 pub struct TreeInterpreter {
-    /// Allocates runtime variables.
-    pub allocator: VariableAllocator,
     /// Provides a mapping between JMESPath function names and the function to execute.
     functions: Functions
 }
@@ -57,7 +69,6 @@ impl TreeInterpreter {
     #[inline]
     pub fn with_functions(functions: Functions) -> TreeInterpreter {
         TreeInterpreter {
-            allocator: VariableAllocator::new(),
             functions: functions
         }
     }
@@ -73,7 +84,7 @@ impl TreeInterpreter {
             },
             &Ast::Field { ref name, ref offset } => {
                 ctx.offset = *offset;
-                Ok(data.get_value(name).unwrap_or(self.allocator.alloc_null()))
+                Ok(data.get_value(name).unwrap_or(ctx.alloc_null()))
             },
             &Ast::Identity { ref offset } => {
                 ctx.offset = *offset;
@@ -91,7 +102,7 @@ impl TreeInterpreter {
                     data.get_negative_index((-1 * idx) as usize)
                 } {
                     Some(value) => Ok(value),
-                    None => Ok(self.allocator.alloc_null())
+                    None => Ok(ctx.alloc_null())
                 }
             },
             &Ast::Or { ref lhs, ref rhs, ref offset } => {
@@ -115,7 +126,7 @@ impl TreeInterpreter {
             &Ast::Not { ref node, ref offset } => {
                 ctx.offset = *offset;
                 let result = try!(self.interpret(data, node, ctx));
-                Ok(self.allocator.alloc_bool(!result.is_truthy()))
+                Ok(Rc::new(Variable::Bool(!result.is_truthy())))
             },
             // Returns the resut of RHS if cond yields truthy value.
             &Ast::Condition { ref predicate, ref then, ref offset } => {
@@ -124,16 +135,15 @@ impl TreeInterpreter {
                 if cond_result.is_truthy() {
                     self.interpret(data, then, ctx)
                 } else {
-                    Ok(self.allocator.alloc_null())
+                    Ok(ctx.alloc_null())
                 }
             },
             &Ast::Comparison { ref comparator, ref lhs, ref rhs, ref offset } => {
                 ctx.offset = *offset;
                 let left = try!(self.interpret(data, lhs, ctx));
                 let right = try!(self.interpret(data, rhs, ctx));
-                Ok(left.compare(comparator, &*right).map_or(
-                    self.allocator.alloc_null(),
-                    |result| self.allocator.alloc_bool(result)))
+                Ok(left.compare(comparator, &*right)
+                    .map_or(ctx.alloc_null(), |result| Rc::new(Variable::Bool(result))))
             },
             // Converts an object into a JSON array of its values.
             &Ast::ObjectValues { ref node, ref offset } => {
@@ -141,9 +151,9 @@ impl TreeInterpreter {
                 let subject = try!(self.interpret(data, node, ctx));
                 match *subject {
                     Variable::Object(ref v) => {
-                        Ok(self.allocator.alloc(v.values().cloned().collect::<Vec<RcVar>>()))
+                        Ok(Rc::new(Variable::Array(v.values().cloned().collect::<Vec<RcVar>>())))
                     },
-                    _ => Ok(self.allocator.alloc_null())
+                    _ => Ok(ctx.alloc_null())
                 }
             },
             // Passes the results of lhs into rhs if lhs yields an array and
@@ -151,7 +161,7 @@ impl TreeInterpreter {
             &Ast::Projection { ref lhs, ref rhs, ref offset } => {
                 ctx.offset = *offset;
                 match try!(self.interpret(data, lhs, ctx)).as_array() {
-                    None => Ok(self.allocator.alloc_null()),
+                    None => Ok(ctx.alloc_null()),
                     Some(left) => {
                         let mut collected = vec![];
                         for element in left {
@@ -160,14 +170,14 @@ impl TreeInterpreter {
                                 collected.push(current);
                             }
                         }
-                        Ok(self.allocator.alloc(collected))
+                        Ok(Rc::new(Variable::Array(collected)))
                     }
                 }
             },
             &Ast::Flatten { ref node, ref offset } => {
                 ctx.offset = *offset;
                 match try!(self.interpret(data, node, ctx)).as_array() {
-                    None => Ok(self.allocator.alloc_null()),
+                    None => Ok(ctx.alloc_null()),
                     Some(a) => {
                         let mut collected: Vec<RcVar> = vec![];
                         for element in a {
@@ -176,26 +186,26 @@ impl TreeInterpreter {
                                 _ => collected.push(element.clone())
                             }
                         }
-                        Ok(self.allocator.alloc(collected))
+                        Ok(Rc::new(Variable::Array(collected)))
                     }
                 }
             },
             &Ast::MultiList { ref elements, ref offset } => {
                 ctx.offset = *offset;
                 if data.is_null() {
-                    Ok(self.allocator.alloc_null())
+                    Ok(ctx.alloc_null())
                 } else {
                     let mut collected = vec![];
                     for node in elements {
                         collected.push(try!(self.interpret(data, node, ctx)));
                     }
-                    Ok(self.allocator.alloc(collected))
+                    Ok(Rc::new(Variable::Array(collected)))
                 }
             },
             &Ast::MultiHash { ref elements, ref offset } => {
                 ctx.offset = *offset;
                 if data.is_null() {
-                    Ok(self.allocator.alloc_null())
+                    Ok(ctx.alloc_null())
                 } else {
                     let mut collected = BTreeMap::new();
                     for kvp in elements {
@@ -209,7 +219,7 @@ impl TreeInterpreter {
                             )));
                         }
                     }
-                    Ok(self.allocator.alloc(collected))
+                    Ok(Rc::new(Variable::Object(collected)))
                 }
             },
             &Ast::Function { ref name, ref args, ref offset } => {
@@ -231,7 +241,7 @@ impl TreeInterpreter {
             },
             &Ast::Expref{ ref ast, ref offset } => {
                 ctx.offset = *offset;
-                Ok(self.allocator.alloc(*ast.clone()))
+                Ok(Rc::new(Variable::Expref(*ast.clone())))
             },
             &Ast::Slice { ref start, ref stop, step, ref offset } => {
                 ctx.offset = *offset;
@@ -240,9 +250,9 @@ impl TreeInterpreter {
                 } else {
                     match data.as_array() {
                         Some(ref array) => {
-                            Ok(self.allocator.alloc(slice(array, start, stop, step)))
+                            Ok(Rc::new(Variable::Array(slice(array, start, stop, step))))
                         },
-                        None => Ok(self.allocator.alloc_null())
+                        None => Ok(ctx.alloc_null())
                     }
                 }
             }
@@ -300,5 +310,38 @@ fn adjust_slice_endpoint(len: i32, mut endpoint: i32, step: i32) -> i32 {
         len - 1
     } else {
         len
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use std::rc::Rc;
+    use super::*;
+    use variable::Variable;
+
+    #[test]
+    fn context_allocates_values() {
+        let i = TreeInterpreter::new();
+        let ctx = Context::new(&i, "foo.bar");
+        assert_eq!(Rc::new(Variable::Bool(true)), ctx.alloc(true));
+    }
+
+    #[test]
+    fn context_allocates_null() {
+        let i = TreeInterpreter::new();
+        let ctx = Context::new(&i, "foo.bar");
+        assert_eq!(Rc::new(Variable::Null), ctx.alloc_null());
+    }
+
+    #[test]
+    fn context_creates_coordinates() {
+        let i = TreeInterpreter::new();
+        let mut ctx = Context::new(&i, "foo.bar");
+        ctx.offset = 3;
+        let coords = ctx.create_coordinates();
+        assert_eq!(3, coords.offset);
+        assert_eq!(3, coords.column);
+        assert_eq!(0, coords.line);
     }
 }

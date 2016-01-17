@@ -197,7 +197,7 @@ macro_rules! min_and_max_by {
             let vals = $args[0].as_array().unwrap();
             // Return null when there are not values in the array
             if vals.is_empty() {
-                return Ok($ctx.interpreter.allocator.alloc_null());
+                return Ok($ctx.alloc_null());
             }
             let ast = $args[1].as_expref().unwrap();
             // Map over the first value to get the homogeneous required return type
@@ -246,7 +246,7 @@ macro_rules! min_and_max {
             validate_args!($ctx, $args, ArgumentType::HomogeneousArray(acceptable));
             let values = $args[0].as_array().unwrap();
             if values.is_empty() {
-                Ok($ctx.interpreter.allocator.alloc_null())
+                Ok($ctx.alloc_null())
             } else {
                 let result: RcVar = values
                     .iter()
@@ -294,8 +294,8 @@ impl JPFunction for Abs {
     fn evaluate(&self, args: Vec<RcVar>, ctx: &mut Context) -> SearchResult {
         validate_args![ctx, args, ArgumentType::Number];
         match *args[0] {
-            Variable::I64(n) => Ok(ctx.interpreter.allocator.alloc(n.abs())),
-            Variable::F64(f) => Ok(ctx.interpreter.allocator.alloc(f.abs())),
+            Variable::I64(n) => Ok(ctx.alloc(n.abs())),
+            Variable::F64(f) => Ok(ctx.alloc(f.abs())),
             _ => Ok(args[0].clone())
         }
     }
@@ -310,7 +310,7 @@ impl JPFunction for Avg {
         let sum = values.iter()
             .map(|n| n.as_f64().unwrap())
             .fold(0f64, |a, ref b| a + b);
-        Ok(ctx.interpreter.allocator.alloc(sum / (values.len() as f64)))
+        Ok(ctx.alloc(sum / (values.len() as f64)))
     }
 }
 
@@ -320,7 +320,7 @@ impl JPFunction for Ceil {
     fn evaluate(&self, args: Vec<RcVar>, ctx: &mut Context) -> SearchResult {
         validate_args!(ctx, args, ArgumentType::Number);
         let n = args[0].as_f64().unwrap();
-        Ok(ctx.interpreter.allocator.alloc(n.ceil()))
+        Ok(ctx.alloc(n.ceil()))
     }
 }
 
@@ -335,12 +335,12 @@ impl JPFunction for Contains {
         let ref needle = args[1];
         match **haystack {
            Variable::Array(ref a) => {
-               Ok(ctx.interpreter.allocator.alloc_bool(a.contains(&needle)))
+               Ok(ctx.alloc(a.contains(&needle)))
            },
            Variable::String(ref subj) => {
                match needle.as_string() {
-                   None => Ok(ctx.interpreter.allocator.alloc_bool(false)),
-                   Some(s) => Ok(ctx.interpreter.allocator.alloc_bool(subj.contains(s)))
+                   None => Ok(ctx.alloc(false)),
+                   Some(s) => Ok(ctx.alloc(subj.contains(s)))
                }
            },
            _ => unreachable!()
@@ -355,7 +355,7 @@ impl JPFunction for EndsWith {
         validate_args!(ctx, args, ArgumentType::String, ArgumentType::String);
         let subject = args[0].as_string().unwrap();
         let search = args[1].as_string().unwrap();
-        Ok(ctx.interpreter.allocator.alloc_bool(subject.ends_with(search)))
+        Ok(ctx.alloc(subject.ends_with(search)))
     }
 }
 
@@ -365,7 +365,7 @@ impl JPFunction for Floor {
     fn evaluate(&self, args: Vec<RcVar>, ctx: &mut Context) -> SearchResult {
         validate_args!(ctx, args, ArgumentType::Number);
         let n = args[0].as_f64().unwrap();
-        Ok(ctx.interpreter.allocator.alloc(n.floor()))
+        Ok(ctx.alloc(n.floor()))
     }
 }
 
@@ -382,7 +382,7 @@ impl JPFunction for Join {
             .cloned()
             .collect::<Vec<String>>()
             .join(&glue);
-        Ok(ctx.interpreter.allocator.alloc(result))
+        Ok(ctx.alloc(result))
     }
 }
 
@@ -393,9 +393,9 @@ impl JPFunction for Keys {
         validate_args!(ctx, args, ArgumentType::Object);
         let object = args[0].as_object().unwrap();
         let keys = object.keys()
-            .map(|k| ctx.interpreter.allocator.alloc((*k).clone()))
+            .map(|k| ctx.alloc((*k).clone()))
             .collect::<Vec<RcVar>>();
-        Ok(ctx.interpreter.allocator.alloc(keys))
+        Ok(ctx.alloc(keys))
     }
 }
 
@@ -406,10 +406,10 @@ impl JPFunction for Length {
         let acceptable = vec![ArgumentType::Array, ArgumentType::Object, ArgumentType::String];
         validate_args!(ctx, args, ArgumentType::OneOf(acceptable));
         match *args[0] {
-            Variable::Array(ref a) => Ok(ctx.interpreter.allocator.alloc(a.len())),
-            Variable::Object(ref m) => Ok(ctx.interpreter.allocator.alloc(m.len())),
+            Variable::Array(ref a) => Ok(ctx.alloc(a.len())),
+            Variable::Object(ref m) => Ok(ctx.alloc(m.len())),
             // Note that we need to count the code points not the number of unicode characters
-            Variable::String(ref s) => Ok(ctx.interpreter.allocator.alloc(s.chars().count())),
+            Variable::String(ref s) => Ok(ctx.alloc(s.chars().count())),
             _ => unreachable!()
         }
     }
@@ -426,7 +426,7 @@ impl JPFunction for Map {
         for value in values {
             results.push(try!(ctx.interpreter.interpret(&value, &ast, ctx)));
         }
-        Ok(ctx.interpreter.allocator.alloc(results))
+        Ok(ctx.alloc(results))
     }
 }
 
@@ -471,7 +471,7 @@ impl JPFunction for Merge {
         for arg in args {
             result.extend(arg.as_object().unwrap().clone());
         }
-        Ok(ctx.interpreter.allocator.alloc(result))
+        Ok(ctx.alloc(result))
     }
 }
 
@@ -485,7 +485,7 @@ impl JPFunction for NotNull {
                 return Ok(arg.clone());
             }
         }
-        Ok(ctx.interpreter.allocator.alloc_null())
+        Ok(ctx.alloc_null())
     }
 }
 
@@ -498,10 +498,10 @@ impl JPFunction for Reverse {
         if args[0].is_array() {
             let mut values = args[0].as_array().unwrap().clone();
             values.reverse();
-            Ok(ctx.interpreter.allocator.alloc(values))
+            Ok(ctx.alloc(values))
         } else {
             let word: String = args[0].as_string().unwrap().chars().rev().collect();
-            Ok(ctx.interpreter.allocator.alloc(word))
+            Ok(ctx.alloc(word))
         }
     }
 }
@@ -514,7 +514,7 @@ impl JPFunction for Sort {
         validate_args!(ctx, args, ArgumentType::HomogeneousArray(acceptable));
         let mut values = args[0].as_array().unwrap().clone();
         values.sort();
-        Ok(ctx.interpreter.allocator.alloc(values))
+        Ok(ctx.alloc(values))
     }
 }
 
@@ -525,7 +525,7 @@ impl JPFunction for SortBy {
         validate_args!(ctx, args, ArgumentType::Array, ArgumentType::Expref);
         let vals = args[0].as_array().unwrap().clone();
         if vals.is_empty() {
-            return Ok(ctx.interpreter.allocator.alloc(vals));
+            return Ok(ctx.alloc(vals));
         }
         let ast = args[1].as_expref().unwrap();
         let mut mapped: Vec<(RcVar, RcVar)> = vec![];
@@ -557,7 +557,7 @@ impl JPFunction for SortBy {
             mapped.push((v.clone(), mapped_value));
         }
         mapped.sort_by(|a, b| a.1.cmp(&b.1));
-        Ok(ctx.interpreter.allocator.alloc(vals))
+        Ok(ctx.alloc(vals))
     }
 }
 
@@ -568,7 +568,7 @@ impl JPFunction for StartsWith {
         validate_args!(ctx, args, ArgumentType::String, ArgumentType::String);
         let subject = args[0].as_string().unwrap();
         let search = args[1].as_string().unwrap();
-        Ok(ctx.interpreter.allocator.alloc_bool(subject.starts_with(search)))
+        Ok(ctx.alloc(subject.starts_with(search)))
     }
 }
 
@@ -579,7 +579,7 @@ impl JPFunction for Sum {
         validate_args!(ctx, args, ArgumentType::HomogeneousArray(vec![ArgumentType::Number]));
         let result = args[0].as_array().unwrap().iter().fold(
             0.0, |acc, item| acc + item.as_f64().unwrap());
-        Ok(ctx.interpreter.allocator.alloc(result))
+        Ok(ctx.alloc(result))
     }
 }
 
@@ -590,7 +590,7 @@ impl JPFunction for ToArray {
         validate_args!(ctx, args, ArgumentType::Any);
         match *args[0] {
             Variable::Array(_) => Ok(args[0].clone()),
-            _ => Ok(ctx.interpreter.allocator.alloc(vec![args[0].clone()]))
+            _ => Ok(ctx.alloc(vec![args[0].clone()]))
         }
     }
 }
@@ -604,11 +604,11 @@ impl JPFunction for ToNumber {
             Variable::I64(_) | Variable::F64(_) | Variable::U64(_) => Ok(args[0].clone()),
             Variable::String(ref s) => {
                 match Variable::from_json(s) {
-                    Ok(f)  => Ok(ctx.interpreter.allocator.alloc(f)),
-                    Err(_) => Ok(ctx.interpreter.allocator.alloc_null())
+                    Ok(f)  => Ok(ctx.alloc(f)),
+                    Err(_) => Ok(ctx.alloc_null())
                 }
             },
-            _ => Ok(ctx.interpreter.allocator.alloc_null())
+            _ => Ok(ctx.alloc_null())
         }
     }
 }
@@ -622,7 +622,7 @@ impl JPFunction for ToString {
             ArgumentType::Number, ArgumentType::String, ArgumentType::Null]));
         match *args[0] {
             Variable::String(_) => Ok(args[0].clone()),
-            _ => Ok(ctx.interpreter.allocator.alloc(args[0].to_string()))
+            _ => Ok(ctx.alloc(args[0].to_string()))
         }
     }
 }
@@ -632,7 +632,7 @@ struct Type;
 impl JPFunction for Type {
     fn evaluate(&self, args: Vec<RcVar>, ctx: &mut Context) -> SearchResult {
         validate_args!(ctx, args, ArgumentType::Any);
-        Ok(ctx.interpreter.allocator.alloc(args[0].get_type().to_string()))
+        Ok(ctx.alloc(args[0].get_type().to_string()))
     }
 }
 
@@ -642,6 +642,6 @@ impl JPFunction for Values {
     fn evaluate(&self, args: Vec<RcVar>, ctx: &mut Context) -> SearchResult {
         validate_args!(ctx, args, ArgumentType::Object);
         let map = args[0].as_object().unwrap();
-        Ok(ctx.interpreter.allocator.alloc(map.values().cloned().collect::<Vec<RcVar>>()))
+        Ok(ctx.alloc(map.values().cloned().collect::<Vec<RcVar>>()))
     }
 }

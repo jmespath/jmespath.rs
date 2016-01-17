@@ -14,7 +14,6 @@ use self::serde::de;
 use self::serde::ser;
 
 use super::RcVar;
-use super::ToJMESPath;
 use super::ast::{Ast, Comparator};
 
 /// JMESPath variable.
@@ -584,46 +583,6 @@ impl ser::Serializer for Serializer {
     #[inline]
     fn format() -> &'static str {
         "jmespath"
-    }
-}
-
-/// Handles the allocation of runtime Variables.
-#[derive(Clone)]
-pub struct VariableAllocator {
-    true_bool: RcVar,
-    false_bool: RcVar,
-    null: RcVar
-}
-
-impl VariableAllocator {
-    /// Create a new variable allocator.
-    pub fn new() -> VariableAllocator {
-        VariableAllocator {
-            true_bool: Rc::new(Variable::Bool(true)),
-            false_bool: Rc::new(Variable::Bool(false)),
-            null: Rc::new(Variable::Null)
-        }
-    }
-
-    /// Allocate a boolean value using one of the shared references.
-    #[inline]
-    pub fn alloc_bool(&self, value: bool) -> RcVar {
-        match value {
-            true => self.true_bool.clone(),
-            false => self.false_bool.clone()
-        }
-    }
-
-    /// Allocate a null value (uses the shared null value reference).
-    #[inline]
-    pub fn alloc_null(&self) -> RcVar {
-        self.null.clone()
-    }
-
-    /// Convenience method to allocates a Variable.
-    #[inline]
-    pub fn alloc<S: ToJMESPath>(&self, s: S) -> RcVar {
-        s.to_jmespath()
     }
 }
 
