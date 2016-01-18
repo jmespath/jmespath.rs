@@ -31,7 +31,7 @@ pub enum ArgumentType {
     /// any of the provided `ArgumentType`s
     HomogeneousArray(Vec<ArgumentType>),
     /// Accpets one of a number of `ArgumentType`s
-    OneOf(Vec<ArgumentType>),
+    Union(Vec<ArgumentType>),
     /// Only `Variable::Expref` is acceptable, and it must return one of the
     /// provided acceptable types.
     ExprefReturns(Vec<ArgumentType>)
@@ -56,13 +56,13 @@ impl ArgumentType {
             &Expref if value.is_expref() => true,
             &ExprefReturns(_) if value.is_expref() => true,
             &Array if value.is_array() => true,
-            &OneOf(ref types) => types.iter().any(|t| t.is_valid(value)),
+            &Union(ref types) => types.iter().any(|t| t.is_valid(value)),
             &HomogeneousArray(ref types) if value.is_array() => {
                 let values = value.as_array().unwrap();
                 if values.is_empty() {
                     true
                 } else {
-                    let alts = OneOf(types.clone());
+                    let alts = Union(types.clone());
                     let first_type = values[0].get_type();
                     values.iter().all(|v| alts.is_valid(v) && v.get_type() == first_type)
                 }
@@ -91,7 +91,7 @@ impl fmt::Display for ArgumentType {
                 }
                 write!(fmt, "{}", type_strings.join("|"))
             },
-            &OneOf(ref types) => write!(fmt, "{}", Self::types_to_strings(types).join("|")),
+            &Union(ref types) => write!(fmt, "{}", Self::types_to_strings(types).join("|")),
             &HomogeneousArray(ref types) => {
                 write!(fmt, "array[{}]", Self::types_to_strings(types).join("|"))
             }
@@ -329,7 +329,7 @@ struct Contains;
 impl JPFunction for Contains {
     fn evaluate(&self, args: Vec<RcVar>, ctx: &mut Context) -> SearchResult {
         validate_args!(ctx, args,
-            ArgumentType::OneOf(vec![ArgumentType::String, ArgumentType::Array]),
+            ArgumentType::Union(vec![ArgumentType::String, ArgumentType::Array]),
             ArgumentType::Any);
         let ref haystack = args[0];
         let ref needle = args[1];
@@ -404,7 +404,7 @@ struct Length;
 impl JPFunction for Length {
     fn evaluate(&self, args: Vec<RcVar>, ctx: &mut Context) -> SearchResult {
         let acceptable = vec![ArgumentType::Array, ArgumentType::Object, ArgumentType::String];
-        validate_args!(ctx, args, ArgumentType::OneOf(acceptable));
+        validate_args!(ctx, args, ArgumentType::Union(acceptable));
         match *args[0] {
             Variable::Array(ref a) => Ok(ctx.alloc(a.len())),
             Variable::Object(ref m) => Ok(ctx.alloc(m.len())),
@@ -494,7 +494,7 @@ struct Reverse;
 impl JPFunction for Reverse {
     fn evaluate(&self, args: Vec<RcVar>, ctx: &mut Context) -> SearchResult {
         validate_args!(ctx, args,
-            ArgumentType::OneOf(vec![ArgumentType::Array, ArgumentType::String]));
+            ArgumentType::Union(vec![ArgumentType::Array, ArgumentType::String]));
         if args[0].is_array() {
             let mut values = args[0].as_array().unwrap().clone();
             values.reverse();
@@ -617,7 +617,7 @@ struct ToString;
 
 impl JPFunction for ToString {
     fn evaluate(&self, args: Vec<RcVar>, ctx: &mut Context) -> SearchResult {
-        validate_args!(ctx, args, ArgumentType::OneOf(vec![
+        validate_args!(ctx, args, ArgumentType::Union(vec![
             ArgumentType::Object, ArgumentType::Array, ArgumentType::Bool,
             ArgumentType::Number, ArgumentType::String, ArgumentType::Null]));
         match *args[0] {
