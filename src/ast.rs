@@ -2,7 +2,6 @@
 
 use std::fmt;
 
-use super::lexer::Token;
 use super::RcVar;
 use super::Coordinates;
 
@@ -216,24 +215,9 @@ pub enum Comparator {
     Gte,
 }
 
-impl Comparator {
-    /// Get the binding power of the operator.
-    pub fn lbp(&self) -> usize {
-        match self {
-            &Comparator::Eq => Token::Eq.lbp(),
-            &Comparator::Ne => Token::Ne.lbp(),
-            &Comparator::Lt => Token::Lt.lbp(),
-            &Comparator::Lte => Token::Lte.lbp(),
-            &Comparator::Gt => Token::Gt.lbp(),
-            &Comparator::Gte => Token::Gte.lbp(),
-        }
-    }
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
-    use lexer::Token;
 
     #[test]
     fn makes_coordinates_from_ast_node() {
@@ -249,15 +233,5 @@ mod test {
     fn displays_pretty_printed_ast_node() {
         let node = Ast::Field { name: "abc".to_string(), offset: 4 };
         assert_eq!("Field {\n    offset: 4,\n    name: \"abc\"\n}", format!("{}", node));
-    }
-
-    #[test]
-    fn gets_comparator_lbp() {
-        assert_eq!(Token::Eq.lbp(), Comparator::Eq.lbp());
-        assert_eq!(Token::Ne.lbp(), Comparator::Ne.lbp());
-        assert_eq!(Token::Gt.lbp(), Comparator::Gt.lbp());
-        assert_eq!(Token::Gte.lbp(), Comparator::Gte.lbp());
-        assert_eq!(Token::Lt.lbp(), Comparator::Lt.lbp());
-        assert_eq!(Token::Lte.lbp(), Comparator::Lte.lbp());
     }
 }

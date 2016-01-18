@@ -162,7 +162,14 @@ impl ThunkParser for ComparisonParser {
     }
 
     fn lbp(&self) -> usize {
-        self.cmp.lbp()
+        match self.cmp {
+            Comparator::Eq => Token::Eq.lbp(),
+            Comparator::Ne => Token::Ne.lbp(),
+            Comparator::Lt => Token::Lt.lbp(),
+            Comparator::Lte => Token::Lte.lbp(),
+            Comparator::Gt => Token::Gt.lbp(),
+            Comparator::Gte => Token::Gte.lbp(),
+        }
     }
 }
 
@@ -904,5 +911,26 @@ impl<'a> Parser<'a> {
             offset: self.offset,
             elements: vec![]
         })))
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::ComparisonParser;
+    use ast::{Ast, Comparator};
+    use lexer::Token;
+
+    #[test]
+    fn gets_comparator_lbp() {
+        use super::ThunkParser;
+        let node = Ast::Identity { offset: 0 };
+        let p = ComparisonParser { offset: 0, cmp: Comparator::Eq, lhs: node.clone() };
+        assert_eq!(Token::Eq.lbp(), p.lbp());
+        let p = ComparisonParser { offset: 0, cmp: Comparator::Gt, lhs: node.clone() };
+        assert_eq!(Token::Gt.lbp(), p.lbp());
+        let p = ComparisonParser { offset: 0, cmp: Comparator::Lt, lhs: node.clone() };
+        assert_eq!(Token::Lt.lbp(), p.lbp());
+        let p = ComparisonParser { offset: 0, cmp: Comparator::Ne, lhs: node.clone() };
+        assert_eq!(Token::Ne.lbp(), p.lbp());
     }
 }
