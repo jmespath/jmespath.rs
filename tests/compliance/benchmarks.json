@@ -73,17 +73,22 @@
         "comment": "deep ors",
         "expression": "z || y || x || w || v || u || t || s || r || q || p || o || n || m || l || k || j || i || h || g || f || e || d || c || b || a",
         "bench": "full"
+      },
+      {
+        "comment": "lots of summing",
+        "expression": "sum(z, y, x, w, v, u, t, s, r, q, p, o, n, m, l, k, j, i, h, g, f, e, d, c, b, a)",
+        "bench": "full"
+      },
+      {
+        "comment": "lots of multi list",
+        "expression": "[z, y, x, w, v, u, t, s, r, q, p, o, n, m, l, k, j, i, h, g, f, e, d, c, b, a]",
+        "bench": "full"
       }
     ]
   },
   {
     "given": {},
     "cases": [
-      {
-        "comment": "interpreting lots of nulls and long multi-list",
-        "expression": "[a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z]",
-        "bench": "full"
-      },
       {
         "comment": "field 50",
         "expression": "j49.j48.j47.j46.j45.j44.j43.j42.j41.j40.j39.j38.j37.j36.j35.j34.j33.j32.j31.j30.j29.j28.j27.j26.j25.j24.j23.j22.j21.j20.j19.j18.j17.j16.j15.j14.j13.j12.j11.j10.j9.j8.j7.j6.j5.j4.j3.j2.j1.j0",
@@ -110,18 +115,8 @@
         "bench": "parse"
       },
       {
-        "comment": "lots of function params",
-        "expression": "function(a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z)",
-        "bench": "parse"
-      },
-      {
-        "comment": "lots of function params",
-        "expression": "function(a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z)",
-        "bench": "parse"
-      },
-      {
         "comment": "filter projection",
-        "expression": "foo[bar > baz].qux",
+        "expression": "foo[bar > baz][qux > baz]",
         "bench": "parse"
       }
     ]
