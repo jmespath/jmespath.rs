@@ -17,8 +17,11 @@ use jmespath::{Variable, RcVar, RuntimeError, Expression};
 pub enum BenchType {
     /// The benchmark must only parse an expression.
     Parse,
-    /// The benchmark must parse and evaluate an expression.
-    Full
+    /// The benchmark must benchmark only the interpreter
+    Interpret,
+    /// The benchmark must benchmark both the parser and interpreter.
+    /// JMESPath.rs will benchmark an entire execute, parsing, interpreting separately.
+    Full,
 }
 
 impl BenchType {
@@ -29,6 +32,7 @@ impl BenchType {
             .and_then(|b| {
                 match b {
                     "parse" => Ok(BenchType::Parse),
+                    "interpret" => Ok(BenchType::Interpret),
                     "full" => Ok(BenchType::Full),
                     s @ _ => Err(TestCaseError::UnknownBenchType(s.to_string()))
                 }
@@ -40,6 +44,7 @@ impl fmt::Display for BenchType {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         match self {
             &BenchType::Parse => write!(fmt, "parse"),
+            &BenchType::Interpret => write!(fmt, "interpret"),
             &BenchType::Full => write!(fmt, "full"),
         }
     }

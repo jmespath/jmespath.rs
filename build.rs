@@ -103,7 +103,7 @@ fn generate_bench(filename: &str,
     let bench_type = case.get("bench").unwrap().as_string().expect("bench is not a string");
 
     // Validate that the bench attribute is an expected type.
-    if bench_type != "parse" && bench_type != "full" {
+    if bench_type != "parse" && bench_type != "full" && bench_type != "interpret" {
         panic!("invalid bench type: {}", bench_type);
     }
 
@@ -111,23 +111,36 @@ fn generate_bench(filename: &str,
     if bench_type == "parse" || bench_type == "full" {
         f.write_all(format!("\
 #[bench]
-fn parse_{}(b: &mut Bencher) {{
+fn {}_parse(b: &mut Bencher) {{
     b.iter(|| parse({:?}));
 }}
 
-", fn_suffix, expr_string).as_bytes()).expect("Unable to write parse benchmark");
+", fn_suffix, expr_string).as_bytes()).expect("Error writing parse benchmark");
     }
 
-    // Create the interpret benchmark
+    // Create the interpreter benchmark if "interpret" or "full"
+    if bench_type == "interpret" || bench_type == "full" {
+        f.write_all(format!("\
+#[bench]
+fn {}_interpret(b: &mut Bencher) {{
+    let data = Variable::from_json({:?}).expect(\"Invalid JSON given\");
+    let expr = Expression::new({:?}).unwrap();
+    b.iter(|| expr.search(data.clone()));
+}}
+
+", fn_suffix, given_string, expr_string).as_bytes()).expect("Error writing interpret benchmark");
+    }
+
+    // Create the "full" benchmark if "full"
     if bench_type == "full" {
         f.write_all(format!("\
 #[bench]
-fn full_{}(b: &mut Bencher) {{
+fn {}_full(b: &mut Bencher) {{
     let data = Variable::from_json({:?}).expect(\"Invalid JSON given\");
     b.iter(|| Expression::new({:?}).unwrap().search(data.clone()));
 }}
 
-", fn_suffix, given_string, expr_string).as_bytes()).expect("Unable to write full benchmark");
+", fn_suffix, given_string, expr_string).as_bytes()).expect("Error writing interpret benchmark");
     }
 }
 
