@@ -12,10 +12,8 @@
 //! it is sent the current LHS node so that it can continue its parsing.
 
 use std::collections::VecDeque;
-use std::rc::Rc;
 
 use super::{Error, ErrorReason};
-use super::variable::Variable;
 use super::ast::{Ast, KeyValuePair, Comparator};
 use super::lexer::{tokenize, Token, TokenTuple};
 
@@ -229,15 +227,24 @@ impl ThunkParser for FunctionParser {
 /// element as a value to build the KeyValuePair AST nodes.
 struct MultiHashParser {
     offset: usize,
-    elements: VecDeque<Ast>,
+    key: Option<String>,
+    elements: Vec<KeyValuePair>,
 }
 
 impl ThunkParser for MultiHashParser {
     fn send(self: Box<Self>, parser: &mut Parser, node: Ast) -> SendResult {
         let mut thunk_parser = *self;
-        thunk_parser.elements.push_back(node);
+        thunk_parser.elements.push(KeyValuePair {
+            key: thunk_parser.key.take().unwrap(),
+            value: node
+        });
         match parser.advance() {
-            Token::Rbrace => thunk_parser.close_parser(),
+            Token::Rbrace => {
+                Ok(Trampoline::Value(Ast::MultiHash {
+                    offset: thunk_parser.offset,
+                    elements: thunk_parser.elements
+                }))
+            },
             Token::Comma => Self::with_key(parser, thunk_parser.offset, thunk_parser.elements),
             ref t @ _ => Err(parser.err(t, "Expected '}' or ','", false))
         }
@@ -250,43 +257,24 @@ impl ThunkParser for MultiHashParser {
 
 impl MultiHashParser {
     /// Creates a new MultiHashParser with an added key from the parser.
-    fn with_key(parser: &mut Parser, offset: usize, mut elements: VecDeque<Ast>) -> SendResult {
+    fn with_key(parser: &mut Parser, offset: usize, elements: Vec<KeyValuePair>) -> SendResult {
         // Ensure the key is valid
-        let (key_offset, key_name) = try!(match parser.advance_with_pos() {
-            (p @ _, Token::Identifier(v)) => Ok((p, v)),
-            (p @ _, Token::QuotedIdentifier(v)) => Ok((p, v)),
-            (_, ref t @ _) => Err(parser.err(t, &"Invalid key value pair", false))
-        });
-        // The key is represented as a literal value and interpreted at runtime.
-        elements.push_back(Ast::Literal {
-            offset: key_offset,
-            value: Rc::new(Variable::String(key_name))
+        let key_name = try!(match parser.advance() {
+            Token::Identifier(v) => Ok(v),
+            Token::QuotedIdentifier(v) => Ok(v),
+            ref t @ _ => Err(parser.err(t, &"Invalid key value pair", false))
         });
         // Ensure that the key is followed by ":"
         match parser.advance() {
             Token::Colon =>  {
                 Ok(Trampoline::Thunk(Box::new(MultiHashParser {
+                    key: Some(key_name),
                     offset: offset,
                     elements: elements
                 })))
             },
             ref t @ _ => Err(parser.err(t, &"Expected ':' to follow key", true))
         }
-    }
-
-    /// Terminal condition is met so return the Ast node.
-    fn close_parser(mut self) -> SendResult {
-        let mut key_value_pairs: Vec<KeyValuePair> = Vec::new();
-        while !self.elements.is_empty() {
-            key_value_pairs.push(KeyValuePair {
-                key: self.elements.pop_front().unwrap(),
-                value: self.elements.pop_front().unwrap()
-            });
-        }
-        Ok(Trampoline::Value(Ast::MultiHash {
-            offset: self.offset,
-            elements: key_value_pairs
-        }))
     }
 }
 
@@ -653,7 +641,7 @@ impl<'a> Parser<'a> {
                     _ => self.parse_multi_list()
                 }
             },
-            Token::Lbrace => MultiHashParser::with_key(self, offset, VecDeque::new()),
+            Token::Lbrace => MultiHashParser::with_key(self, offset, Vec::new()),
             Token::At => Ok(Trampoline::Value(Ast::Identity { offset: offset })),
             Token::Flatten => self.parse_flatten(Ast::Identity { offset: offset }),
             Token::Star => self.parse_wildcard_values(Ast::Identity { offset: offset }),

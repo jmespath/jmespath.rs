@@ -213,15 +213,8 @@ impl TreeInterpreter {
                 } else {
                     let mut collected = BTreeMap::new();
                     for kvp in elements {
-                        let key = try!(self.interpret(data, &kvp.key, ctx));
                         let value = try!(self.interpret(data, &kvp.value, ctx));
-                        if let Variable::String(ref s) = *key {
-                            collected.insert(s.to_string(), value);
-                        } else {
-                            return Err(Error::from_ctx(ctx, ErrorReason::Runtime(
-                                RuntimeError::InvalidKey(key.get_type().to_string())
-                            )));
-                        }
+                        collected.insert(kvp.key.clone(), value);
                     }
                     Ok(Rc::new(Variable::Object(collected)))
                 }

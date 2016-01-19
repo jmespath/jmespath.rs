@@ -186,8 +186,6 @@ impl fmt::Display for ErrorReason {
 pub enum RuntimeError {
     /// Encountered when a slice expression uses a step of 0
     InvalidSlice,
-    /// Encountered when a key is not a string.
-    InvalidKey(String),
     /// Encountered when too many arguments are provided to a function.
     TooManyArguments {
         expected: usize,
@@ -234,16 +232,11 @@ impl fmt::Display for RuntimeError {
                 write!(fmt, "Argument {} expects type {}, given {} {}",
                     position, expected, actual, actual_value.to_string())
             },
-            &InvalidSlice => {
-                write!(fmt, "Invalid slice")
-            },
+            &InvalidSlice => write!(fmt, "Invalid slice"),
             &InvalidReturnType { ref expected, ref actual, ref position, ref invocation,
                     ref actual_value } => {
                 write!(fmt, "Argument {} must return {} but invocation {} returned {} {}",
                     position, expected, invocation, actual, actual_value.to_string())
-            },
-            &InvalidKey(ref actual) => {
-                write!(fmt, "Invalid key. Expected string, found {:?}", actual)
             },
         }
     }

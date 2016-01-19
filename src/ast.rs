@@ -191,9 +191,8 @@ impl fmt::Display for Ast {
 /// Represents a key value pair in a multi-hash
 #[derive(Clone, PartialEq, PartialOrd, Debug)]
 pub struct KeyValuePair {
-    /// Key expression used to determine the key. This expression must
-    /// resolve to a string variable.
-    pub key: Ast,
+    /// Key name.
+    pub key: String,
     /// Value expression used to determine the value.
     pub value: Ast
 }
