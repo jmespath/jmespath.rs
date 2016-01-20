@@ -82,29 +82,29 @@ impl Variable {
     }
 
     /// Returns true if the Variable is an Array. Returns false otherwise.
-    pub fn is_array<'a>(&'a self) -> bool {
+    pub fn is_array(&self) -> bool {
         self.as_array().is_some()
     }
 
     /// If the Variable value is an Array, returns the associated vector.
     /// Returns None otherwise.
-    pub fn as_array<'a>(&'a self) -> Option<&'a Vec<RcVar>> {
-        match self {
-            &Variable::Array(ref array) => Some(&*array),
+    pub fn as_array(&self) -> Option<&Vec<RcVar>> {
+        match *self {
+            Variable::Array(ref array) => Some(&*array),
             _ => None
         }
     }
 
     /// Returns true if the value is an Object.
-    pub fn is_object<'a>(&'a self) -> bool {
+    pub fn is_object(&self) -> bool {
         self.as_object().is_some()
     }
 
     /// If the value is an Object, returns the associated BTreeMap.
     /// Returns None otherwise.
-    pub fn as_object<'a>(&'a self) -> Option<&'a BTreeMap<String, RcVar>> {
-        match self {
-            &Variable::Object(ref map) => Some(&*map),
+    pub fn as_object(&self) -> Option<&BTreeMap<String, RcVar>> {
+        match *self {
+            Variable::Object(ref map) => Some(&*map),
             _ => None
         }
     }
@@ -150,8 +150,8 @@ impl Variable {
     /// If the value is a Boolean, returns the associated bool.
     /// Returns None otherwise.
     pub fn as_boolean(&self) -> Option<bool> {
-        match self {
-            &Variable::Bool(b) => Some(b),
+        match *self {
+            Variable::Bool(b) => Some(b),
             _ => None
         }
     }
@@ -164,8 +164,8 @@ impl Variable {
     /// If the value is a Null, returns ().
     /// Returns None otherwise.
     pub fn as_null(&self) -> Option<()> {
-        match self {
-            &Variable::Null => Some(()),
+        match *self {
+            Variable::Null => Some(()),
             _ => None
         }
     }
@@ -179,8 +179,8 @@ impl Variable {
     /// If the value is an expression reference, returns the associated Ast node.
     /// Returns None otherwise.
     pub fn as_expref(&self) -> Option<&Ast> {
-        match self {
-            &Variable::Expref(ref ast) => Some(ast),
+        match *self {
+            Variable::Expref(ref ast) => Some(ast),
             _ => None
         }
     }
@@ -220,40 +220,40 @@ impl Variable {
 
     /// Returns true or false based on if the Variable value is considered truthy.
     pub fn is_truthy(&self) -> bool {
-        match self {
-            &Variable::Bool(true) => true,
-            &Variable::String(ref s) if s.len() > 0 => true,
-            &Variable::Array(ref a) if a.len() > 0 => true,
-            &Variable::Object(ref o) if o.len() > 0 => true,
-            &Variable::F64(_) => true,
-            &Variable::I64(_) => true,
-            &Variable::U64(_) => true,
+        match *self {
+            Variable::Bool(true) => true,
+            Variable::String(ref s) if !s.is_empty() => true,
+            Variable::Array(ref a) if !a.is_empty() => true,
+            Variable::Object(ref o) if !o.is_empty() => true,
+            Variable::F64(_) => true,
+            Variable::I64(_) => true,
+            Variable::U64(_) => true,
             _ => false
         }
     }
 
     /// Returns the JMESPath type name of a Variable value.
     pub fn get_type(&self) -> &str {
-        match self {
-            &Variable::Bool(_) => "boolean",
-            &Variable::String(_) => "string",
-            &Variable::F64(_) | &Variable::U64(_) | &Variable::I64(_)=> "number",
-            &Variable::Array(_) => "array",
-            &Variable::Object(_) => "object",
-            &Variable::Null => "null",
-            &Variable::Expref(_) => "expref"
+        match *self {
+            Variable::Bool(_) => "boolean",
+            Variable::String(_) => "string",
+            Variable::F64(_) | Variable::U64(_) | Variable::I64(_)=> "number",
+            Variable::Array(_) => "array",
+            Variable::Object(_) => "object",
+            Variable::Null => "null",
+            Variable::Expref(_) => "expref"
         }
     }
 
     /// Compares two Variable values using a comparator.
     pub fn compare(&self, cmp: &Comparator, value: &Variable) -> Option<bool> {
-        match cmp {
-            &Comparator::Eq => Some(*self == *value),
-            &Comparator::Ne => Some(*self != *value),
-            &Comparator::Lt if self.is_number() && value.is_number() => Some(*self < *value),
-            &Comparator::Lte if self.is_number() && value.is_number() => Some(*self <= *value),
-            &Comparator::Gt if self.is_number() && value.is_number() => Some(*self > *value),
-            &Comparator::Gte if self.is_number() && value.is_number() => Some(*self >= *value),
+        match *cmp {
+            Comparator::Eq => Some(*self == *value),
+            Comparator::Ne => Some(*self != *value),
+            Comparator::Lt if self.is_number() && value.is_number() => Some(*self < *value),
+            Comparator::Lte if self.is_number() && value.is_number() => Some(*self <= *value),
+            Comparator::Gt if self.is_number() && value.is_number() => Some(*self > *value),
+            Comparator::Gte if self.is_number() && value.is_number() => Some(*self >= *value),
             _ => None
         }
     }

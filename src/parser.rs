@@ -11,6 +11,9 @@
 //! `thunks` stack of the parser. When the thunk is popped from the stack,
 //! it is sent the current LHS node so that it can continue its parsing.
 
+// Note that we need to allow boxed locals as it's part of ThunkParser.
+#![cfg_attr(feature="clippy", allow(boxed_local))]
+
 use std::collections::VecDeque;
 
 use super::{Error, ErrorReason};
@@ -115,7 +118,7 @@ impl ThunkParser for FilterProjectionParser {
                             predicate: Some(node)
                         }))
                     },
-                    ref t @ _ => Err(parser.err(t, &"Expected ']'", false))
+                    ref t => Err(parser.err(t, &"Expected ']'", false))
                 }
             },
             Some(predicate) => {
@@ -246,7 +249,7 @@ impl ThunkParser for MultiHashParser {
                 }))
             },
             Token::Comma => Self::with_key(parser, thunk_parser.offset, thunk_parser.elements),
-            ref t @ _ => Err(parser.err(t, "Expected '}' or ','", false))
+            ref t => Err(parser.err(t, "Expected '}' or ','", false))
         }
     }
 
@@ -262,7 +265,7 @@ impl MultiHashParser {
         let key_name = try!(match parser.advance() {
             Token::Identifier(v) => Ok(v),
             Token::QuotedIdentifier(v) => Ok(v),
-            ref t @ _ => Err(parser.err(t, &"Invalid key value pair", false))
+            ref t => Err(parser.err(t, &"Invalid key value pair", false))
         });
         // Ensure that the key is followed by ":"
         match parser.advance() {
@@ -273,7 +276,7 @@ impl MultiHashParser {
                     elements: elements
                 })))
             },
-            ref t @ _ => Err(parser.err(t, &"Expected ':' to follow key", true))
+            ref t => Err(parser.err(t, &"Expected ':' to follow key", true))
         }
     }
 }
@@ -361,7 +364,7 @@ impl ThunkParser for PrecedenceParenParser {
     fn send(self: Box<Self>, parser: &mut Parser, node: Ast) -> SendResult {
         match parser.advance() {
             Token::Rparen => Ok(Trampoline::Value(node)),
-            ref t @ _ => Err(parser.err(t, "Expected ')' to close '('", false))
+            ref t => Err(parser.err(t, "Expected ')' to close '('", false))
         }
     }
 
@@ -507,9 +510,9 @@ impl<'a> Parser<'a> {
         let result = try!(self.expr());
 
         // After parsing the expr, we should reach the end of the stream.
-        match self.peek(0) {
-            &Token::Eof => Ok(result),
-            t @ _ => Err(self.err(t, &"Did not parse the complete expression", true))
+        match *self.peek(0) {
+            Token::Eof => Ok(result),
+            ref t => Err(self.err(t, &"Did not parse the complete expression", true))
         }
     }
 
@@ -540,7 +543,7 @@ impl<'a> Parser<'a> {
     /// Returns a formatted error with the given message.
     fn err(&self, current_token: &Token, error_msg: &str, is_peek: bool) -> Error {
         let mut actual_pos = self.offset;
-        let mut buff = error_msg.to_string();
+        let mut buff = error_msg.to_owned();
         buff.push_str(&format!(" -- found {:?}", current_token));
         if is_peek {
             if let Some(&(p, _)) = self.token_queue.get(0) {
@@ -582,7 +585,7 @@ impl<'a> Parser<'a> {
                                     // continue parsing led tokens at the rbp of the next thunk.
                                     Trampoline::Value(node) => {
                                         lhs = node;
-                                        rbp = self.thunks.last().map(|t| t.lbp()).unwrap_or(0);
+                                        rbp = self.thunks.last().map_or(0, |t| t.lbp());
                                         continue 'inner;
                                     },
                                     Trampoline::Thunk(thunk) => {
@@ -612,8 +615,8 @@ impl<'a> Parser<'a> {
                 }))
             },
             Token::QuotedIdentifier(value) => {
-                match self.peek(0) {
-                    &Token::Lparen => {
+                match *self.peek(0) {
+                    Token::Lparen => {
                         Err(self.err(
                             &Token::Lparen, &"Quoted strings can't be a function name", true))
                     },
@@ -632,9 +635,9 @@ impl<'a> Parser<'a> {
                 }))
             },
             Token::Lbracket => {
-                match self.peek(0) {
-                    &Token::Number(_) | &Token::Colon => self.parse_index_expression(),
-                    &Token::Star if self.peek(1) == &Token::Rbracket => {
+                match *self.peek(0) {
+                    Token::Number(_) | Token::Colon => self.parse_index_expression(),
+                    Token::Star if self.peek(1) == &Token::Rbracket => {
                         self.advance();
                         self.parse_wildcard_index(Ast::Identity { offset: offset })
                     },
@@ -649,7 +652,7 @@ impl<'a> Parser<'a> {
             Token::Not => Ok(Trampoline::Thunk(Box::new(NotParser { offset: offset }))),
             Token::Filter => self.parse_filter(Ast::Identity { offset: offset }),
             Token::Lparen => Ok(Trampoline::Thunk(Box::new(PrecedenceParenParser))),
-            ref t @ _ => Err(self.err(t, &"Unexpected nud token", false))
+            ref t => Err(self.err(t, &"Unexpected nud token", false))
         }
     }
 
@@ -689,7 +692,7 @@ impl<'a> Parser<'a> {
             Token::Gte => self.parse_comparator(Comparator::Gte, left),
             Token::Lt => self.parse_comparator(Comparator::Lt, left),
             Token::Lte => self.parse_comparator(Comparator::Lte, left),
-            ref t @ _ => Err(self.err(t, "Unexpected led token", false)),
+            ref t => Err(self.err(t, "Unexpected led token", false)),
         }
     }
 
@@ -763,7 +766,7 @@ impl<'a> Parser<'a> {
                     lhs: lhs
                 }))
             },
-            ref t @ _ => Err(self.err(t, &"Expected ']' for wildcard index", false))
+            ref t => Err(self.err(t, &"Expected ']' for wildcard index", false))
         }
     }
 
@@ -771,11 +774,11 @@ impl<'a> Parser<'a> {
     /// determine when to stop consuming tokens.
     #[inline]
     fn projection_rhs(&mut self, then: Box<ThunkParser>) -> SendResult {
-        match match self.peek(0) {
-            &Token::Dot => 0,
-            &Token::Lbracket | &Token::Filter => 1,
-            ref t @ _ if t.lbp() < 10 => 2,
-            ref t @ _ => return Err(self.err(t, &"Expected '.', '[', or '[?'", true))
+        match match *self.peek(0) {
+            Token::Dot => 0,
+            Token::Lbracket | Token::Filter => 1,
+            ref t if t.lbp() < 10 => 2,
+            ref t => return Err(self.err(t, &"Expected '.', '[', or '[?'", true))
         } {
             0 => {
                 self.advance();
@@ -792,53 +795,51 @@ impl<'a> Parser<'a> {
     /// Parses the right hand side of a dot expression.
     #[inline]
     fn parse_dot_rhs(&mut self, then: Box<ThunkParser>) -> SendResult {
-        match match self.peek(0) {
-            &Token::Lbracket => true,
-            &Token::Identifier(_) | &Token::QuotedIdentifier(_) | &Token::Star | &Token::Lbrace
-                | &Token::Ampersand => false,
-            t @ _ => {
+        let is_next_lbracket = match *self.peek(0) {
+            Token::Lbracket => true,
+            Token::Identifier(_) | Token::QuotedIdentifier(_) | Token::Star | Token::Lbrace
+                | Token::Ampersand => false,
+            ref t => {
                 return Err(self.err(t, &"Expected identifier, '*', '{', '[', '&', or '[?'", true))
             }
-        } {
-            true => {
-                self.advance();
-                self.parse_multi_list()
-            },
-            false => Ok(Trampoline::Thunk(then))
+        };
+        if is_next_lbracket {
+            self.advance();
+            self.parse_multi_list()
+        } else {
+            Ok(Trampoline::Thunk(then))
         }
     }
 
     // Parses foo[0], foo[::-1], foo[*], foo.[a, b, c], etc...
     #[inline]
     fn parse_led_lbracket(&mut self, offset: usize, lhs: Ast) -> SendResult {
-        match match self.peek(0) {
-            &Token::Number(_) | &Token::Colon => true,
-            &Token::Star => false,
-            t @ _ => return Err(self.err(t, "Expected number, ':', or '*'", true))
-        } {
-            false => {
-                self.advance();
-                self.parse_wildcard_index(lhs)
-            },
-            true => {
-                match try!(self.parse_index_expression()) {
-                    // The parsed value was an index, so return the subexpr.
-                    Trampoline::Value(node) => Ok(Trampoline::Value(Ast::Subexpr {
-                        offset: offset,
-                        lhs: Box::new(lhs),
-                        rhs: Box::new(node)
-                    })),
-                    // The parsed value is a projection, so wrap it when done.
-                    Trampoline::Thunk(thunk) => {
-                        Ok(Trampoline::Thunk(Box::new(ThenParser {
-                            first: thunk,
-                            then: Box::new(SubexpressionParser {
-                                lbp: Token::Lbracket.lbp(),
-                                offset: offset,
-                                lhs: lhs
-                            })
-                        })))
-                    }
+        let is_next_star = match *self.peek(0) {
+            Token::Star => true,
+            Token::Number(_) | Token::Colon => false,
+            ref t => return Err(self.err(t, "Expected number, ':', or '*'", true))
+        };
+        if is_next_star {
+            self.advance();
+            self.parse_wildcard_index(lhs)
+        } else {
+            match try!(self.parse_index_expression()) {
+                // The parsed value was an index, so return the subexpr.
+                Trampoline::Value(node) => Ok(Trampoline::Value(Ast::Subexpr {
+                    offset: offset,
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(node)
+                })),
+                // The parsed value is a projection, so wrap it when done.
+                Trampoline::Thunk(thunk) => {
+                    Ok(Trampoline::Thunk(Box::new(ThenParser {
+                        first: thunk,
+                        then: Box::new(SubexpressionParser {
+                            lbp: Token::Lbracket.lbp(),
+                            offset: offset,
+                            lhs: lhs
+                        })
+                    })))
                 }
             }
         }
@@ -853,9 +854,9 @@ impl<'a> Parser<'a> {
             match self.advance() {
                 Token::Number(value) => {
                     parts[pos] = Some(value);
-                    match self.peek(0) {
-                        &Token::Colon | &Token::Rbracket => (),
-                        t @ _ => return Err(self.err(t, "Expected ':', or ']'", true))
+                    match *self.peek(0) {
+                        Token::Colon | Token::Rbracket => (),
+                        ref t => return Err(self.err(t, "Expected ':', or ']'", true))
                     };
                 },
                 Token::Rbracket => break,
@@ -864,12 +865,12 @@ impl<'a> Parser<'a> {
                 },
                 Token::Colon => {
                     pos += 1;
-                    match self.peek(0) {
-                        &Token::Number(_) | &Token::Colon | &Token::Rbracket => continue,
-                        ref t @ _ => return Err(self.err(t, "Expected number, ':', or ']'", true))
+                    match *self.peek(0) {
+                        Token::Number(_) | Token::Colon | Token::Rbracket => continue,
+                        ref t => return Err(self.err(t, "Expected number, ':', or ']'", true))
                     };
                 },
-                ref t @ _ => return Err(self.err(t, "Expected number, ':', or ']'", false)),
+                ref t => return Err(self.err(t, "Expected number, ':', or ']'", false)),
             }
         }
 

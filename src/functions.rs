@@ -39,25 +39,25 @@ pub enum ArgumentType {
 
 impl ArgumentType {
     /// Convert a Vec of `ArgumeType` to a `Vec` of `String`s.
-    pub fn types_to_strings(types: &Vec<ArgumentType>) -> Vec<String> {
+    pub fn types_to_strings(types: &[ArgumentType]) -> Vec<String> {
         types.iter().map(|t| t.to_string()).collect::<Vec<String>>()
     }
 
     /// Returns true/false if the variable is valid for the type.
     pub fn is_valid(&self, value: &RcVar) -> bool {
         use self::ArgumentType::*;
-        match self {
-            &Any => true,
-            &Null if value.is_null() => true,
-            &String if value.is_string() => true,
-            &Number if value.is_number() => true,
-            &Object if value.is_object() => true,
-            &Bool if value.is_boolean() => true,
-            &Expref if value.is_expref() => true,
-            &ExprefReturns(_) if value.is_expref() => true,
-            &Array if value.is_array() => true,
-            &Union(ref types) => types.iter().any(|t| t.is_valid(value)),
-            &HomogeneousArray(ref types) if value.is_array() => {
+        match *self {
+            Any => true,
+            Null if value.is_null() => true,
+            String if value.is_string() => true,
+            Number if value.is_number() => true,
+            Object if value.is_object() => true,
+            Bool if value.is_boolean() => true,
+            Expref if value.is_expref() => true,
+            ExprefReturns(_) if value.is_expref() => true,
+            Array if value.is_array() => true,
+            Union(ref types) => types.iter().any(|t| t.is_valid(value)),
+            HomogeneousArray(ref types) if value.is_array() => {
                 let values = value.as_array().unwrap();
                 if values.is_empty() {
                     true
@@ -75,24 +75,24 @@ impl ArgumentType {
 impl fmt::Display for ArgumentType {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         use self::ArgumentType::*;
-        match self {
-            &Any => write!(fmt, "any"),
-            &String => write!(fmt, "string"),
-            &Number => write!(fmt, "number"),
-            &Bool => write!(fmt, "boolean"),
-            &Array => write!(fmt, "array"),
-            &Object => write!(fmt, "object"),
-            &Null => write!(fmt, "null"),
-            &Expref => write!(fmt, "expref"),
-            &ExprefReturns(ref types) => {
+        match *self {
+            Any => write!(fmt, "any"),
+            String => write!(fmt, "string"),
+            Number => write!(fmt, "number"),
+            Bool => write!(fmt, "boolean"),
+            Array => write!(fmt, "array"),
+            Object => write!(fmt, "object"),
+            Null => write!(fmt, "null"),
+            Expref => write!(fmt, "expref"),
+            ExprefReturns(ref types) => {
                 let mut type_strings = vec![];
                 for t in types {
                     type_strings.push(format!("expref->{}", t));
                 }
                 write!(fmt, "{}", type_strings.join("|"))
             },
-            &Union(ref types) => write!(fmt, "{}", Self::types_to_strings(types).join("|")),
-            &HomogeneousArray(ref types) => {
+            Union(ref types) => write!(fmt, "{}", Self::types_to_strings(types).join("|")),
+            HomogeneousArray(ref types) => {
                 write!(fmt, "array[{}]", Self::types_to_strings(types).join("|"))
             }
         }
@@ -160,7 +160,7 @@ macro_rules! validate_args {
                 if !arg_types[k].is_valid(v) {
                     return Err(Error::from_ctx($ctx, ErrorReason::Runtime(RuntimeError::InvalidType {
                         expected: arg_types[k].to_string(),
-                        actual: v.get_type().to_string(),
+                        actual: v.get_type().to_owned(),
                         actual_value: v.clone(),
                         position: k
                     })));
@@ -179,7 +179,7 @@ macro_rules! validate_args {
                 if !validator.is_valid(v) {
                     return Err(Error::from_ctx($ctx, ErrorReason::Runtime(RuntimeError::InvalidType {
                         expected: validator.to_string(),
-                        actual: v.get_type().to_string(),
+                        actual: v.get_type().to_owned(),
                         actual_value: v.clone(),
                         position: k
                     })));
@@ -206,8 +206,8 @@ macro_rules! min_and_max_by {
             if entered_type != "string" && entered_type != "number" {
                 return Err(Error::from_ctx($ctx,
                     ErrorReason::Runtime(RuntimeError::InvalidReturnType {
-                        expected: "expression->number|expression->string".to_string(),
-                        actual: entered_type.to_string(),
+                        expected: "expression->number|expression->string".to_owned(),
+                        actual: entered_type.to_owned(),
                         actual_value: initial.clone(),
                         position: 1,
                         invocation: 1
@@ -222,7 +222,7 @@ macro_rules! min_and_max_by {
                     return Err(Error::from_ctx($ctx,
                         ErrorReason::Runtime(RuntimeError::InvalidReturnType {
                             expected: format!("expression->{}", entered_type),
-                            actual: mapped.get_type().to_string(),
+                            actual: mapped.get_type().to_owned(),
                             actual_value: mapped.clone(),
                             position: 1,
                             invocation: invocation
@@ -260,32 +260,32 @@ macro_rules! min_and_max {
 
 /// Registers the default JMESPath functions into a map.
 pub fn register_core_functions(functions: &mut Functions) {
-    functions.insert("abs".to_string(), Box::new(Abs));
-    functions.insert("avg".to_string(), Box::new(Avg));
-    functions.insert("ceil".to_string(), Box::new(Ceil));
-    functions.insert("contains".to_string(), Box::new(Contains));
-    functions.insert("ends_with".to_string(), Box::new(EndsWith));
-    functions.insert("floor".to_string(), Box::new(Floor));
-    functions.insert("join".to_string(), Box::new(Join));
-    functions.insert("keys".to_string(), Box::new(Keys));
-    functions.insert("length".to_string(), Box::new(Length));
-    functions.insert("map".to_string(), Box::new(Map));
-    functions.insert("min".to_string(), Box::new(Min));
-    functions.insert("max".to_string(), Box::new(Max));
-    functions.insert("max_by".to_string(), Box::new(MaxBy));
-    functions.insert("min_by".to_string(), Box::new(MinBy));
-    functions.insert("merge".to_string(), Box::new(Merge));
-    functions.insert("not_null".to_string(), Box::new(NotNull));
-    functions.insert("reverse".to_string(), Box::new(Reverse));
-    functions.insert("sort".to_string(), Box::new(Sort));
-    functions.insert("sort_by".to_string(), Box::new(SortBy));
-    functions.insert("starts_with".to_string(), Box::new(StartsWith));
-    functions.insert("sum".to_string(), Box::new(Sum));
-    functions.insert("to_array".to_string(), Box::new(ToArray));
-    functions.insert("to_number".to_string(), Box::new(ToNumber));
-    functions.insert("to_string".to_string(), Box::new(ToString));
-    functions.insert("type".to_string(), Box::new(Type));
-    functions.insert("values".to_string(), Box::new(Values));
+    functions.insert("abs".to_owned(), Box::new(Abs));
+    functions.insert("avg".to_owned(), Box::new(Avg));
+    functions.insert("ceil".to_owned(), Box::new(Ceil));
+    functions.insert("contains".to_owned(), Box::new(Contains));
+    functions.insert("ends_with".to_owned(), Box::new(EndsWith));
+    functions.insert("floor".to_owned(), Box::new(Floor));
+    functions.insert("join".to_owned(), Box::new(Join));
+    functions.insert("keys".to_owned(), Box::new(Keys));
+    functions.insert("length".to_owned(), Box::new(Length));
+    functions.insert("map".to_owned(), Box::new(Map));
+    functions.insert("min".to_owned(), Box::new(Min));
+    functions.insert("max".to_owned(), Box::new(Max));
+    functions.insert("max_by".to_owned(), Box::new(MaxBy));
+    functions.insert("min_by".to_owned(), Box::new(MinBy));
+    functions.insert("merge".to_owned(), Box::new(Merge));
+    functions.insert("not_null".to_owned(), Box::new(NotNull));
+    functions.insert("reverse".to_owned(), Box::new(Reverse));
+    functions.insert("sort".to_owned(), Box::new(Sort));
+    functions.insert("sort_by".to_owned(), Box::new(SortBy));
+    functions.insert("starts_with".to_owned(), Box::new(StartsWith));
+    functions.insert("sum".to_owned(), Box::new(Sum));
+    functions.insert("to_array".to_owned(), Box::new(ToArray));
+    functions.insert("to_number".to_owned(), Box::new(ToNumber));
+    functions.insert("to_string".to_owned(), Box::new(ToString));
+    functions.insert("type".to_owned(), Box::new(Type));
+    functions.insert("values".to_owned(), Box::new(Values));
 }
 
 struct Abs;
@@ -331,8 +331,8 @@ impl JPFunction for Contains {
         validate_args!(ctx, args,
             ArgumentType::Union(vec![ArgumentType::String, ArgumentType::Array]),
             ArgumentType::Any);
-        let ref haystack = args[0];
-        let ref needle = args[1];
+        let haystack = &args[0];
+        let needle = &args[1];
         match **haystack {
            Variable::Array(ref a) => {
                Ok(ctx.alloc(a.contains(&needle)))
@@ -533,8 +533,8 @@ impl JPFunction for SortBy {
         let first_type = first_value.get_type();
         if first_type != "string" && first_type != "number" {
             return Err(Error::from_ctx(ctx, ErrorReason::Runtime(RuntimeError::InvalidReturnType {
-                expected: "expression->string|expression->number".to_string(),
-                actual: first_type.to_string(),
+                expected: "expression->string|expression->number".to_owned(),
+                actual: first_type.to_owned(),
                 actual_value: first_value.clone(),
                 position: 1,
                 invocation: 1
@@ -547,7 +547,7 @@ impl JPFunction for SortBy {
                 return Err(Error::from_ctx(ctx,
                     ErrorReason::Runtime(RuntimeError::InvalidReturnType {
                         expected: format!("expression->{}", first_type),
-                        actual: mapped_value.get_type().to_string(),
+                        actual: mapped_value.get_type().to_owned(),
                         actual_value: mapped_value.clone(),
                         position: 1,
                         invocation: invocation
@@ -632,7 +632,7 @@ struct Type;
 impl JPFunction for Type {
     fn evaluate(&self, args: Vec<RcVar>, ctx: &mut Context) -> SearchResult {
         validate_args!(ctx, args, ArgumentType::Any);
-        Ok(ctx.alloc(args[0].get_type().to_string()))
+        Ok(ctx.alloc(args[0].get_type().to_owned()))
     }
 }
 

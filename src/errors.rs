@@ -21,7 +21,7 @@ impl Error {
     /// Create a new JMESPath Error
     pub fn new(expr: &str, offset: usize, error_reason: ErrorReason) -> Error {
         Error {
-            expression: expr.to_string(),
+            expression: expr.to_owned(),
             coordinates: Coordinates::from_offset(expr, offset),
             error_reason: error_reason
         }
@@ -30,7 +30,7 @@ impl Error {
     /// Create a new JMESPath Error from a Context struct.
     pub fn from_ctx(ctx: &Context, error_reason: ErrorReason) -> Error {
         Error {
-            expression: ctx.expression.to_string(),
+            expression: ctx.expression.to_owned(),
             coordinates: ctx.create_coordinates(),
             error_reason: error_reason
         }
@@ -55,9 +55,9 @@ pub enum ErrorReason {
 
 impl fmt::Display for ErrorReason {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        match self {
-            &ErrorReason::Parse(ref e) => write!(fmt, "Parse error: {}", e),
-            &ErrorReason::Runtime(ref e) => write!(fmt, "Runtime error: {}", e),
+        match *self {
+            ErrorReason::Parse(ref e) => write!(fmt, "Parse error: {}", e),
+            ErrorReason::Runtime(ref e) => write!(fmt, "Runtime error: {}", e),
         }
     }
 }
@@ -99,25 +99,25 @@ pub enum RuntimeError {
 impl fmt::Display for RuntimeError {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         use self::RuntimeError::*;
-        match self {
-            &UnknownFunction(ref function) => {
+        match *self {
+            UnknownFunction(ref function) => {
                 write!(fmt, "Call to undefined function {}", function)
             },
-            &TooManyArguments { ref expected, ref actual } => {
+            TooManyArguments { ref expected, ref actual } => {
                 write!(fmt, "Too many arguments, expected {}, found {}", expected, actual)
             },
-            &NotEnoughArguments { ref expected, ref actual } => {
+            NotEnoughArguments { ref expected, ref actual } => {
                 write!(fmt, "Not enough arguments, expected {}, found {}", expected, actual)
             },
-            &InvalidType { ref expected, ref actual, ref position, ref actual_value } => {
+            InvalidType { ref expected, ref actual, ref position, ref actual_value } => {
                 write!(fmt, "Argument {} expects type {}, given {} {}",
-                    position, expected, actual, actual_value.to_string())
+                    position, expected, actual, actual_value.to_owned())
             },
-            &InvalidSlice => write!(fmt, "Invalid slice"),
-            &InvalidReturnType { ref expected, ref actual, ref position, ref invocation,
+            InvalidSlice => write!(fmt, "Invalid slice"),
+            InvalidReturnType { ref expected, ref actual, ref position, ref invocation,
                     ref actual_value } => {
                 write!(fmt, "Argument {} must return {} but invocation {} returned {} {}",
-                    position, expected, invocation, actual, actual_value.to_string())
+                    position, expected, invocation, actual, actual_value.to_owned())
             },
         }
     }

@@ -158,25 +158,25 @@ pub enum Ast {
 impl Ast {
     /// Create a coordinates struct for the AST node.
     pub fn make_coordinates(&self, expr: &str) -> Coordinates {
-        let offset = match self {
-            &Ast::Comparison { offset, .. } => offset,
-            &Ast::Condition { offset, .. } => offset,
-            &Ast::Identity { offset, .. } => offset,
-            &Ast::Expref { offset, .. } => offset,
-            &Ast::Flatten { offset, .. } => offset,
-            &Ast::Function { offset, .. } => offset,
-            &Ast::Field { offset, .. } => offset,
-            &Ast::Index { offset, .. } => offset,
-            &Ast::Literal { offset, .. } => offset,
-            &Ast::MultiList { offset, .. } => offset,
-            &Ast::MultiHash { offset, .. } => offset,
-            &Ast::Not { offset, .. } => offset,
-            &Ast::Projection { offset, .. } => offset,
-            &Ast::ObjectValues { offset, .. } => offset,
-            &Ast::And { offset, .. } => offset,
-            &Ast::Or { offset, .. } => offset,
-            &Ast::Slice { offset, .. } => offset,
-            &Ast::Subexpr { offset, .. } => offset,
+        let offset = match *self {
+            Ast::Comparison { offset, .. } => offset,
+            Ast::Condition { offset, .. } => offset,
+            Ast::Identity { offset, .. } => offset,
+            Ast::Expref { offset, .. } => offset,
+            Ast::Flatten { offset, .. } => offset,
+            Ast::Function { offset, .. } => offset,
+            Ast::Field { offset, .. } => offset,
+            Ast::Index { offset, .. } => offset,
+            Ast::Literal { offset, .. } => offset,
+            Ast::MultiList { offset, .. } => offset,
+            Ast::MultiHash { offset, .. } => offset,
+            Ast::Not { offset, .. } => offset,
+            Ast::Projection { offset, .. } => offset,
+            Ast::ObjectValues { offset, .. } => offset,
+            Ast::And { offset, .. } => offset,
+            Ast::Or { offset, .. } => offset,
+            Ast::Slice { offset, .. } => offset,
+            Ast::Subexpr { offset, .. } => offset,
         };
         Coordinates::from_offset(expr, offset)
     }

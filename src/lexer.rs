@@ -123,7 +123,7 @@ impl<'a> Lexer<'a> {
                                 Some((_, c)) if c == '=' => tokens.push_back((pos, Eq)),
                                 _ => {
                                     return Err(Error::new(self.expr, pos, ErrorReason::Parse(
-                                        "'=' is not valid. Did you mean '=='?".to_string()
+                                        "'=' is not valid. Did you mean '=='?".to_owned()
                                     )))
                                 }
                             }
@@ -135,7 +135,7 @@ impl<'a> Lexer<'a> {
                         '-' => tokens.push_back((pos, try!(self.consume_negative_number(pos)))),
                         // Skip whitespace tokens
                         ' ' | '\n' | '\t' | '\r' => {},
-                        c @ _ => {
+                        c => {
                             return Err(Error::new(self.expr, pos, ErrorReason::Parse(
                                 format!("Invalid character: {}", c)
                             )))
@@ -201,9 +201,10 @@ impl<'a> Lexer<'a> {
     fn consume_number(&mut self, first_char: char, is_negative: bool) -> Token {
         let lexeme = self.consume_while(first_char.to_string(), |c| c.is_digit(10));
         let numeric_value: i32 = lexeme.parse().expect("Expected valid number");
-        match is_negative {
-            true => Number(numeric_value * -1),
-            false => Number(numeric_value)
+        if is_negative {
+            Number(numeric_value * -1)
+        } else {
+            Number(numeric_value)
         }
     }
 
@@ -217,7 +218,7 @@ impl<'a> Lexer<'a> {
             },
             _ => {
                 Err(Error::new(self.expr, pos, ErrorReason::Parse(
-                    "'-' must be followed by numbers 1-9".to_string()
+                    "'-' must be followed by numbers 1-9".to_owned()
                 )))
             }
         }
@@ -261,7 +262,7 @@ impl<'a> Lexer<'a> {
             // JSON decode the string to expand escapes
             match Variable::from_json(format!(r##""{}""##, s).as_ref()) {
                 // Convert the JSON value into a string literal.
-                Ok(j) => Ok(QuotedIdentifier(j.as_string().unwrap().to_string())),
+                Ok(j) => Ok(QuotedIdentifier(j.as_string().unwrap().clone())),
                 Err(e) => Err(format!("Unable to parse quoted identifier {}: {}", s, e))
             }
         })

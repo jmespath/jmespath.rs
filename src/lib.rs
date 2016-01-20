@@ -151,7 +151,7 @@ impl<'a> Expression<'a> {
                             interpreter: Option<&'a TreeInterpreter>)
                             -> Result<Expression<'a>, Error> {
         Ok(Expression {
-            original: expression.to_string(),
+            original: expression.to_owned(),
             ast: try!(parse(expression)),
             interpreter: interpreter
         })
