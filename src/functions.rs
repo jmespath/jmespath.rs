@@ -169,7 +169,7 @@ macro_rules! validate_args {
         }
     );
     // Validate positional arguments with a variadic validator.
-    ($ctx:expr, $args:expr, $($x:expr),* ...$variadic:expr ) => (
+    ($ctx:expr, $args:expr, $($x:expr),* => $variadic:expr ) => (
         {
             let arg_types: Vec<ArgumentType> = vec![$($x), *];
             let variadic = $variadic;
@@ -466,7 +466,7 @@ struct Merge;
 
 impl JPFunction for Merge {
     fn evaluate(&self, args: Vec<RcVar>, ctx: &mut Context) -> SearchResult {
-        validate_args!(ctx, args, ArgumentType::Object ...ArgumentType::Object);
+        validate_args!(ctx, args, ArgumentType::Object => ArgumentType::Object);
         let mut result = BTreeMap::new();
         for arg in args {
             result.extend(arg.as_object().unwrap().clone());
@@ -479,7 +479,7 @@ struct NotNull;
 
 impl JPFunction for NotNull {
     fn evaluate(&self, args: Vec<RcVar>, ctx: &mut Context) -> SearchResult {
-        validate_args!(ctx, args, ArgumentType::Any ...ArgumentType::Any);
+        validate_args!(ctx, args, ArgumentType::Any => ArgumentType::Any);
         for arg in args {
             if !arg.is_null() {
                 return Ok(arg.clone());
