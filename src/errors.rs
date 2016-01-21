@@ -104,10 +104,10 @@ impl fmt::Display for RuntimeError {
                 write!(fmt, "Call to undefined function {}", function)
             },
             TooManyArguments { ref expected, ref actual } => {
-                write!(fmt, "Too many arguments, expected {}, found {}", expected, actual)
+                write!(fmt, "Too many arguments: expected {}, found {}", expected, actual)
             },
             NotEnoughArguments { ref expected, ref actual } => {
-                write!(fmt, "Not enough arguments, expected {}, found {}", expected, actual)
+                write!(fmt, "Not enough arguments: expected {}, found {}", expected, actual)
             },
             InvalidType { ref expected, ref actual, ref position, ref actual_value } => {
                 write!(fmt, "Argument {} expects type {}, given {} {}",
@@ -194,7 +194,10 @@ impl fmt::Display for Coordinates {
 
 #[cfg(test)]
 mod test {
+    use std::rc::Rc;
+
     use super::*;
+    use Variable;
 
     #[test]
     fn coordinates_can_be_created_from_string_with_new_lines() {
@@ -224,5 +227,65 @@ mod test {
         assert_eq!(4, coords.column);
         assert_eq!(4, coords.offset);
         assert_eq!("foo..bar\n    ^\n", coords.expression_with_carat(expr));
+    }
+
+    #[test]
+    fn error_reason_displays_parse_errors() {
+        let reason = ErrorReason::Parse("bar".to_owned());
+        assert_eq!("Parse error: bar", reason.to_string());
+    }
+
+    #[test]
+    fn error_reason_displays_runtime_errors() {
+        let reason = ErrorReason::Runtime(RuntimeError::UnknownFunction("a".to_owned()));
+        assert_eq!("Runtime error: Call to undefined function a", reason.to_string());
+    }
+
+    #[test]
+    fn displays_invalid_type_error() {
+        let error = RuntimeError::InvalidType {
+            expected: "string".to_owned(),
+            actual: "boolean".to_owned(),
+            actual_value: Rc::new(Variable::Bool(true)),
+            position: 0,
+        };
+        assert_eq!("Argument 0 expects type string, given boolean true", error.to_string());
+    }
+
+    #[test]
+    fn displays_invalid_slice() {
+        let error = RuntimeError::InvalidSlice;
+        assert_eq!("Invalid slice", error.to_string());
+    }
+
+    #[test]
+    fn displays_too_many_arguments_error() {
+        let error = RuntimeError::TooManyArguments {
+            expected: 1,
+            actual: 2
+        };
+        assert_eq!("Too many arguments: expected 1, found 2", error.to_string());
+    }
+
+    #[test]
+    fn displays_not_enough_arguments_error() {
+        let error = RuntimeError::NotEnoughArguments {
+            expected: 2,
+            actual: 1
+        };
+        assert_eq!("Not enough arguments: expected 2, found 1", error.to_string());
+    }
+
+    #[test]
+    fn displays_invalid_return_type_error() {
+        let error = RuntimeError::InvalidReturnType {
+            expected: "string".to_string(),
+            actual: "boolean".to_string(),
+            actual_value: Rc::new(Variable::Bool(true)),
+            position: 0,
+            invocation: 2,
+        };
+        assert_eq!("Argument 0 must return string but invocation 2 returned boolean true",
+                   error.to_string());
     }
 }
