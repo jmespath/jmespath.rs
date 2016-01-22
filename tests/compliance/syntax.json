@@ -120,6 +120,22 @@
     ]
   },
   {
+    "comment": "Function syntax errors",
+    "given": {},
+    "cases": [
+      {
+        "comment": "invalid start of function",
+        "expression": "@(foo)",
+        "error": "syntax"
+      },
+      {
+        "comment": "function names cannot be quoted",
+        "expression": "\"foo\"(bar)",
+        "error": "syntax"
+      }
+    ]
+  },
+  {
     "comment": "Wildcard syntax",
     "given": {"type": "object"},
     "cases": [
