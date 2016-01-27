@@ -103,6 +103,7 @@ extern crate serde_json;
 
 pub use errors::{Error, ErrorReason, RuntimeError, Coordinates};
 pub use parser::{parse, ParseResult};
+pub use lexer::tokenize;
 pub use variable::Variable;
 
 use std::fmt;

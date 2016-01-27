@@ -106,7 +106,7 @@ pub trait JPFunction {
 }
 
 /// Boxed JPFunction
-pub type FnBox = Box<JPFunction + 'static>;
+pub type FnBox = Box<JPFunction>;
 
 /// Map of JMESPath function names to their implementation
 pub type Functions = HashMap<String, FnBox>;

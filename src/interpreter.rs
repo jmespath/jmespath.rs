@@ -64,7 +64,7 @@ pub struct TreeInterpreter {
 impl TreeInterpreter {
     /// Creates a new TreeInterpreter
     pub fn new() -> TreeInterpreter {
-        let mut functions = HashMap::new();
+        let mut functions = HashMap::with_capacity(26);
         register_core_functions(&mut functions);
         Self::with_functions(functions)
     }
@@ -81,25 +81,20 @@ impl TreeInterpreter {
     #[inline(never)]
     pub fn interpret(&self, data: &RcVar, node: &Ast, ctx: &mut Context) -> SearchResult {
         match *node {
-            Ast::Subexpr { ref lhs, ref rhs, ref offset } => {
-                ctx.offset = *offset;
+            Ast::Subexpr { ref lhs, ref rhs, .. } => {
                 let left_result = try!(self.interpret(data, lhs, ctx));
                 self.interpret(&left_result, rhs, ctx)
             },
-            Ast::Field { ref name, ref offset } => {
-                ctx.offset = *offset;
+            Ast::Field { ref name, .. } => {
                 Ok(data.get_value(name).unwrap_or(ctx.alloc_null()))
             },
-            Ast::Identity { ref offset } => {
-                ctx.offset = *offset;
+            Ast::Identity { .. } => {
                 Ok(data.clone())
             },
-            Ast::Literal { ref value, ref offset } => {
-                ctx.offset = *offset;
+            Ast::Literal { ref value, .. } => {
                 Ok(value.clone())
             },
-            Ast::Index { ref idx, ref offset } => {
-                ctx.offset = *offset;
+            Ast::Index { ref idx, .. } => {
                 match if *idx >= 0 {
                     data.get_index(*idx as usize)
                 } else {
@@ -109,8 +104,7 @@ impl TreeInterpreter {
                     None => Ok(ctx.alloc_null())
                 }
             },
-            Ast::Or { ref lhs, ref rhs, ref offset } => {
-                ctx.offset = *offset;
+            Ast::Or { ref lhs, ref rhs, .. } => {
                 let left = try!(self.interpret(data, lhs, ctx));
                 if left.is_truthy() {
                     Ok(left)
@@ -118,8 +112,7 @@ impl TreeInterpreter {
                     self.interpret(data, rhs, ctx)
                 }
             },
-            Ast::And { ref lhs, ref rhs, ref offset } => {
-                ctx.offset = *offset;
+            Ast::And { ref lhs, ref rhs, .. } => {
                 let left = try!(self.interpret(data, lhs, ctx));
                 if !left.is_truthy() {
                     Ok(left)
@@ -127,14 +120,12 @@ impl TreeInterpreter {
                     self.interpret(data, rhs, ctx)
                 }
             },
-            Ast::Not { ref node, ref offset } => {
-                ctx.offset = *offset;
+            Ast::Not { ref node, .. } => {
                 let result = try!(self.interpret(data, node, ctx));
                 Ok(Rc::new(Variable::Bool(!result.is_truthy())))
             },
             // Returns the resut of RHS if cond yields truthy value.
-            Ast::Condition { ref predicate, ref then, ref offset } => {
-                ctx.offset = *offset;
+            Ast::Condition { ref predicate, ref then, .. } => {
                 let cond_result = try!(self.interpret(data, predicate, ctx));
                 if cond_result.is_truthy() {
                     self.interpret(data, then, ctx)
@@ -142,16 +133,14 @@ impl TreeInterpreter {
                     Ok(ctx.alloc_null())
                 }
             },
-            Ast::Comparison { ref comparator, ref lhs, ref rhs, ref offset } => {
-                ctx.offset = *offset;
+            Ast::Comparison { ref comparator, ref lhs, ref rhs, .. } => {
                 let left = try!(self.interpret(data, lhs, ctx));
                 let right = try!(self.interpret(data, rhs, ctx));
                 Ok(left.compare(comparator, &*right)
                     .map_or(ctx.alloc_null(), |result| Rc::new(Variable::Bool(result))))
             },
             // Converts an object into a JSON array of its values.
-            Ast::ObjectValues { ref node, ref offset } => {
-                ctx.offset = *offset;
+            Ast::ObjectValues { ref node, .. } => {
                 let subject = try!(self.interpret(data, node, ctx));
                 match *subject {
                     Variable::Object(ref v) => {
@@ -162,8 +151,7 @@ impl TreeInterpreter {
             },
             // Passes the results of lhs into rhs if lhs yields an array and
             // each node of lhs that passes through rhs yields a non-null value.
-            Ast::Projection { ref lhs, ref rhs, ref offset } => {
-                ctx.offset = *offset;
+            Ast::Projection { ref lhs, ref rhs, .. } => {
                 match try!(self.interpret(data, lhs, ctx)).as_array() {
                     None => Ok(ctx.alloc_null()),
                     Some(left) => {
@@ -178,8 +166,7 @@ impl TreeInterpreter {
                     }
                 }
             },
-            Ast::Flatten { ref node, ref offset } => {
-                ctx.offset = *offset;
+            Ast::Flatten { ref node, .. } => {
                 match try!(self.interpret(data, node, ctx)).as_array() {
                     None => Ok(ctx.alloc_null()),
                     Some(a) => {
@@ -194,8 +181,7 @@ impl TreeInterpreter {
                     }
                 }
             },
-            Ast::MultiList { ref elements, ref offset } => {
-                ctx.offset = *offset;
+            Ast::MultiList { ref elements, .. } => {
                 if data.is_null() {
                     Ok(ctx.alloc_null())
                 } else {
@@ -206,8 +192,7 @@ impl TreeInterpreter {
                     Ok(Rc::new(Variable::Array(collected)))
                 }
             },
-            Ast::MultiHash { ref elements, ref offset } => {
-                ctx.offset = *offset;
+            Ast::MultiHash { ref elements, .. } => {
                 if data.is_null() {
                     Ok(ctx.alloc_null())
                 } else {
@@ -220,7 +205,6 @@ impl TreeInterpreter {
                 }
             },
             Ast::Function { ref name, ref args, ref offset } => {
-                ctx.offset = *offset;
                 let mut fn_args: Vec<RcVar> = vec![];
                 for arg in args {
                     fn_args.push(try!(self.interpret(data, arg, ctx)));
@@ -236,8 +220,7 @@ impl TreeInterpreter {
                     }
                 }
             },
-            Ast::Expref{ ref ast, ref offset } => {
-                ctx.offset = *offset;
+            Ast::Expref{ ref ast, .. } => {
                 Ok(Rc::new(Variable::Expref(*ast.clone())))
             },
             Ast::Slice { ref start, ref stop, step, ref offset } => {
