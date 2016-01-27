@@ -190,7 +190,7 @@ impl Variable {
     pub fn get_index(&self, index: usize) -> Option<RcVar> {
         self.as_array()
             .and_then(|array| array.get(index))
-            .map(|value| value.clone().clone())
+            .map(|value| value.clone())
     }
 
     /// Retrieves an index from the end of a Variable if the Variable is an array.
@@ -207,7 +207,7 @@ impl Variable {
                     array.get(array.len() - adjusted_index)
                 }
             })
-            .map(|value| value.clone().clone())
+            .map(|value| value.clone())
     }
 
     /// Retrieves a key value from a Variable if the Variable is an object.
@@ -215,7 +215,7 @@ impl Variable {
     pub fn get_value(&self, key: &str) -> Option<RcVar> {
         self.as_object()
             .and_then(|map| map.get(key))
-            .map(|value| value.clone().clone())
+            .map(|value| value.clone())
     }
 
     /// Returns true or false based on if the Variable value is considered truthy.
