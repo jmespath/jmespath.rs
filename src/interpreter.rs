@@ -3,11 +3,11 @@
 extern crate serde;
 
 use std::rc::Rc;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
 use super::{Coordinates, RcVar, Error, ErrorReason, RuntimeError};
 use super::ast::Ast;
-use super::functions::{register_core_functions, JPFunction, Functions};
+use super::functions::{FnDispatcher, BuiltinDispatcher};
 use super::variable::Variable;
 
 use self::serde::Serialize;
@@ -58,22 +58,20 @@ impl<'a> Context<'a> {
 /// TreeInterpreter recursively extracts data using an AST.
 pub struct TreeInterpreter {
     /// Provides a mapping between JMESPath function names and the function to execute.
-    functions: Functions
+    fn_dispatcher: Box<FnDispatcher>
 }
 
 impl TreeInterpreter {
     /// Creates a new TreeInterpreter
     pub fn new() -> TreeInterpreter {
-        let mut functions = HashMap::with_capacity(26);
-        register_core_functions(&mut functions);
-        Self::with_functions(functions)
+        Self::with_fn_dispatcher(Box::new(BuiltinDispatcher))
     }
 
-    /// Creates a new TreeInterpreter with a custom function map.
+    /// Creates a new TreeInterpreter with a custom function dispatcher.
     #[inline]
-    pub fn with_functions(functions: Functions) -> TreeInterpreter {
+    pub fn with_fn_dispatcher(fn_dispatcher: Box<FnDispatcher>) -> TreeInterpreter {
         TreeInterpreter {
-            functions: functions
+            fn_dispatcher: fn_dispatcher
         }
     }
 
@@ -211,14 +209,7 @@ impl TreeInterpreter {
                 }
                 // Reset the offset so that it points to the function being evaluated.
                 ctx.offset = *offset;
-                match self.functions.get(name) {
-                    Some(f) => f.evaluate(fn_args, ctx),
-                    None => {
-                        Err(Error::from_ctx(ctx, ErrorReason::Runtime(
-                            RuntimeError::UnknownFunction(name.clone())
-                        )))
-                    }
-                }
+                self.fn_dispatcher.evaluate(name, fn_args, ctx)
             },
             Ast::Expref{ ref ast, .. } => {
                 Ok(Rc::new(Variable::Expref(*ast.clone())))
