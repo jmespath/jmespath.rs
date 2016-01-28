@@ -158,11 +158,18 @@ impl<'a> Expression<'a> {
         })
     }
 
-    /// Returns the result of searching data with the compiled expression.
+    /// Returns the result of searching Serde data with the compiled expression.
     pub fn search<T: Serialize>(&self, data: T) -> SearchResult {
         let mut ser = Serializer::new();
         data.serialize(&mut ser).ok().unwrap();
-        let data = Rc::new(ser.unwrap());
+        self.search_variable(&Rc::new(ser.unwrap()))
+    }
+
+    /// Returns the result of searching a JMESPath variable with the compiled expression.
+    ///
+    /// NOTE: This specific method could eventually be removed once specialization
+    ///     lands in Rust. See https://github.com/rust-lang/rfcs/pull/1210
+    pub fn search_variable(&self, data: &RcVar) -> SearchResult {
         match self.interpreter {
             Some(i) => {
                 let mut ctx = Context::new(i, &self.original);

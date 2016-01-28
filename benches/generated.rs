@@ -6,6 +6,8 @@
 extern crate jmespath;
 extern crate test;
 
+use std::rc::Rc;
+
 use jmespath::{parse, tokenize, Expression, Variable};
 use test::Bencher;
 
