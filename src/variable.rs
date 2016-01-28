@@ -188,9 +188,7 @@ impl Variable {
     /// Retrieves an index from the Variable if the Variable is an array.
     /// Returns None if not an array or if the index is not present.
     pub fn get_index(&self, index: usize) -> Option<RcVar> {
-        self.as_array()
-            .and_then(|array| array.get(index))
-            .map(|value| value.clone())
+        self.as_array().and_then(|array| array.get(index)).cloned()
     }
 
     /// Retrieves an index from the end of a Variable if the Variable is an array.
@@ -206,16 +204,13 @@ impl Variable {
                 } else {
                     array.get(array.len() - adjusted_index)
                 }
-            })
-            .map(|value| value.clone())
+            }).cloned()
     }
 
     /// Retrieves a key value from a Variable if the Variable is an object.
     /// Returns None if the Variable is not an object or if the field is not present.
     pub fn get_value(&self, key: &str) -> Option<RcVar> {
-        self.as_object()
-            .and_then(|map| map.get(key))
-            .map(|value| value.clone())
+        self.as_object().and_then(|map| map.get(key)).cloned()
     }
 
     /// Returns true or false based on if the Variable value is considered truthy.

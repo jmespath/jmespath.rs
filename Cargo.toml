@@ -10,7 +10,10 @@ description = "Rust implementation of JMESPath, a query language for JSON"
 [dependencies]
 serde = "^0.6"
 serde_json = "^0.6"
-clippy = { version = "^0.0.36", optional = true }
+
+[dependencies.clippy]
+version = "^0.0.36"
+optional = true
 
 [build-dependencies]
 serde_json = "^0.6"
