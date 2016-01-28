@@ -3,7 +3,7 @@
 Rust implementation of [JMESPath](http://jmespath.org), a query language for JSON.
 
 [![Build Status](https://travis-ci.org/mtdowling/jmespath.rs.svg?branch=master)](https://travis-ci.org/mtdowling/jmespath.rs)
-[![Coverage Status](https://coveralls.io/repos/github/mtdowling/jmespath.rs/badge.svg?branch=coveralls)](https://coveralls.io/github/mtdowling/jmespath.rs?branch=coveralls)
+[![Coverage Status](https://coveralls.io/repos/github/mtdowling/jmespath.rs/badge.svg?branch=master)](https://coveralls.io/github/mtdowling/jmespath.rs?branch=master)
 
 [Documentation](http://mtdowling.com/jmespath.rs/jmespath/)
 
