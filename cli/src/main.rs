@@ -2,6 +2,7 @@ extern crate clap;
 extern crate serde_json;
 extern crate jmespath;
 
+use std::rc::Rc;
 use std::io::prelude::*;
 use std::io;
 use std::fs::File;
@@ -68,9 +69,9 @@ fn main() {
         exit(0);
     }
 
-    let json = get_json(matches.value_of("filename"));
+    let json = Rc::new(get_json(matches.value_of("filename")));
 
-    match expr.search(json) {
+    match expr.search_variable(&json) {
         Err(e) => die!(e.to_string()),
         Ok(result) => show_result(result, matches.is_present("unquoted"))
     }
