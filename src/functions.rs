@@ -5,7 +5,7 @@ use std::cmp::{max, min};
 use std::fmt;
 
 use super::{Error, ErrorReason, RcVar, RuntimeError};
-use super::interpreter::{Context, SearchResult};
+use super::interpreter::{interpret, Context, SearchResult};
 use super::variable::Variable;
 
 /// Function argument types used when validating.
@@ -233,7 +233,7 @@ macro_rules! min_and_max_by {
             }
             let ast = $args[1].as_expref().unwrap();
             // Map over the first value to get the homogeneous required return type
-            let initial = try!($ctx.interpreter.interpret(&vals[0], &ast, $ctx));
+            let initial = try!(interpret(&vals[0], &ast, $ctx));
             let entered_type = initial.get_type();
             if entered_type != "string" && entered_type != "number" {
                 return Err(Error::from_ctx($ctx,
@@ -249,7 +249,7 @@ macro_rules! min_and_max_by {
             // Map over each value, finding the best candidate value and fail on error.
             let mut candidate = (vals[0].clone(), initial.clone());
             for (invocation, v) in vals.iter().enumerate().skip(1) {
-                let mapped = try!($ctx.interpreter.interpret(v, &ast, $ctx));
+                let mapped = try!(interpret(v, &ast, $ctx));
                 if mapped.get_type() != entered_type {
                     return Err(Error::from_ctx($ctx,
                         ErrorReason::Runtime(RuntimeError::InvalidReturnType {
@@ -389,7 +389,7 @@ fn jp_map(args: Vec<RcVar>, ctx: &mut Context) -> SearchResult {
     let values = args[1].as_array().unwrap();
     let mut results = vec![];
     for value in values {
-        results.push(try!(ctx.interpreter.interpret(&value, &ast, ctx)));
+        results.push(try!(interpret(&value, &ast, ctx)));
     }
     Ok(ctx.alloc(results))
 }
@@ -458,7 +458,7 @@ fn jp_sort_by(args: Vec<RcVar>, ctx: &mut Context) -> SearchResult {
     }
     let ast = args[1].as_expref().unwrap();
     let mut mapped: Vec<(RcVar, RcVar)> = vec![];
-    let first_value = try!(ctx.interpreter.interpret(&vals[0], &ast, ctx));
+    let first_value = try!(interpret(&vals[0], &ast, ctx));
     let first_type = first_value.get_type();
     if first_type != "string" && first_type != "number" {
         return Err(Error::from_ctx(ctx, ErrorReason::Runtime(RuntimeError::InvalidReturnType {
@@ -471,7 +471,7 @@ fn jp_sort_by(args: Vec<RcVar>, ctx: &mut Context) -> SearchResult {
     }
     mapped.push((vals[0].clone(), first_value.clone()));
     for (invocation, v) in vals.iter().enumerate().skip(1) {
-        let mapped_value = try!(ctx.interpreter.interpret(v, &ast, ctx));
+        let mapped_value = try!(interpret(v, &ast, ctx));
         if mapped_value.get_type() != first_type {
             return Err(Error::from_ctx(ctx,
                 ErrorReason::Runtime(RuntimeError::InvalidReturnType {

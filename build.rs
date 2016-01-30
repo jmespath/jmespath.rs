@@ -117,7 +117,7 @@ fn generate_bench(filename: &str,
         f.write_all(format!("\
 #[bench]
 fn {}_parse_lex(b: &mut Bencher) {{
-    b.iter(|| parse({:?}));
+    b.iter(|| {{ parse({:?}).ok() }});
 }}
 
 ", fn_suffix, expr_string).as_bytes()).expect("Error writing parse benchmark");
@@ -125,7 +125,7 @@ fn {}_parse_lex(b: &mut Bencher) {{
         f.write_all(format!("\
 #[bench]
 fn {}_lex(b: &mut Bencher) {{
-    b.iter(|| tokenize({:?}));
+    b.iter(|| {{ tokenize({:?}).ok() }});
 }}
 
 ", fn_suffix, expr_string).as_bytes()).expect("Error writing tokenize benchmark");
@@ -137,9 +137,8 @@ fn {}_lex(b: &mut Bencher) {{
 #[bench]
 fn {}_interpret(b: &mut Bencher) {{
     let data = Rc::new(Variable::from_json({:?}).expect(\"Invalid JSON given\"));
-    let interpreter = TreeInterpreter::new();
-    let expr = Expression::with_interpreter({:?}, &interpreter).unwrap();
-    b.iter(|| expr.search_variable(&data));
+    let expr = Expression::new({:?}).unwrap();
+    b.iter(|| {{ expr.search_variable(&data).ok(); }});
 }}
 
 ", fn_suffix, given_string, expr_string).as_bytes()).expect("Error writing interpret benchmark");
@@ -151,7 +150,7 @@ fn {}_interpret(b: &mut Bencher) {{
 #[bench]
 fn {}_full(b: &mut Bencher) {{
     let data = Rc::new(Variable::from_json({:?}).expect(\"Invalid JSON given\"));
-    b.iter(|| Expression::new({:?}).unwrap().search_variable(&data));
+    b.iter(|| {{ Expression::new({:?}).unwrap().search_variable(&data).ok() }});
 }}
 
 ", fn_suffix, given_string, expr_string).as_bytes()).expect("Error writing interpret benchmark");

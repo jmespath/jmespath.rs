@@ -177,7 +177,7 @@ impl Assertion {
     }
 
     /// Attempts to parse an expression for a case, returning the expression or an error string.
-    fn try_parse<'a>(&self, suite: &str, case: &'a TestCase) -> Result<Expression<'a>, String> {
+    fn try_parse(&self, suite: &str, case: &TestCase) -> Result<Expression, String> {
         match Expression::new(&case.expression) {
             Err(e) => Err(self.err_message(suite, case, format!("{}", e))),
             Ok(expr) => Ok(expr)

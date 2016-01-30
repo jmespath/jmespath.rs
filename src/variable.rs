@@ -4,7 +4,7 @@ extern crate serde;
 extern crate serde_json;
 
 use std::collections::BTreeMap;
-use std::cmp::{max, Ordering};
+use std::cmp::Ordering;
 use std::fmt;
 use std::iter::Iterator;
 use std::rc::Rc;
@@ -102,7 +102,6 @@ impl Variable {
 
     /// If the value is an Object, returns the associated BTreeMap.
     /// Returns None otherwise.
-    #[inline]
     pub fn as_object(&self) -> Option<&BTreeMap<String, RcVar>> {
         match *self {
             Variable::Object(ref map) => Some(map),
@@ -186,32 +185,9 @@ impl Variable {
         }
     }
 
-    /// Retrieves an index from the Variable if the Variable is an array.
-    /// Returns None if not an array or if the index is not present.
-    pub fn get_index(&self, index: usize) -> Option<RcVar> {
-        self.as_array().and_then(|array| array.get(index)).cloned()
-    }
-
-    /// Retrieves an index from the end of a Variable if the Variable is an array.
-    /// Returns None if not an array or if the index is not present.
-    /// The formula for determining the index position is length - index (i.e., an
-    /// index of 0 or 1 is treated as the end of the array).
-    pub fn get_negative_index(&self, index: usize) -> Option<RcVar> {
-        self.as_array()
-            .and_then(|array| {
-                let adjusted_index = max(index, 1);
-                if array.len() < adjusted_index {
-                    None
-                } else {
-                    array.get(array.len() - adjusted_index)
-                }
-            }).cloned()
-    }
-
-    /// Retrieves a key value from a Variable if the Variable is an object.
-    /// Returns None if the Variable is not an object or if the field is not present.
-    #[inline]
-    pub fn get_value(&self, key: &str) -> Option<RcVar> {
+    /// If the `Value` is an Object, returns the value associated with the provided key.
+    /// Otherwise, returns None.
+    pub fn find(&self, key: &str) -> Option<RcVar> {
         self.as_object().and_then(|map| map.get(key)).cloned()
     }
 
@@ -659,41 +635,12 @@ mod tests {
     #[test]
     fn gets_value_from_object() {
         let var = Variable::from_json("{\"foo\":1}").unwrap();
-        assert_eq!(Some(Rc::new(Variable::U64(1))), var.get_value("foo"));
+        assert_eq!(Some(Rc::new(Variable::U64(1))), var.find("foo"));
     }
 
     #[test]
     fn getting_value_from_non_object_is_none() {
-        assert_eq!(None, Variable::Bool(false).get_value("foo"));
-    }
-
-    #[test]
-    fn getting_index_from_non_array_is_none() {
-        assert_eq!(None, Variable::Bool(false).get_index(2));
-    }
-
-    #[test]
-    fn gets_index_from_array() {
-        let var = Variable::from_json("[1, 2, 3]").unwrap();
-        assert_eq!(Some(Rc::new(Variable::U64(1))), var.get_index(0));
-        assert_eq!(Some(Rc::new(Variable::U64(2))), var.get_index(1));
-        assert_eq!(Some(Rc::new(Variable::U64(3))), var.get_index(2));
-        assert_eq!(None, var.get_index(3));
-    }
-
-    #[test]
-    fn getting_negative_index_from_non_array_is_none() {
-        assert_eq!(None, Variable::Bool(false).get_negative_index(2));
-    }
-
-    #[test]
-    fn gets_negative_index_from_array() {
-        let var = Variable::from_json("[1, 2, 3]").unwrap();
-        assert_eq!(Some(Rc::new(Variable::U64(3))), var.get_negative_index(0));
-        assert_eq!(Some(Rc::new(Variable::U64(3))), var.get_negative_index(1));
-        assert_eq!(Some(Rc::new(Variable::U64(2))), var.get_negative_index(2));
-        assert_eq!(Some(Rc::new(Variable::U64(1))), var.get_negative_index(3));
-        assert_eq!(None, var.get_negative_index(4));
+        assert_eq!(None, Variable::Bool(false).find("foo"));
     }
 
     #[test]

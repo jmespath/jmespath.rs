@@ -112,8 +112,9 @@ use std::rc::Rc;
 use self::serde::Serialize;
 
 use ast::Ast;
+use functions::{FnDispatcher, BuiltinDispatcher};
 use variable::Serializer;
-use interpreter::{TreeInterpreter, Context, SearchResult};
+use interpreter::{interpret, Context, SearchResult};
 
 pub mod ast;
 pub mod functions;
@@ -132,32 +133,29 @@ pub fn search<T: Serialize>(expression: &str, data: T) -> Result<RcVar, Error> {
 }
 
 /// A compiled JMESPath expression.
-pub struct Expression<'a> {
+pub struct Expression {
     ast: Ast,
     original: String,
-    interpreter: Option<&'a TreeInterpreter>
+    fn_dispatcher: Rc<FnDispatcher>
 }
 
-impl<'a> Expression<'a> {
+impl Expression {
     /// Creates a new JMESPath expression from an expression string.
-    pub fn new(expression: &str) -> Result<Expression<'a>, Error> {
-        Ok(Expression {
-            original: expression.to_owned(),
-            ast: try!(parse(expression)),
-            interpreter: None
-        })
+    pub fn new(expression: &str) -> Result<Expression, Error> {
+        Self::with_fn_dispatcher(expression, Rc::new(BuiltinDispatcher))
     }
 
     /// Creates a new JMESPath expression using a custom tree interpreter.
     /// Customer interpreters may be desired when you wish to utilize custom
     /// JMESPath functions in your expressions.
-    pub fn with_interpreter(expression: &str,
-                            interpreter: &'a TreeInterpreter)
-                            -> Result<Expression<'a>, Error> {
+    #[inline]
+    pub fn with_fn_dispatcher(expression: &str,
+                              fn_dispatcher: Rc<FnDispatcher>)
+                              -> Result<Expression, Error> {
         Ok(Expression {
             original: expression.to_owned(),
             ast: try!(parse(expression)),
-            interpreter: Some(interpreter)
+            fn_dispatcher: fn_dispatcher
         })
     }
 
@@ -173,17 +171,8 @@ impl<'a> Expression<'a> {
     /// NOTE: This specific method could eventually be removed once specialization
     ///     lands in Rust. See https://github.com/rust-lang/rfcs/pull/1210
     pub fn search_variable(&self, data: &RcVar) -> SearchResult {
-        match self.interpreter {
-            Some(i) => {
-                let mut ctx = Context::new(i, &self.original);
-                i.interpret(data, &self.ast, &mut ctx)
-            },
-            None => {
-                let interpreter = TreeInterpreter::new();
-                let mut ctx = Context::new(&interpreter, &self.original);
-                interpreter.interpret(data, &self.ast, &mut ctx)
-            }
-        }
+        let mut ctx = Context::new(&self.original, &*self.fn_dispatcher);
+        interpret(data, &self.ast, &mut ctx)
     }
 
     /// Returns the JMESPath expression from which the Expression was compiled.
@@ -197,14 +186,14 @@ impl<'a> Expression<'a> {
     }
 }
 
-impl<'a> fmt::Display for Expression<'a> {
+impl fmt::Display for Expression {
     /// Shows the original jmespath expression.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.as_str())
     }
 }
 
-impl<'a> fmt::Debug for Expression<'a> {
+impl fmt::Debug for Expression {
     /// Shows the original jmespath expression.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Display::fmt(self, f)
@@ -212,7 +201,7 @@ impl<'a> fmt::Debug for Expression<'a> {
 }
 
 /// Equality comparison is based on the original string.
-impl<'a> PartialEq for Expression<'a> {
+impl PartialEq for Expression {
     fn eq(&self, other: &Expression) -> bool {
         self.as_str() == other.as_str()
     }
