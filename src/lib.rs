@@ -141,20 +141,23 @@ pub struct Expression<'a> {
 impl<'a> Expression<'a> {
     /// Creates a new JMESPath expression from an expression string.
     pub fn new(expression: &str) -> Result<Expression<'a>, Error> {
-        Expression::with_interpreter(expression, None)
+        Ok(Expression {
+            original: expression.to_owned(),
+            ast: try!(parse(expression)),
+            interpreter: None
+        })
     }
 
     /// Creates a new JMESPath expression using a custom tree interpreter.
     /// Customer interpreters may be desired when you wish to utilize custom
     /// JMESPath functions in your expressions.
-    #[inline]
     pub fn with_interpreter(expression: &str,
-                            interpreter: Option<&'a TreeInterpreter>)
+                            interpreter: &'a TreeInterpreter)
                             -> Result<Expression<'a>, Error> {
         Ok(Expression {
             original: expression.to_owned(),
             ast: try!(parse(expression)),
-            interpreter: interpreter
+            interpreter: Some(interpreter)
         })
     }
 
@@ -173,12 +176,12 @@ impl<'a> Expression<'a> {
         match self.interpreter {
             Some(i) => {
                 let mut ctx = Context::new(i, &self.original);
-                i.interpret(&data, &self.ast, &mut ctx)
+                i.interpret(data, &self.ast, &mut ctx)
             },
             None => {
                 let interpreter = TreeInterpreter::new();
                 let mut ctx = Context::new(&interpreter, &self.original);
-                interpreter.interpret(&data, &self.ast, &mut ctx)
+                interpreter.interpret(data, &self.ast, &mut ctx)
             }
         }
     }

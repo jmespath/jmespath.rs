@@ -90,7 +90,7 @@ impl Variable {
     /// Returns None otherwise.
     pub fn as_array(&self) -> Option<&Vec<RcVar>> {
         match *self {
-            Variable::Array(ref array) => Some(&*array),
+            Variable::Array(ref array) => Some(array),
             _ => None
         }
     }
@@ -102,9 +102,10 @@ impl Variable {
 
     /// If the value is an Object, returns the associated BTreeMap.
     /// Returns None otherwise.
+    #[inline]
     pub fn as_object(&self) -> Option<&BTreeMap<String, RcVar>> {
         match *self {
-            Variable::Object(ref map) => Some(&*map),
+            Variable::Object(ref map) => Some(map),
             _ => None
         }
     }
@@ -209,6 +210,7 @@ impl Variable {
 
     /// Retrieves a key value from a Variable if the Variable is an object.
     /// Returns None if the Variable is not an object or if the field is not present.
+    #[inline]
     pub fn get_value(&self, key: &str) -> Option<RcVar> {
         self.as_object().and_then(|map| map.get(key)).cloned()
     }

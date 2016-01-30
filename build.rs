@@ -67,9 +67,14 @@ fn get_expr(case: &BTreeMap<String, Value>) -> &str {
 }
 
 /// SLugifies a string for use as a function name.
+/// Ensures that the generated slug is truncated if too long.
 #[inline]
 fn slugify(s: &str) -> String {
-    slug::slugify(s).replace("-", "_")
+    let mut s = slug::slugify(s).replace("-", "_");
+    if s.len() > 25 {
+        s.truncate(25);
+    }
+    s
 }
 
 /// Generates a function name for a test suite's test case.
@@ -111,7 +116,7 @@ fn generate_bench(filename: &str,
     if bench_type == "parse" || bench_type == "full" {
         f.write_all(format!("\
 #[bench]
-fn {}_parse(b: &mut Bencher) {{
+fn {}_parse_lex(b: &mut Bencher) {{
     b.iter(|| parse({:?}));
 }}
 
@@ -119,7 +124,7 @@ fn {}_parse(b: &mut Bencher) {{
 
         f.write_all(format!("\
 #[bench]
-fn {}_tokenize(b: &mut Bencher) {{
+fn {}_lex(b: &mut Bencher) {{
     b.iter(|| tokenize({:?}));
 }}
 
@@ -132,7 +137,8 @@ fn {}_tokenize(b: &mut Bencher) {{
 #[bench]
 fn {}_interpret(b: &mut Bencher) {{
     let data = Rc::new(Variable::from_json({:?}).expect(\"Invalid JSON given\"));
-    let expr = Expression::new({:?}).unwrap();
+    let interpreter = TreeInterpreter::new();
+    let expr = Expression::with_interpreter({:?}, &interpreter).unwrap();
     b.iter(|| expr.search_variable(&data));
 }}
 

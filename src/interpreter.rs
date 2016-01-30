@@ -21,9 +21,7 @@ pub struct Context<'a> {
     /// Original expression that is being interpreted.
     pub expression: &'a str,
     /// Offset being evaluated
-    pub offset: usize,
-    /// A shared null variable for faster null allocation.
-    null: RcVar
+    pub offset: usize
 }
 
 impl<'a> Context<'a> {
@@ -32,15 +30,14 @@ impl<'a> Context<'a> {
         Context {
             interpreter: interpreter,
             expression: expression,
-            offset: 0,
-            null: Rc::new(Variable::Null)
+            offset: 0
         }
     }
 
-    /// Allocate a null value (uses the shared null value reference).
+    /// Allocate a null value
     #[inline]
     pub fn alloc_null(&self) -> RcVar {
-        self.null.clone()
+        Rc::new(Variable::Null)
     }
 
     /// Convenience method to allocates a Variable.
@@ -84,7 +81,10 @@ impl TreeInterpreter {
                 self.interpret(&left_result, rhs, ctx)
             },
             Ast::Field { ref name, .. } => {
-                Ok(data.get_value(name).unwrap_or(ctx.alloc_null()))
+                match data.get_value(name) {
+                    Some(v) => Ok(v),
+                    None => Ok(ctx.alloc_null())
+                }
             },
             Ast::Identity { .. } => {
                 Ok(data.clone())
@@ -93,11 +93,12 @@ impl TreeInterpreter {
                 Ok(value.clone())
             },
             Ast::Index { ref idx, .. } => {
-                match if *idx >= 0 {
+                let result = if *idx >= 0 {
                     data.get_index(*idx as usize)
                 } else {
                     data.get_negative_index((-1 * idx) as usize)
-                } {
+                };
+                match result {
                     Some(value) => Ok(value),
                     None => Ok(ctx.alloc_null())
                 }

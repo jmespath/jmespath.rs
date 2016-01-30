@@ -9,6 +9,7 @@ extern crate test;
 use std::rc::Rc;
 
 use jmespath::{parse, tokenize, Expression, Variable};
+use jmespath::interpreter::TreeInterpreter;
 use test::Bencher;
 
 include!(concat!(env!("OUT_DIR"), "/benches.rs"));
