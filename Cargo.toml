@@ -2,10 +2,14 @@
 name = "jmespath"
 version = "0.0.1"
 authors = ["Michael Dowling <mtdowling@gmail.com>"]
+description = "Rust implementation of JMESPath, a query language for JSON"
+readme = "README.md"
+keywords = ["json", "jmespath", "query"]
+homepage = "https://github.com/mtdowling/jmespath.rs"
+repository = "https://github.com/mtdowling/jmespath.rs"
+documentation = "http://mtdowling.com/jmespath.rs/jmespath/"
 license = "MIT"
 build = "build.rs"
-documentation = "http://mtdowling.com/jmespath.rs/jmespath/"
-description = "Rust implementation of JMESPath, a query language for JSON"
 
 [dependencies]
 serde = "^0.6"
