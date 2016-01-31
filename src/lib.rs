@@ -1,22 +1,5 @@
 //! Rust implementation of JMESPath, a query language for JSON.
 //!
-//! # Usage
-//!
-//! This crate is [on crates.io](https://crates.io/crates/jmespath) and
-//! can be used by adding `jmespath` to the dependencies in your
-//! project's `Cargo.toml`.
-//!
-//! ```toml
-//! [dependencies]
-//! jmespath = "0.0.1"
-//! ```
-//!
-//! and this to your crate root:
-//!
-//! ```rust
-//! extern crate jmespath;
-//! ```
-//!
 //! # Compiling JMESPath expressions
 //!
 //! Use the `jmespath::Expression` struct to compile and execute JMESPath
