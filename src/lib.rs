@@ -108,6 +108,7 @@ pub use variable::Variable;
 
 use std::fmt;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use self::serde::Serialize;
 
@@ -136,13 +137,13 @@ pub fn search<T: Serialize>(expression: &str, data: T) -> Result<RcVar, Error> {
 pub struct Expression {
     ast: Ast,
     original: String,
-    fn_dispatcher: Rc<FnDispatcher>
+    fn_dispatcher: Arc<FnDispatcher>
 }
 
 impl Expression {
     /// Creates a new JMESPath expression from an expression string.
     pub fn new(expression: &str) -> Result<Expression, Error> {
-        Self::with_fn_dispatcher(expression, Rc::new(BuiltinDispatcher))
+        Self::with_fn_dispatcher(expression, Arc::new(BuiltinDispatcher))
     }
 
     /// Creates a new JMESPath expression using a custom tree interpreter.
@@ -150,7 +151,7 @@ impl Expression {
     /// JMESPath functions in your expressions.
     #[inline]
     pub fn with_fn_dispatcher(expression: &str,
-                              fn_dispatcher: Rc<FnDispatcher>)
+                              fn_dispatcher: Arc<FnDispatcher>)
                               -> Result<Expression, Error> {
         Ok(Expression {
             original: expression.to_owned(),
