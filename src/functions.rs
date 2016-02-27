@@ -32,9 +32,6 @@ pub enum ArgumentType {
     HomogeneousArray(Vec<ArgumentType>),
     /// Accpets one of a number of `ArgumentType`s
     Union(Vec<ArgumentType>),
-    /// Only `Variable::Expref` is acceptable, and it must return one of the
-    /// provided acceptable types.
-    ExprefReturns(Vec<ArgumentType>)
 }
 
 impl ArgumentType {
@@ -54,7 +51,6 @@ impl ArgumentType {
             Object if value.is_object() => true,
             Bool if value.is_boolean() => true,
             Expref if value.is_expref() => true,
-            ExprefReturns(_) if value.is_expref() => true,
             Array if value.is_array() => true,
             Union(ref types) => types.iter().any(|t| t.is_valid(value)),
             HomogeneousArray(ref types) if value.is_array() => {
@@ -84,13 +80,6 @@ impl fmt::Display for ArgumentType {
             Object => write!(fmt, "object"),
             Null => write!(fmt, "null"),
             Expref => write!(fmt, "expref"),
-            ExprefReturns(ref types) => {
-                let mut type_strings = vec![];
-                for t in types {
-                    type_strings.push(format!("expref->{}", t));
-                }
-                write!(fmt, "{}", type_strings.join("|"))
-            },
             Union(ref types) => write!(fmt, "{}", Self::types_to_strings(types).join("|")),
             HomogeneousArray(ref types) => {
                 write!(fmt, "array[{}]", Self::types_to_strings(types).join("|"))
