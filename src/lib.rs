@@ -81,6 +81,8 @@
 #![cfg_attr(feature="clippy", feature(plugin))]
 #![cfg_attr(feature="clippy", plugin(clippy))]
 
+#[macro_use] extern crate lazy_static;
+
 extern crate serde;
 extern crate serde_json;
 
@@ -91,7 +93,6 @@ pub use variable::Variable;
 
 use std::fmt;
 use std::rc::Rc;
-use std::sync::Arc;
 
 use self::serde::Serialize;
 
@@ -109,6 +110,10 @@ mod lexer;
 mod errors;
 mod variable;
 
+lazy_static! {
+    static ref BUILTIN_DISPATCHER: BuiltinDispatcher = BuiltinDispatcher;
+}
+
 pub type RcVar = Rc<Variable>;
 
 /// Parses an expression and performs a search over the data.
@@ -117,25 +122,23 @@ pub fn search<T: Serialize>(expression: &str, data: T) -> Result<RcVar, Error> {
 }
 
 /// A compiled JMESPath expression.
-pub struct Expression {
+pub struct Expression<'a> {
     ast: Ast,
     original: String,
-    fn_dispatcher: Arc<FnDispatcher>
+    fn_dispatcher: &'a FnDispatcher,
 }
 
-impl Expression {
+impl<'a> Expression<'a> {
     /// Creates a new JMESPath expression from an expression string.
-    pub fn new(expression: &str) -> Result<Expression, Error> {
-        Self::with_fn_dispatcher(expression, Arc::new(BuiltinDispatcher))
+    pub fn new(expression: &str) -> Result<Expression<'a>, Error> {
+        Self::with_fn_dispatcher(expression, &*BUILTIN_DISPATCHER)
     }
 
-    /// Creates a new JMESPath expression using a custom tree interpreter.
-    /// Customer interpreters may be desired when you wish to utilize custom
-    /// JMESPath functions in your expressions.
+    /// Creates a new JMESPath expression using a custom function dispatcher.
     #[inline]
-    pub fn with_fn_dispatcher(expression: &str,
-                              fn_dispatcher: Arc<FnDispatcher>)
-                              -> Result<Expression, Error> {
+    pub fn with_fn_dispatcher(expression: &str, fn_dispatcher: &'a FnDispatcher)
+        -> Result<Expression<'a>, Error>
+    {
         Ok(Expression {
             original: expression.to_owned(),
             ast: try!(parse(expression)),
@@ -170,14 +173,14 @@ impl Expression {
     }
 }
 
-impl fmt::Display for Expression {
+impl<'a> fmt::Display for Expression<'a> {
     /// Shows the original jmespath expression.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.as_str())
     }
 }
 
-impl fmt::Debug for Expression {
+impl<'a> fmt::Debug for Expression<'a> {
     /// Shows the original jmespath expression.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Display::fmt(self, f)
@@ -185,7 +188,7 @@ impl fmt::Debug for Expression {
 }
 
 /// Equality comparison is based on the original string.
-impl PartialEq for Expression {
+impl<'a> PartialEq for Expression<'a> {
     fn eq(&self, other: &Expression) -> bool {
         self.as_str() == other.as_str()
     }
