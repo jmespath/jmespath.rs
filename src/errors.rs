@@ -3,7 +3,7 @@
 use std::fmt;
 
 use super::RcVar;
-use super::interpreter::Context;
+use super::Context;
 
 /// JMESPath error
 #[derive(Clone,Debug,PartialEq)]
@@ -50,7 +50,7 @@ pub enum ErrorReason {
     /// An error occurred while parsing an expression.
     Parse(String),
     /// An error occurred while evaluating an expression.
-    Runtime(RuntimeError)
+    Runtime(RuntimeError),
 }
 
 impl fmt::Display for ErrorReason {

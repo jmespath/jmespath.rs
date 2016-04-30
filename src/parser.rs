@@ -163,14 +163,8 @@ impl ThunkParser for ComparisonParser {
     }
 
     fn lbp(&self) -> usize {
-        match self.cmp {
-            Comparator::Eq => Token::Eq.lbp(),
-            Comparator::Ne => Token::Ne.lbp(),
-            Comparator::Lt => Token::Lt.lbp(),
-            Comparator::Lte => Token::Lte.lbp(),
-            Comparator::Gt => Token::Gt.lbp(),
-            Comparator::Gte => Token::Gte.lbp(),
-        }
+        // All comparators have the same precedence.
+        Token::Eq.lbp()
     }
 }
 
@@ -686,12 +680,9 @@ impl<'a> Parser<'a> {
             Token::Lparen => self.parse_function(left, offset),
             Token::Filter => self.parse_filter(left),
             Token::Flatten => self.parse_flatten(left),
-            Token::Eq => self.parse_comparator(Comparator::Eq, left),
-            Token::Ne => self.parse_comparator(Comparator::Ne, left),
-            Token::Gt => self.parse_comparator(Comparator::Gt, left),
-            Token::Gte => self.parse_comparator(Comparator::Gte, left),
-            Token::Lt => self.parse_comparator(Comparator::Lt, left),
-            Token::Lte => self.parse_comparator(Comparator::Lte, left),
+            Token::Eq | Token::Ne | Token::Gt | Token::Gte | Token::Lt | Token::Lte => {
+                self.parse_comparator(Comparator::from(token), left)
+            },
             ref t => Err(self.err(t, "Unexpected led token", false)),
         }
     }
@@ -900,26 +891,5 @@ impl<'a> Parser<'a> {
             offset: self.offset,
             elements: vec![]
         })))
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::ComparisonParser;
-    use ast::{Ast, Comparator};
-    use lexer::Token;
-
-    #[test]
-    fn gets_comparator_lbp() {
-        use super::ThunkParser;
-        let node = Ast::Identity { offset: 0 };
-        let p = ComparisonParser { offset: 0, cmp: Comparator::Eq, lhs: node.clone() };
-        assert_eq!(Token::Eq.lbp(), p.lbp());
-        let p = ComparisonParser { offset: 0, cmp: Comparator::Gt, lhs: node.clone() };
-        assert_eq!(Token::Gt.lbp(), p.lbp());
-        let p = ComparisonParser { offset: 0, cmp: Comparator::Lt, lhs: node.clone() };
-        assert_eq!(Token::Lt.lbp(), p.lbp());
-        let p = ComparisonParser { offset: 0, cmp: Comparator::Ne, lhs: node.clone() };
-        assert_eq!(Token::Ne.lbp(), p.lbp());
     }
 }

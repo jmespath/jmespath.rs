@@ -16,7 +16,7 @@ use self::serde::Serialize;
 use self::serde_json::error::Error;
 
 use super::RcVar;
-use super::ast::{Ast, Comparator};
+use super::ast::{Ast, Comparator, EqComparator, OrdComparator};
 
 /// JMESPath variable.
 ///
@@ -221,14 +221,91 @@ impl Variable {
     /// Compares two Variable values using a comparator.
     pub fn compare(&self, cmp: &Comparator, value: &Variable) -> Option<bool> {
         match *cmp {
-            Comparator::Eq => Some(*self == *value),
-            Comparator::Ne => Some(*self != *value),
-            Comparator::Lt if self.is_number() && value.is_number() => Some(*self < *value),
-            Comparator::Lte if self.is_number() && value.is_number() => Some(*self <= *value),
-            Comparator::Gt if self.is_number() && value.is_number() => Some(*self > *value),
-            Comparator::Gte if self.is_number() && value.is_number() => Some(*self >= *value),
-            _ => None
+            Comparator::Eq(ref e) => self.compare_equality(e, value),
+            Comparator::Ord(ref o) => self.compare_ordering(o, value),
         }
+    }
+
+    /// Compares two Variable values for equality.
+    pub fn compare_equality(&self, cmp: &EqComparator, value: &Variable) -> Option<bool> {
+        match *cmp {
+            EqComparator::Equal => Some(*self == *value),
+            EqComparator::NotEqual => Some(*self != *value),
+        }
+    }
+
+    /// Compares two Variable values for ordering.
+    pub fn compare_ordering(&self, cmp: &OrdComparator, value: &Variable) -> Option<bool> {
+        if !self.is_number() || !value.is_number() {
+            None
+        } else {
+            match *cmp {
+                OrdComparator::LessThan => Some(*self < *value),
+                OrdComparator::LessThanEqual => Some(*self <= *value),
+                OrdComparator::GreaterThan => Some(*self > *value),
+                OrdComparator::GreaterThanEqual => Some(*self >= *value),
+            }
+        }
+    }
+
+    /// Returns a slice of the variable if the variable is an array.
+    pub fn slice(&self, start: &Option<i32>, stop: &Option<i32>, step: i32)
+        -> Option<Vec<RcVar>>
+    {
+        self.as_array().map(|a| slice(a, start, stop, step))
+    }
+}
+
+fn slice(array: &[RcVar], start: &Option<i32>, stop: &Option<i32>, step: i32)
+    -> Vec<RcVar>
+{
+    let mut result = vec![];
+    let len = array.len() as i32;
+    if len == 0 {
+        return result;
+    }
+    let a: i32 = match *start {
+        Some(starting_index) => adjust_slice_endpoint(len, starting_index, step),
+        _ if step < 0 => len - 1,
+        _ => 0
+    };
+    let b: i32 = match *stop {
+        Some(ending_index) => adjust_slice_endpoint(len, ending_index, step),
+        _ if step < 0 => -1,
+        _ => len
+    };
+    let mut i = a;
+    if step > 0 {
+        while i < b {
+            result.push(array[i as usize].clone());
+            i += step;
+        }
+    } else {
+        while i > b {
+            result.push(array[i as usize].clone());
+            i += step;
+        }
+    }
+    result
+}
+
+#[inline]
+fn adjust_slice_endpoint(len: i32, mut endpoint: i32, step: i32) -> i32 {
+    if endpoint < 0 {
+        endpoint += len;
+        if endpoint >= 0 {
+            endpoint
+        } else if step < 0 {
+            -1
+        } else {
+            0
+        }
+    } else if endpoint < len {
+        endpoint
+    } else if step < 0 {
+        len - 1
+    } else {
+        len
     }
 }
 
@@ -572,7 +649,7 @@ mod tests {
     use std::collections::BTreeMap;
     use super::serde_json::{self, Value};
     use super::Variable;
-    use ast::{Ast, Comparator};
+    use ast::{Ast, Comparator, EqComparator, OrdComparator};
 
     #[test]
     fn creates_variable_from_str() {
@@ -612,8 +689,8 @@ mod tests {
     fn test_eq_ne_compare() {
         let l = Variable::String("foo".to_string());
         let r = Variable::String("foo".to_string());
-        assert_eq!(Some(true), l.compare(&Comparator::Eq, &r));
-        assert_eq!(Some(false), l.compare(&Comparator::Ne, &r));
+        assert_eq!(Some(true), l.compare(&Comparator::Eq(EqComparator::Equal), &r));
+        assert_eq!(Some(false), l.compare(&Comparator::Eq(EqComparator::NotEqual), &r));
     }
 
     #[test]
@@ -621,15 +698,15 @@ mod tests {
         let invalid = Variable::String("foo".to_string());
         let l = Variable::F64(10.0);
         let r = Variable::F64(20.0);
-        assert_eq!(None, invalid.compare(&Comparator::Gt, &r));
-        assert_eq!(Some(false), l.compare(&Comparator::Gt, &r));
-        assert_eq!(Some(false), l.compare(&Comparator::Gte, &r));
-        assert_eq!(Some(true), r.compare(&Comparator::Gt, &l));
-        assert_eq!(Some(true), r.compare(&Comparator::Gte, &l));
-        assert_eq!(Some(true), l.compare(&Comparator::Lt, &r));
-        assert_eq!(Some(true), l.compare(&Comparator::Lte, &r));
-        assert_eq!(Some(false), r.compare(&Comparator::Lt, &l));
-        assert_eq!(Some(false), r.compare(&Comparator::Lte, &l));
+        assert_eq!(None, invalid.compare(&Comparator::Ord(OrdComparator::GreaterThan), &r));
+        assert_eq!(Some(false), l.compare(&Comparator::Ord(OrdComparator::GreaterThan), &r));
+        assert_eq!(Some(false), l.compare(&Comparator::Ord(OrdComparator::GreaterThanEqual), &r));
+        assert_eq!(Some(true), r.compare(&Comparator::Ord(OrdComparator::GreaterThan), &l));
+        assert_eq!(Some(true), r.compare(&Comparator::Ord(OrdComparator::GreaterThanEqual), &l));
+        assert_eq!(Some(true), l.compare(&Comparator::Ord(OrdComparator::LessThan), &r));
+        assert_eq!(Some(true), l.compare(&Comparator::Ord(OrdComparator::LessThanEqual), &r));
+        assert_eq!(Some(false), r.compare(&Comparator::Ord(OrdComparator::LessThan), &l));
+        assert_eq!(Some(false), r.compare(&Comparator::Ord(OrdComparator::LessThanEqual), &l));
     }
 
     #[test]

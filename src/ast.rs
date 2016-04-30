@@ -4,6 +4,7 @@ use std::fmt;
 
 use super::RcVar;
 use super::Coordinates;
+use lexer::Token;
 
 /// Abstract syntax tree of a JMESPath expression.
 #[derive(Clone, PartialEq, PartialOrd, Debug)]
@@ -200,18 +201,38 @@ pub struct KeyValuePair {
 /// Comparators used in Comparison nodes
 #[derive(Clone, PartialEq, PartialOrd, Debug)]
 pub enum Comparator {
-    /// Equivalance (e.g., `==`)
-    Eq,
-    /// Less than (e.g., `<`)
-    Lt,
-    /// Less than or equal to (e.g., `<=`)
-    Lte,
-    /// Not equal (e.g., `!=`)
-    Ne,
-    /// Greater than (e.g., `>`)
-    Gt,
-    /// Greater than or equal to (e.g., `>=`)
-    Gte,
+    Eq(EqComparator),
+    Ord(OrdComparator),
+}
+
+/// Creates a Comparator from a Token.
+/// Panics if the Token is invalid.
+impl From<Token> for Comparator {
+    fn from(token: Token) -> Self {
+        match token {
+            Token::Lt => Comparator::Ord(OrdComparator::LessThan),
+            Token::Lte => Comparator::Ord(OrdComparator::LessThanEqual),
+            Token::Gt => Comparator::Ord(OrdComparator::GreaterThan),
+            Token::Gte => Comparator::Ord(OrdComparator::GreaterThanEqual),
+            Token::Eq => Comparator::Eq(EqComparator::Equal),
+            Token::Ne => Comparator::Eq(EqComparator::NotEqual),
+            _ => panic!("Invalid token for comparator: {:?}", token)
+        }
+    }
+}
+
+#[derive(Clone, PartialEq, PartialOrd, Debug)]
+pub enum EqComparator {
+    Equal,
+    NotEqual,
+}
+
+#[derive(Clone, PartialEq, PartialOrd, Debug)]
+pub enum OrdComparator {
+    LessThan,
+    LessThanEqual,
+    GreaterThan,
+    GreaterThanEqual,
 }
 
 #[cfg(test)]

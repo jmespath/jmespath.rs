@@ -97,9 +97,9 @@ use std::rc::Rc;
 use self::serde::Serialize;
 
 use ast::Ast;
-use functions::{FnDispatcher, BuiltinDispatcher};
+use functions::{FnRegistry, BuiltinFnRegistry};
 use variable::Serializer;
-use interpreter::{interpret, Context, SearchResult};
+use interpreter::{interpret, SearchResult};
 
 pub mod ast;
 pub mod functions;
@@ -111,7 +111,7 @@ mod errors;
 mod variable;
 
 lazy_static! {
-    static ref BUILTIN_DISPATCHER: BuiltinDispatcher = BuiltinDispatcher;
+    static ref DEFAULT_FN_REGISTRY: BuiltinFnRegistry = BuiltinFnRegistry::new();
 }
 
 pub type RcVar = Rc<Variable>;
@@ -125,24 +125,17 @@ pub fn search<T: Serialize>(expression: &str, data: T) -> Result<RcVar, Error> {
 pub struct Expression<'a> {
     ast: Ast,
     original: String,
-    fn_dispatcher: &'a FnDispatcher,
+    fn_registry: &'a FnRegistry,
 }
 
 impl<'a> Expression<'a> {
     /// Creates a new JMESPath expression from an expression string.
-    pub fn new(expression: &str) -> Result<Expression<'a>, Error> {
-        Self::with_fn_dispatcher(expression, &*BUILTIN_DISPATCHER)
-    }
-
-    /// Creates a new JMESPath expression using a custom function dispatcher.
     #[inline]
-    pub fn with_fn_dispatcher(expression: &str, fn_dispatcher: &'a FnDispatcher)
-        -> Result<Expression<'a>, Error>
-    {
+    pub fn new(expression: &str) -> Result<Expression<'a>, Error> {
         Ok(Expression {
             original: expression.to_owned(),
             ast: try!(parse(expression)),
-            fn_dispatcher: fn_dispatcher
+            fn_registry: &*DEFAULT_FN_REGISTRY,
         })
     }
 
@@ -158,7 +151,7 @@ impl<'a> Expression<'a> {
     /// NOTE: This specific method could eventually be removed once specialization
     ///     lands in Rust. See https://github.com/rust-lang/rfcs/pull/1210
     pub fn search_variable(&self, data: &RcVar) -> SearchResult {
-        let mut ctx = Context::new(&self.original, &*self.fn_dispatcher);
+        let mut ctx = Context::new(&self.original, &*self.fn_registry);
         interpret(data, &self.ast, &mut ctx)
     }
 
@@ -194,12 +187,89 @@ impl<'a> PartialEq for Expression<'a> {
     }
 }
 
+/// ExpressionBuilder is used to build more complex expressions.
+///
+/// ExpressionBuilder also allows the injection of a custom AST. This
+/// could be useful for statically parsing and compiling JMESPath
+/// expression. Furthermore, ExpressionBuilder allows you to easily inject
+/// custom JMESPath functions.
+pub struct ExpressionBuilder<'a, 'b> {
+    original: &'a str,
+    ast: Option<Ast>,
+    fn_registry: Option<&'b FnRegistry>,
+}
+
+impl<'a, 'b> ExpressionBuilder<'a, 'b> {
+    /// Creates a new ExpressionBuilder using the given JMESPath expression.
+    pub fn new(original_expression: &'a str) -> ExpressionBuilder<'a, 'b> {
+        ExpressionBuilder {
+            original: original_expression,
+            ast: None,
+            fn_registry: None,
+        }
+    }
+
+    /// Uses a custom AST when building the Expression.
+    pub fn with_ast(mut self, ast: Ast) -> ExpressionBuilder<'a, 'b> {
+        self.ast = Some(ast);
+        self
+    }
+
+    /// Uses a custom function registry when building the Expression.
+    pub fn with_fn_registry(mut self, fn_registry: &'b FnRegistry)
+        -> ExpressionBuilder<'a, 'b>
+    {
+        self.fn_registry = Some(fn_registry);
+        self
+    }
+
+    /// Finalize and creates the Expression.
+    pub fn build(self) -> Result<Expression<'b>, Error> {
+        Ok(Expression {
+            ast: match self.ast {
+                Some(a) => a,
+                None => try!(parse(self.original)),
+            },
+            original: self.original.to_owned(),
+            fn_registry: self.fn_registry.unwrap_or(&*DEFAULT_FN_REGISTRY)
+        })
+    }
+}
+
+/// Context object used for error reporting.
+pub struct Context<'a> {
+    /// Original expression that is being interpreted.
+    pub expression: &'a str,
+    /// Function dispatcher
+    pub fn_registry: &'a FnRegistry,
+    /// Offset being evaluated
+    pub offset: usize,
+}
+
+impl<'a> Context<'a> {
+    /// Create a new context struct.
+    #[inline]
+    pub fn new(expression: &'a str, fn_registry: &'a FnRegistry) -> Context<'a> {
+        Context {
+            expression: expression,
+            fn_registry: fn_registry,
+            offset: 0,
+        }
+    }
+
+    /// Create a coordinates struct from the context.
+    pub fn create_coordinates(&self) -> Coordinates {
+        Coordinates::from_offset(self.expression, self.offset)
+    }
+}
+
 #[cfg(test)]
 mod test {
     use std::rc::Rc;
 
     use super::*;
     use super::ast::Ast;
+    use functions::BuiltinFnRegistry;
 
     #[test]
     fn formats_expression_as_string_or_debug() {
@@ -230,5 +300,51 @@ mod test {
     fn can_get_expression_ast() {
         let expr = Expression::new("foo").unwrap();
         assert_eq!(&Ast::Field {offset: 0, name: "foo".to_string()}, expr.as_ast());
+    }
+
+    #[test]
+    fn builder_can_create_with_custom_ast() {
+        // Notice that we are parsing foo.bar, but using "@" as the AST.
+        let expr = ExpressionBuilder::new("foo.bar")
+            .with_ast(Ast::Identity { offset: 0 })
+            .build()
+            .unwrap();
+        assert_eq!(Rc::new(Variable::U64(99)), expr.search(99).unwrap());
+    }
+
+    #[test]
+    fn can_use_custom_fn_registry() {
+        use interpreter::SearchResult;
+        use functions::{Signature, Function, CustomFnRegistry};
+
+        struct CustomFunction;
+        impl Function for CustomFunction {
+            fn signature(&self) -> &Signature {
+                unreachable!();
+            }
+
+            fn evaluate(&self, _args: &[RcVar], _ctx: &mut Context) -> SearchResult {
+                Ok(Rc::new(Variable::Bool(true)))
+            }
+        }
+
+        let mut custom_functions = CustomFnRegistry::new();
+        custom_functions.register_function("constantly_true", Box::new(CustomFunction));
+        let expr = ExpressionBuilder::new("constantly_true()")
+            .with_fn_registry(&custom_functions)
+            .build()
+            .unwrap();
+        assert_eq!(Rc::new(Variable::Bool(true)), expr.search(()).unwrap());
+    }
+
+    #[test]
+    fn context_creates_coordinates() {
+        let fns = BuiltinFnRegistry::new();
+        let mut ctx = Context::new("foo.bar", &fns);
+        ctx.offset = 3;
+        let coords = ctx.create_coordinates();
+        assert_eq!(3, coords.offset);
+        assert_eq!(3, coords.column);
+        assert_eq!(0, coords.line);
     }
 }
