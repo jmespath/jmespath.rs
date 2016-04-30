@@ -162,6 +162,38 @@ impl FnRegistry for BuiltinFnRegistry {
     }
 }
 
+/* ------------------------------------------
+ * Custom functions.
+ * ------------------------------------------ */
+
+/// Custom function that allows the creation of runtime functions.
+pub struct CustomFunction {
+    fn_signature: Signature,
+    f: Box<(Fn(&[RcVar], &mut Context) -> SearchResult) + Sync>,
+}
+
+impl CustomFunction {
+    /// Creates a new custom function.
+    pub fn new(fn_signature: Signature,
+               f: Box<(Fn(&[RcVar], &mut Context) -> SearchResult) + Sync>)
+               -> CustomFunction {
+        CustomFunction {
+            fn_signature: fn_signature,
+            f: f,
+        }
+    }
+}
+
+impl Function for CustomFunction {
+    fn signature(&self) -> &Signature {
+        &self.fn_signature
+    }
+
+    fn evaluate(&self, args: &[RcVar], ctx: &mut Context) -> SearchResult {
+        (self.f)(args, ctx)
+    }
+}
+
 /// Allows the use of custom functions in addition to existing
 /// JMESPath functions.
 pub struct CustomFnRegistry {

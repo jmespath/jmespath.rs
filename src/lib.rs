@@ -77,6 +77,31 @@
 //! let my_bool: bool = result.to_deserialize().unwrap();
 //! assert_eq!(true, my_bool);
 //! ```
+//!
+//! # Custom Functions
+//!
+//! You can register custom functions with a JMESPath expression using the
+//! ExpressionBuilder and a CustomFnRegistry.
+//!
+//! ```
+//! use jmespath::{ExpressionBuilder, Context, RcVar, Variable};
+//! use jmespath::functions::{CustomFunction, Signature, ArgumentType, CustomFnRegistry};
+//!
+//! let mut functions = CustomFnRegistry::new();
+//!
+//! // Create a function that returns string values as-is.
+//! functions.register_function("str_identity", Box::new(CustomFunction::new(
+//!     Signature::new(vec![ArgumentType::String], None, ArgumentType::Number),
+//!     Box::new(|args: &[RcVar], _: &mut Context| Ok(args[0].clone()))
+//! )));
+//!
+//! let expr = ExpressionBuilder::new("str_identity('foo')")
+//!     .with_fn_registry(&functions)
+//!     .build()
+//!     .unwrap();
+//!
+//! assert_eq!("foo", expr.search(()).unwrap().as_string().unwrap());
+//! ```
 
 #![cfg_attr(feature="clippy", feature(plugin))]
 #![cfg_attr(feature="clippy", plugin(clippy))]
@@ -315,12 +340,23 @@ mod test {
     #[test]
     fn can_use_custom_fn_registry() {
         use interpreter::SearchResult;
-        use functions::{Signature, Function, CustomFnRegistry};
+        use functions::{Signature, Function, CustomFnRegistry, ArgumentType};
 
-        struct CustomFunction;
+        struct CustomFunction {
+            fn_signature: Signature,
+        }
+
+        impl CustomFunction {
+            pub fn new() -> CustomFunction {
+                CustomFunction {
+                    fn_signature: Signature::new(vec![], None, ArgumentType::Bool),
+                }
+            }
+        }
+
         impl Function for CustomFunction {
             fn signature(&self) -> &Signature {
-                unreachable!();
+                &self.fn_signature
             }
 
             fn evaluate(&self, _args: &[RcVar], _ctx: &mut Context) -> SearchResult {
@@ -329,7 +365,7 @@ mod test {
         }
 
         let mut custom_functions = CustomFnRegistry::new();
-        custom_functions.register_function("constantly_true", Box::new(CustomFunction));
+        custom_functions.register_function("constantly_true", Box::new(CustomFunction::new()));
         let expr = ExpressionBuilder::new("constantly_true()")
             .with_fn_registry(&custom_functions)
             .build()
