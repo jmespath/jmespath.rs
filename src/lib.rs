@@ -347,7 +347,7 @@ mod test {
         }
 
         impl CustomFunction {
-            pub fn new() -> CustomFunction {
+            fn new() -> CustomFunction {
                 CustomFunction {
                     fn_signature: Signature::new(vec![], None, ArgumentType::Bool),
                 }
