@@ -338,7 +338,7 @@ pub trait Function: Sync {
 /// Macro to more easily and quickly define a function and signature.
 macro_rules! defn {
     ($name:ident, $args:expr, $variadic:expr, $retval:expr) => {
-        pub struct $name {
+        struct $name {
             fn_signature: Signature,
         }
 
