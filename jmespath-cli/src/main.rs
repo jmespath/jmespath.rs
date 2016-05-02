@@ -23,8 +23,7 @@ macro_rules! die(
 
 fn main() {
     let matches = App::new("jp")
-        .version("1.0")
-        .author("Michael Dowling <mtdowling@gmail.com>")
+        .version("0.0.1")
         .about("JMESPath command line interface")
         .arg(Arg::with_name("filename")
             .help("Read input JSON from a file instead of stdin.")
