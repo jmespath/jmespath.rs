@@ -11,7 +11,7 @@
 //! ```
 //! #![feature(plugin)]
 //!
-//! #![plugin(jmespath_macros)]
+//! #![plugin(jmespath-macros)]
 //! extern crate jmespath;
 //!
 //! fn main() {

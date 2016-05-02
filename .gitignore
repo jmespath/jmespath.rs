@@ -1,4 +1,4 @@
 target
 Cargo.lock
-macros/target
-macros/Cargo.lock
+jmespath-macros/target
+jmespath-macros/Cargo.lock

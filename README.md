@@ -37,7 +37,7 @@ assert_eq!(true, result.as_boolean().unwrap());
 
 ## jmespath! compiler plugin
 
-The `jmespath_macros` crate provides the `jmespath!` macro used to
+The `jmespath-macros` crate provides the `jmespath!` macro used to
 statically compile JMESPath expressions.
 
 By statically compiling JMESPath expressions, you pay the cost of

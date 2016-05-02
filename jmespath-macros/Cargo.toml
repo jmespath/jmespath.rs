@@ -1,5 +1,5 @@
 [package]
-name = "jmespath_macros"
+name = "jmespath-macros"
 version = "0.0.1"
 authors = ["Michael Dowling <mtdowling@gmail.com>"]
 readme = "README.md"
