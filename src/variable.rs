@@ -256,6 +256,10 @@ impl Variable {
     }
 }
 
+/* ------------------------------------------
+ * Variable slicing implementation
+ * ------------------------------------------ */
+
 fn slice(array: &[RcVar], start: &Option<i32>, stop: &Option<i32>, step: i32)
     -> Vec<RcVar>
 {
@@ -308,6 +312,10 @@ fn adjust_slice_endpoint(len: i32, mut endpoint: i32, step: i32) -> i32 {
         len
     }
 }
+
+/* ------------------------------------------
+ * Serde Variable deserialization
+ * ------------------------------------------ */
 
 /// Serde deserialization for Variable
 impl de::Deserialize for Variable {
@@ -390,9 +398,13 @@ impl de::Deserialize for Variable {
             }
         }
 
-        deserializer.visit(VariableVisitor)
+        deserializer.deserialize(VariableVisitor)
     }
 }
+
+/* ------------------------------------------
+ * Serde Variable serialization
+ * ------------------------------------------ */
 
 /// Serde serialization for Variable
 impl ser::Serialize for Variable {
@@ -401,15 +413,15 @@ impl ser::Serialize for Variable {
         where S: ser::Serializer
     {
         match *self {
-            Variable::Null => serializer.visit_unit(),
-            Variable::Bool(v) => serializer.visit_bool(v),
-            Variable::I64(v) => serializer.visit_i64(v),
-            Variable::U64(v) => serializer.visit_u64(v),
-            Variable::F64(v) => serializer.visit_f64(v),
-            Variable::String(ref v) => serializer.visit_str(&v),
+            Variable::Null => serializer.serialize_unit(),
+            Variable::Bool(v) => serializer.serialize_bool(v),
+            Variable::I64(v) => serializer.serialize_i64(v),
+            Variable::U64(v) => serializer.serialize_u64(v),
+            Variable::F64(v) => serializer.serialize_f64(v),
+            Variable::String(ref v) => serializer.serialize_str(&v),
             Variable::Array(ref v) => v.serialize(serializer),
             Variable::Object(ref v) => v.serialize(serializer),
-            Variable::Expref(ref e) => serializer.visit_str(&format!("<Expref({:?})>", e)),
+            Variable::Expref(ref e) => serializer.serialize_str(&format!("__Expref__{:?}", e)),
         }
     }
 }
@@ -447,21 +459,16 @@ impl Serializer {
 }
 
 impl ser::Serializer for Serializer {
-    type Error = ();
+    type Error = Error;
 
     #[inline]
-    fn visit_some<V>(&mut self, value: V) -> Result<(), ()> where V: ser::Serialize {
-        value.serialize(self)
-    }
-
-    #[inline]
-    fn visit_bool(&mut self, value: bool) -> Result<(), ()> {
+    fn serialize_bool(&mut self, value: bool) -> Result<(), Error> {
         self.state.push(State::Value(Variable::Bool(value)));
         Ok(())
     }
 
     #[inline]
-    fn visit_i64(&mut self, value: i64) -> Result<(), ()> {
+    fn serialize_i64(&mut self, value: i64) -> Result<(), Error> {
         if value < 0 {
             self.state.push(State::Value(Variable::I64(value)));
         } else {
@@ -471,45 +478,50 @@ impl ser::Serializer for Serializer {
     }
 
     #[inline]
-    fn visit_u64(&mut self, value: u64) -> Result<(), ()> {
+    fn serialize_u64(&mut self, value: u64) -> Result<(), Error> {
         self.state.push(State::Value(Variable::U64(value)));
         Ok(())
     }
 
     #[inline]
-    fn visit_f64(&mut self, value: f64) -> Result<(), ()> {
+    fn serialize_f64(&mut self, value: f64) -> Result<(), Error> {
         self.state.push(State::Value(Variable::F64(value as f64)));
         Ok(())
     }
 
     #[inline]
-    fn visit_char(&mut self, value: char) -> Result<(), ()> {
+    fn serialize_char(&mut self, value: char) -> Result<(), Error> {
         let s = value.to_string();
-        self.visit_str(&s)
+        self.serialize_str(&s)
     }
 
     #[inline]
-    fn visit_str(&mut self, value: &str) -> Result<(), ()> {
+    fn serialize_str(&mut self, value: &str) -> Result<(), Error> {
         self.state.push(State::Value(Variable::String(String::from(value))));
         Ok(())
     }
 
     #[inline]
-    fn visit_none(&mut self) -> Result<(), ()> {
-        self.visit_unit()
+    fn serialize_none(&mut self) -> Result<(), Error> {
+        self.serialize_unit()
     }
 
     #[inline]
-    fn visit_unit(&mut self) -> Result<(), ()> {
+    fn serialize_some<V>(&mut self, value: V) -> Result<(), Error> where V: ser::Serialize {
+        value.serialize(self)
+    }
+
+    #[inline]
+    fn serialize_unit(&mut self) -> Result<(), Error> {
         self.state.push(State::Value(Variable::Null));
         Ok(())
     }
 
     #[inline]
-    fn visit_unit_variant(&mut self,
-                          _name: &str,
-                          _variant_index: usize,
-                          variant: &str) -> Result<(), ()> {
+    fn serialize_unit_variant(&mut self,
+                              _name: &str,
+                              _variant_index: usize,
+                              variant: &str) -> Result<(), Error> {
         let mut values = BTreeMap::new();
         values.insert(String::from(variant), Rc::new(Variable::Array(vec![])));
         self.state.push(State::Value(Variable::Object(values)));
@@ -517,12 +529,12 @@ impl ser::Serializer for Serializer {
     }
 
     #[inline]
-    fn visit_newtype_variant<T>(&mut self,
-                                _name: &str,
-                                _variant_index: usize,
-                                variant: &str,
-                                value: T) -> Result<(), ()>
-                                where T: ser::Serialize {
+    fn serialize_newtype_variant<T>(&mut self,
+                                    _name: &str,
+                                    _variant_index: usize,
+                                    variant: &str,
+                                    value: T) -> Result<(), Error>
+                                    where T: ser::Serialize {
         let mut values = BTreeMap::new();
         values.insert(String::from(variant), Rc::new(Variable::from_serialize(&value)));
         self.state.push(State::Value(Variable::Object(values)));
@@ -530,7 +542,9 @@ impl ser::Serializer for Serializer {
     }
 
     #[inline]
-    fn visit_seq<V>(&mut self, mut visitor: V) -> Result<(), ()> where V: ser::SeqVisitor {
+    fn serialize_seq<V>(&mut self, mut visitor: V)
+        -> Result<(), Error> where V: ser::SeqVisitor
+    {
         let len = visitor.len().unwrap_or(0);
         let values = Vec::with_capacity(len);
         self.state.push(State::Array(values));
@@ -544,13 +558,13 @@ impl ser::Serializer for Serializer {
     }
 
     #[inline]
-    fn visit_tuple_variant<V>(&mut self,
-                              _name: &str,
-                              _variant_index: usize,
-                              variant: &str,
-                              visitor: V) -> Result<(), ()>
-                              where V: ser::SeqVisitor {
-        try!(self.visit_seq(visitor));
+    fn serialize_tuple_variant<V>(&mut self,
+                                  _name: &str,
+                                  _variant_index: usize,
+                                  variant: &str,
+                                  visitor: V) -> Result<(), Error>
+                                  where V: ser::SeqVisitor {
+        try!(self.serialize_seq(visitor));
         let value = match self.state.pop().unwrap() {
             State::Value(value) => value,
             state => panic!("expected value, found {:?}", state),
@@ -562,7 +576,9 @@ impl ser::Serializer for Serializer {
     }
 
     #[inline]
-    fn visit_seq_elt<T>(&mut self, value: T) -> Result<(), ()> where T: ser::Serialize {
+    fn serialize_seq_elt<T>(&mut self, value: T)
+        -> Result<(), Error> where T: ser::Serialize
+    {
         try!(value.serialize(self));
         let value = match self.state.pop().unwrap() {
             State::Value(value) => value,
@@ -576,7 +592,9 @@ impl ser::Serializer for Serializer {
     }
 
     #[inline]
-    fn visit_map<V>(&mut self, mut visitor: V) -> Result<(), ()> where V: ser::MapVisitor {
+    fn serialize_map<V>(&mut self, mut visitor: V)
+        -> Result<(), Error> where V: ser::MapVisitor
+    {
         let values = BTreeMap::new();
 
         self.state.push(State::Object(values));
@@ -594,13 +612,13 @@ impl ser::Serializer for Serializer {
     }
 
     #[inline]
-    fn visit_struct_variant<V>(&mut self,
-                               _name: &str,
-                               _variant_index: usize,
-                               variant: &str,
-                               visitor: V) -> Result<(), ()>
-                               where V: ser::MapVisitor {
-        try!(self.visit_map(visitor));
+    fn serialize_struct_variant<V>(&mut self,
+                                   _name: &str,
+                                   _variant_index: usize,
+                                   variant: &str,
+                                   visitor: V) -> Result<(), Error>
+                                   where V: ser::MapVisitor {
+        try!(self.serialize_map(visitor));
         let value = match self.state.pop().unwrap() {
             State::Value(value) => value,
             state => panic!("expected value, found {:?}", state),
@@ -613,11 +631,11 @@ impl ser::Serializer for Serializer {
     }
 
     #[inline]
-    fn visit_map_elt<K, V>(&mut self,
-                           key: K,
-                           value: V) -> Result<(), ()>
-                           where K: ser::Serialize,
-                           V: ser::Serialize {
+    fn serialize_map_elt<K, V>(&mut self,
+                               key: K,
+                               value: V) -> Result<(), Error>
+                               where K: ser::Serialize,
+                               V: ser::Serialize {
         try!(key.serialize(self));
         let key = match self.state.pop().unwrap() {
             State::Value(Variable::String(value)) => value,
@@ -635,11 +653,6 @@ impl ser::Serializer for Serializer {
             ref state => panic!("expected object, found {:?}", state),
         }
         Ok(())
-    }
-
-    #[inline]
-    fn format() -> &'static str {
-        "jmespath"
     }
 }
 
@@ -856,7 +869,7 @@ mod tests {
         assert_eq!("true", Variable::Bool(true).to_string());
         assert_eq!("[true]", Variable::from_json("[true]").unwrap().to_string());
         let v = Variable::Expref(Ast::Identity { offset: 0 });
-        assert_eq!("\"<Expref(Identity { offset: 0 })>\"", v.to_string());
+        assert_eq!("\"__Expref__Identity { offset: 0 }\"", v.to_string());
     }
 
     /// Tests that the Serde serialization directly to Variable works correctly.

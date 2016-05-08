@@ -12,16 +12,16 @@ license = "MIT"
 build = "build.rs"
 
 [dependencies]
-serde = "^0.6"
-serde_json = "^0.6"
-lazy_static = "^0.1.15"
+serde = "^0.7"
+serde_json = "^0.7"
+lazy_static = "^0.2.1"
 
 [dependencies.clippy]
-version = "^0.0.36"
+version = "^0.0.65"
 optional = true
 
 [build-dependencies]
-serde_json = "^0.6"
+serde_json = "^0.7"
 slug = "0.1.1"
 
 [features]
