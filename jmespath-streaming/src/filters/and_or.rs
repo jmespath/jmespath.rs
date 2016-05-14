@@ -1,11 +1,9 @@
+//! And filter and Or filter.
+
 use std::collections::VecDeque;
 
-use listener::BufferedListener;
-use Listener;
-use ListenResult;
-use Filter;
-use Event;
-use Signal;
+use listeners::BufferedListener;
+use prelude::*;
 use send_null;
 
 enum AndOrType {

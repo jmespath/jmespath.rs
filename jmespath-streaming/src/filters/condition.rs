@@ -1,12 +1,10 @@
+///! Condition filter.
+
 use std::collections::VecDeque;
 
-use listener::BufferedListener;
+use listeners::BufferedListener;
+use prelude::*;
 use send_null;
-use Listener;
-use ListenResult;
-use Filter;
-use Event;
-use Signal;
 
 enum ConditionState {
     TryPredicate,
@@ -83,12 +81,13 @@ impl Filter for ConditionFilter {
 
 #[cfg(test)]
 mod tests {
-    use std::rc::Rc;
     use super::*;
+    use std::rc::Rc;
     use jmespath::Variable;
+
+    use listeners::StringListener;
+    use filters::IndexFilter;
     use Emitter;
-    use listener::StringListener;
-    use index::IndexFilter;
 
     #[test]
     fn pushes_queue_to_then_when_predicate_is_true() {

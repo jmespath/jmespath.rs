@@ -1,10 +1,6 @@
-use Listener;
-use ListenResult;
-use Filter;
-use Event;
-use Signal;
-use StreamValue;
-use StreamError;
+//! Not filter.
+
+use prelude::*;
 
 enum NotState {
     Start,

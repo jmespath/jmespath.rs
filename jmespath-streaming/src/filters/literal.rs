@@ -1,9 +1,6 @@
-use Signal;
-use Listener;
-use ListenResult;
-use Filter;
-use Event;
-use Emitter;
+//! Literal filter (simply emits events).
+
+use prelude::*;
 
 /// Sends a literal value to a listener, ignoring any provided event.
 pub struct LiteralFilter<T: Emitter> {

@@ -1,12 +1,7 @@
-use Listener;
-use ListenResult;
-use Filter;
-use Event;
-use Signal;
-use ArrayValueFilter;
-use PipedFilter;
-use ArrayFilterPredicate;
-use ArrayFilterPredicateResult;
+//! Array flatten filter.
+
+use prelude::*;
+use filters::{ArrayFilterPredicate, ArrayFilterPredicateResult, ArrayValueFilter, PipedFilter};
 
 /// Creates a new flatten filter.
 pub fn new_flatten(inner: Box<Filter>) -> Box<Filter> {

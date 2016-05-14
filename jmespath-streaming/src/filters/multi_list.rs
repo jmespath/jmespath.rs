@@ -1,12 +1,8 @@
-use listener::BufferedListener;
+//! Multi-list value filter.
+
+use listeners::BufferedListener;
 use send_null;
-use Listener;
-use ListenResult;
-use Filter;
-use Event;
-use Emitter;
-use Signal;
-use StreamValue;
+use prelude::*;
 
 enum MultiListState {
     Init,

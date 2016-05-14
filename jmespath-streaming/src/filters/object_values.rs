@@ -1,11 +1,8 @@
-use Listener;
-use ListenResult;
-use Filter;
-use Event;
-use SendValueFilter;
-use Signal;
-use StreamError;
+//! Object values filter.
+
+use prelude::*;
 use send_null;
+use filters::SendValueFilter;
 
 enum ObjectValuesState {
     StartObject,
@@ -87,11 +84,11 @@ impl Filter for ObjectValuesFilter {
 
 #[cfg(test)]
 mod tests {
-    use std::rc::Rc;
     use super::*;
+    use std::rc::Rc;
     use jmespath::Variable;
     use Emitter;
-    use listener::StringListener;
+    use listeners::StringListener;
 
     #[test]
     fn send_object_values_through_filter() {

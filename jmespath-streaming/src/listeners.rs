@@ -1,3 +1,5 @@
+///! Listeners are used to receive JSON stream Events.
+
 use std::rc::Rc;
 use std::collections::{BTreeMap, VecDeque};
 use std::fmt;
@@ -5,19 +7,43 @@ use std::fmt;
 use serde_json::Value;
 
 use jmespath::{Variable, RcVar};
-use Listener;
-use ListenResult;
-use Signal;
-use Event;
-use StreamValue;
-use StreamError;
-use Emitter;
+use prelude::*;
+
+/// Filters events before sending them to a listener.
+pub struct FilteredListener<'a> {
+    /// Filter to add/remove events to send to the listener.
+    pub filter: &'a mut Filter,
+    /// Listener that receives JSON Events.
+    pub listener: &'a mut Listener,
+}
+
+impl<'a> FilteredListener<'a> {
+    /// Create a new FilteredListener with the given filter and listener.
+    #[inline]
+    pub fn new(filter: &'a mut Filter, listener: &'a mut Listener) -> FilteredListener<'a> {
+        FilteredListener {
+            filter: filter,
+            listener: listener,
+        }
+    }
+}
+
+impl<'a> Listener for FilteredListener<'a> {
+    #[inline]
+    fn push(&mut self, event: &Event) -> ListenResult {
+        self.filter.filter(event, self.listener)
+    }
+}
 
 /* ------------------------------------------
  * BufferedListener
  * ------------------------------------------ */
 
-/// A BufferedListener buffers each received event in a VecDeque.
+/// Buffers each received event in a VecDeque.
+///
+/// BufferedListener is used throughout JMESPath's streaming implementation
+/// to store events until enough events have been received that a state
+/// transition decision can be made.
 #[derive(Debug)]
 pub struct BufferedListener {
     /// Queue of buffered events.
@@ -99,154 +125,6 @@ impl Emitter for BufferedListener {
 }
 
 /* ------------------------------------------
- * JsonWriters and implementations
- * ------------------------------------------ */
-
-/// Writes JSON text to a destination.
-trait JsonWriter {
-    /// Write a char to the writer.
-    fn write_char(&mut self, c: char) -> ListenResult;
-
-    /// Write a &str to the writer.
-    fn write_str(&mut self, s: &str) -> ListenResult;
-}
-
- /// Writes JSON events to an in-memory JSON string.
- struct JsonStringWriter {
-     pub buffer: String,
- }
-
-impl JsonStringWriter {
-    /// Creates a new JSON string writer.
-    #[inline]
-    pub fn new() -> JsonStringWriter {
-        JsonStringWriter {
-            buffer: String::new(),
-        }
-    }
-}
-
-impl JsonWriter for JsonStringWriter {
-    #[inline]
-    fn write_char(&mut self, c: char) -> ListenResult {
-        self.buffer.push(c);
-        Ok(Signal::More)
-    }
-
-    #[inline]
-    fn write_str(&mut self, s: &str) -> ListenResult {
-        self.buffer.push_str(s);
-        Ok(Signal::More)
-    }
-}
-
-/// Represents a placeholder of what type is currently open.
-#[derive(Debug)]
-enum StringContextType {
-    Array,
-    Object,
-}
-
-/// Holds the context type and whether or not it is the first value in
-/// a larger context (to account for when a "," is inserted).
-#[derive(Debug)]
-struct StringContextValue {
-    context_type: StringContextType,
-    is_first: bool,
-}
-
-impl StringContextValue {
-    /// Create a new object context value
-    #[inline]
-    pub fn new_object() -> StringContextValue {
-        StringContextValue {
-            context_type: StringContextType::Object,
-            is_first: true,
-        }
-    }
-
-    /// Create a new array context value
-    #[inline]
-    pub fn new_array() -> StringContextValue {
-        StringContextValue {
-            context_type: StringContextType::Array,
-            is_first: true,
-        }
-    }
-}
-
-/// Writes JSON events to a JsonWriter, handling context and commas.
-struct JsonStringSerializer<T: JsonWriter> {
-    /// Writes JSON events.
-    pub writer: T,
-    /// Tracks context to know when to use commas.
-    context: Vec<StringContextValue>,
-}
-
-impl<T> JsonStringSerializer<T> where T: JsonWriter {
-    /// Creates a new JsonStringSerializer.
-    #[inline]
-    fn new(writer: T) -> JsonStringSerializer<T> {
-        JsonStringSerializer {
-            writer: writer,
-            context: Vec::new(),
-        }
-    }
-
-    /// Checks if the value requires a preceding comma.
-    #[inline]
-    fn check_value(&mut self, for_field: bool) -> ListenResult {
-        if let Some(v) = self.context.last_mut() {
-            match (&v.context_type, for_field) {
-                (&StringContextType::Array, _) | (&StringContextType::Object, true) => {
-                    if v.is_first {
-                        v.is_first = false;
-                    } else {
-                        return self.writer.write_char(',');
-                    }
-                },
-                _ => {}
-            }
-        }
-        Ok(Signal::More)
-    }
-}
-
-impl<T> Listener for JsonStringSerializer<T> where T: JsonWriter {
-    fn push(&mut self, event: &Event) -> ListenResult {
-        match *event {
-            Event::StartArray => {
-                self.check_value(false).and_then(|_| {
-                    self.context.push(StringContextValue::new_array());
-                    self.writer.write_char('[')
-                })
-            },
-            Event::StartObject => {
-                self.check_value(false).and_then(|_| {
-                    self.context.push(StringContextValue::new_object());
-                    self.writer.write_char('{')
-                })
-            },
-            Event::EndArray => {
-                self.context.pop();
-                self.writer.write_char(']')
-            },
-            Event::EndObject => {
-                self.context.pop();
-                self.writer.write_char('}')
-            },
-            Event::FieldName(ref s) => {
-                self.check_value(true).and_then(|_| self.writer.write_str(&format!("{:?}:", s)))
-            },
-            Event::Value(ref v) => {
-                self.check_value(false).and_then(|_| self.writer.write_str(&v.to_string()))
-            },
-            _ => Ok(Signal::More)
-        }
-    }
-}
-
-/* ------------------------------------------
  * StringListener
  * ------------------------------------------ */
 
@@ -293,16 +171,189 @@ impl fmt::Display for StringListener {
     }
 }
 
-/* ------------------------------------------
- * ValueListener
- * ------------------------------------------ */
+/*
+JSON serialized string listeners
+--------------------------------
 
-/// Creates values when listeneing with a ValueListener.
+These JSON listeners are used to receive stream Events and write serialized
+JSON strings to JsonWriter implementations.
+*/
+
+/// Writes JSON text to a destination.
+///
+/// JsonWriter receives char and &str representing the text that makes up a
+/// JSON document. Parts of the JSON document are sent to the writer in
+/// non-deterministic sizes.
+///
+/// JsonWriter can be implemented to write JSON strings to a file, socket,
+/// in-memory stream, etc.
+trait JsonWriter {
+    /// Write a single char to the writer.
+    fn write_char(&mut self, c: char) -> ListenResult;
+
+    /// Write a &str to the writer.
+    fn write_str(&mut self, s: &str) -> ListenResult;
+}
+
+/// Writes JSON events to an in-memory JSON string.
+struct JsonStringWriter {
+    pub buffer: String,
+}
+
+impl JsonStringWriter {
+    /// Creates a new JSON string writer.
+    #[inline]
+    pub fn new() -> JsonStringWriter {
+        JsonStringWriter {
+            buffer: String::new(),
+        }
+    }
+}
+
+impl JsonWriter for JsonStringWriter {
+    #[inline]
+    fn write_char(&mut self, c: char) -> ListenResult {
+        self.buffer.push(c);
+        Ok(Signal::More)
+    }
+
+    #[inline]
+    fn write_str(&mut self, s: &str) -> ListenResult {
+        self.buffer.push_str(s);
+        Ok(Signal::More)
+    }
+}
+
+// TODO: Implement JsonWriter for std::io::Write.
+
+/// Represents a placeholder of what type is currently open.
+#[derive(Debug)]
+enum StringStateType {
+    /// Currently building up an array.
+    Array,
+    /// Currently building up an object.
+    Object,
+}
+
+/// Holds the state of where a string is while being built.
+#[derive(Debug)]
+struct StringStateValue {
+    /// State this value represents (Array|Object).
+    state: StringStateType,
+    /// Account for when a "," is inserted.
+    is_first: bool,
+}
+
+impl StringStateValue {
+    /// Helper method to create a new state value for an object.
+    #[inline]
+    pub fn new_object() -> StringStateValue {
+        StringStateValue {
+            state: StringStateType::Object,
+            is_first: true,
+        }
+    }
+
+    /// Helper method to create a new state value for an array.
+    #[inline]
+    pub fn new_array() -> StringStateValue {
+        StringStateValue {
+            state: StringStateType::Array,
+            is_first: true,
+        }
+    }
+}
+
+/// Receives JSON events and writes serialized JSON to a JsonWriter.
+struct JsonStringSerializer<T: JsonWriter> {
+    /// Writes JSON string values.
+    pub writer: T,
+    /// Tracks state to know when to use commas.
+    state: Vec<StringStateValue>,
+}
+
+impl<T> JsonStringSerializer<T> where T: JsonWriter {
+    /// Creates a new JsonStringSerializer for the given writer.
+    #[inline]
+    fn new(writer: T) -> JsonStringSerializer<T> {
+        JsonStringSerializer {
+            writer: writer,
+            state: Vec::new(),
+        }
+    }
+
+    /// Checks if the value requires a preceding comma.
+    ///
+    /// for_field: Set to true to signal that the check is determining if
+    ///   a comma should be inserted for an object key.
+    #[inline]
+    fn check_value(&mut self, for_field: bool) -> ListenResult {
+        if let Some(v) = self.state.last_mut() {
+            match (&v.state, for_field) {
+                (&StringStateType::Array, _) | (&StringStateType::Object, true) => {
+                    if v.is_first {
+                        v.is_first = false;
+                    } else {
+                        return self.writer.write_char(',');
+                    }
+                },
+                _ => {}
+            }
+        }
+        Ok(Signal::More)
+    }
+}
+
+impl<T> Listener for JsonStringSerializer<T> where T: JsonWriter {
+    fn push(&mut self, event: &Event) -> ListenResult {
+        match *event {
+            Event::StartArray => {
+                self.check_value(false).and_then(|_| {
+                    self.state.push(StringStateValue::new_array());
+                    self.writer.write_char('[')
+                })
+            },
+            Event::StartObject => {
+                self.check_value(false).and_then(|_| {
+                    self.state.push(StringStateValue::new_object());
+                    self.writer.write_char('{')
+                })
+            },
+            Event::EndArray => {
+                self.state.pop();
+                self.writer.write_char(']')
+            },
+            Event::EndObject => {
+                self.state.pop();
+                self.writer.write_char('}')
+            },
+            Event::FieldName(ref s) => {
+                self.check_value(true)
+                    .and_then(|_| self.writer.write_str(&format!("{:?}:", s)))
+            },
+            Event::Value(ref v) => {
+                self.check_value(false)
+                    .and_then(|_| self.writer.write_str(&v.to_string()))
+            },
+            _ => Ok(Signal::More)
+        }
+    }
+}
+
+/*
+In-memory value listeners
+-------------------------
+
+These value listeners are used to receive stream Events and build up an
+aggregate in-memory value representation of the JSON events. More
+specifically, these listeners are used to build up JMESPath Variable  and
+Serde Value structs.
+*/
+
+/// Creates values when listening with a ValueListener.
 pub trait ValueCreator<T> {
     /// Resets the state of the ValueCreator
-    fn reset(&mut self) {
-        // No-op
-    }
+    fn reset(&mut self) {}
 
     /// Creates an array value.
     fn array(&self, values: Vec<T>) -> T;
@@ -329,7 +380,7 @@ pub trait ValueCreator<T> {
     fn null(&self) -> T;
 }
 
-/// Creates Serde JSON Value enums.
+/// Creates Serde JSON Values.
 #[derive(Debug)]
 pub struct SerdeValueCreator;
 
@@ -375,7 +426,7 @@ impl ValueCreator<Value> for SerdeValueCreator {
     }
 }
 
-/// Creates JMESPath Variable enums.
+/// Creates JMESPath Variables.
 #[derive(Debug)]
 pub struct JmesPathValueCreator;
 
@@ -421,16 +472,24 @@ impl ValueCreator<RcVar> for JmesPathValueCreator {
     }
 }
 
+/// Holds that state of where the value is while it is being built.
 #[derive(Debug)]
 enum State<V> {
+    /// Currently building a value.
     Value(V),
+    /// Currently building an array.
     Array(Vec<V>),
+    /// Currently building an object.
     Object(BTreeMap<String, V>),
+    /// Currently building an object field/key.
     Field(String),
 }
 
 impl<V> State<V> {
-    pub fn to_object(self) -> Option<BTreeMap<String, V>> {
+    /// Tries to return the state as an object.
+    ///
+    /// Returns Some if it is an object, None if not.
+    pub fn as_object(self) -> Option<BTreeMap<String, V>> {
         match self {
             State::Object(map) => Some(map),
             _ => None
@@ -438,7 +497,7 @@ impl<V> State<V> {
     }
 }
 
-/// Listens to events, lazily building up a serde_json::Value.
+/// Listens to events, lazily building up a value using a ValueCreator.
 pub struct ValueListener<T> {
     state: Vec<State<T>>,
     creator: Box<ValueCreator<T>>,
@@ -446,7 +505,7 @@ pub struct ValueListener<T> {
 }
 
 impl<T> ValueListener<T> where T: fmt::Debug {
-    /// Creates a new ValueListener.
+    /// Creates a new ValueListener using a ValueCreator.
     #[inline]
     pub fn new(value_creator: Box<ValueCreator<T>>) -> ValueListener<T> {
         ValueListener {
@@ -495,7 +554,7 @@ impl<T> ValueListener<T> where T: fmt::Debug {
             Some(State::Field(name)) => {
                 // It is safe to unwrap here because we ensure that a field
                 // cannot be inserted out of order.
-                let mut map = self.state.pop().unwrap().to_object().unwrap();
+                let mut map = self.state.pop().unwrap().as_object().unwrap();
                 map.insert(name, value);
                 self.state.push(State::Object(map));
                 Ok(Signal::More)
@@ -570,19 +629,12 @@ impl<T> Listener for ValueListener<T> where T: fmt::Debug {
 
 #[cfg(test)]
 mod tests {
-    use std::rc::Rc;
     use super::*;
+    use std::rc::Rc;
     use jmespath::Variable;
     use serde_json::{Value, to_value};
-    use super::super::{
-        Signal,
-        StreamValue,
-        StreamError,
-        Event,
-        Listener,
-        IdentityFilter,
-        Emitter,
-    };
+    use {Signal, StreamValue, StreamError, Event, Listener, Emitter};
+    use filters::IdentityFilter;
 
     #[test]
     fn buffered_listener_receives_events() {

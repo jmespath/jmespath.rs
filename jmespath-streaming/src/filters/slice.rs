@@ -1,15 +1,9 @@
+//! Slice filter.
+
 use jmespath::{RcVar, Variable};
-use listener::{ValueListener, JmesPathValueCreator};
-use Signal;
-use Listener;
-use ListenResult;
-use Filter;
-use Event;
-use Emitter;
-use ArrayValueFilter;
-use ArrayFilterPredicate;
-use ArrayFilterPredicateResult;
-use StreamValue;
+use prelude::*;
+use listeners::{ValueListener, JmesPathValueCreator};
+use filters::{ArrayFilterPredicate, ArrayFilterPredicateResult, ArrayValueFilter};
 
 /* ------------------------------------------
  * Forward slicing (e.g., [1:10:1])

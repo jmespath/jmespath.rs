@@ -1,10 +1,7 @@
-use Listener;
-use ListenResult;
-use Filter;
-use Event;
-use Signal;
-use SkipValueFilter;
-use SendValueFilter;
+//! Field extraction filter.
+
+use prelude::*;
+use filters::{SendValueFilter, SkipValueFilter};
 use send_null;
 
 #[derive(Debug)]

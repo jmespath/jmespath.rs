@@ -1,16 +1,11 @@
+//! Array index filtering.
+
 use std::collections::VecDeque;
 
-use listener::BufferedListener;
-use Emitter;
-use Listener;
-use ListenResult;
-use Filter;
-use Event;
-use Signal;
-use SendValueFilter;
-use SkipValueFilter;
-use StreamValue;
+use prelude::*;
 use send_null;
+use listeners::BufferedListener;
+use filters::{SendValueFilter, SkipValueFilter};
 
 /* ------------------------------------------
  * Positive indexing

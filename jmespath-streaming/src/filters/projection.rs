@@ -1,10 +1,7 @@
-use Filter;
-use Event;
-use NotExpectFilter;
-use PipedFilter;
-use StreamValue;
-use ArrayValueFilter;
-use DefaultArrayFilterPredicate;
+//! Projection filter.
+
+use prelude::*;
+use filters::{ArrayValueFilter, DefaultArrayFilterPredicate, NotExpectFilter, PipedFilter};
 
 /// Creates a new projection filter.
 pub fn new_projection(lhs: Box<Filter>, rhs: Box<Filter>) -> Box<Filter> {

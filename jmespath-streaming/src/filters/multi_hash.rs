@@ -1,14 +1,10 @@
+//! Mulit-hash value filter.
+
 use std::rc::Rc;
 
-use listener::BufferedListener;
+use listeners::BufferedListener;
 use send_null;
-use Listener;
-use ListenResult;
-use Filter;
-use Event;
-use Signal;
-use StreamValue;
-use Emitter;
+use prelude::*;
 
 enum MultiHashState {
     Init,

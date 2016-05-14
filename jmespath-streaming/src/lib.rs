@@ -1,67 +1,71 @@
-//! Streaming JMESPath support implemented using state machine filtes.
+//! Streaming JMESPath support implemented using state machine filters.
 
 extern crate jmespath;
 extern crate serde;
 extern crate serde_json;
 
-use self::comparison::{EqualityFilter, OrderingFilter};
-use self::condition::ConditionFilter;
-use self::field::FieldFilter;
-use self::flatten::new_flatten;
-use self::index::{IndexFilter, NegativeIndexFilter};
-use self::literal::LiteralFilter;
-use self::multi_list::MultiListFilter;
-use self::multi_hash::MultiHashFilter;
-use self::not::NotFilter;
-use self::and_or::AndOrFilter;
-use self::object_values::ObjectValuesFilter;
-use self::projection::new_projection;
-use self::slice::{ValueSliceFilter, new_forward_slice};
-
-pub mod listener;
-
-mod and_or;
-mod comparison;
-mod condition;
-mod field;
-mod flatten;
-mod slice;
-mod index;
-mod literal;
-mod multi_list;
-mod multi_hash;
-mod not;
-mod object_values;
-mod projection;
+pub mod emitters;
+pub mod filters;
+pub mod listeners;
+pub mod prelude;
 
 use std::fmt;
 use std::rc::Rc;
-use serde_json::Value;
 
-use jmespath::{Variable, Context, Error, ErrorReason, RuntimeError};
+use jmespath::{Context, Error, ErrorReason, RuntimeError};
 use jmespath::ast::{Ast, Comparator};
 use jmespath::functions::FnRegistry;
 
+use listeners::FilteredListener;
+
+/// Result of emitting a stream Event.
 pub type ListenResult = Result<Signal, StreamError>;
 
-/// Receives streamed JSON events and returns a signal to the emitter to know
-/// if an error occurred and whether or not to stop parsing before the end of
-/// the stream.
+/// Synchronously Emits events to a Listener.
+///
+/// `Emitter`s should emit all of the JMESPath events necessary
+/// to represent the `Emitter` state to a `Listener`. For each event, the
+/// Emitter must check if the `Listener` wishes to continue by inspecting the
+/// return `Signal`. A `Signal::Done` event tells the `Emitter` to stop
+/// emitting events, while `Signal::More` tells the `Emitter` to continue.
+pub trait Emitter {
+    /// Emits values from the emitter into a listener.
+    fn emit(&self, listener: &mut Listener) -> ListenResult;
+
+    /// Emits filtered values from the emitter into a listener.
+    fn emit_filter(&self, filter: &mut Filter, listener: &mut Listener) -> ListenResult {
+        self.emit(&mut FilteredListener::new(filter, listener))
+    }
+}
+
+/// Receives stream JSON events and signals whether or not to continue.
+///
+/// Listeners receive JSON events and returns a `Signal` to the signal to the
+/// emitter (i.e., caller) whether or not the listener should receive
+/// subsequent events.
+///
+/// When Signal::Done is returned, the emitter/caller should not continue
+/// to send events to the listener, however, it is possible that that
+/// emitters will continue to emit even after a Done signal.
 pub trait Listener {
     fn push(&mut self, event: &Event) -> ListenResult;
 }
 
 /// Filters JSON events, passing events into a Listener.
+///
+/// `Filter`s receive Events and can choose to forward the event as-is to a
+/// `Listener`, or they may choose to buffer events until some kind of state
+/// transition can be determined. In addition to filtering events from an
+/// emitter to a Listener, Filters can create entirely new events.
 pub trait Filter {
-    /// Given the event, filter it and send event(s) to the listener.
+    /// Given an `Event`, filter it and send zero or more event(s) to the `Listener`.
     fn filter(&mut self, event: &Event, listener: &mut Listener) -> ListenResult;
 
     /// Reset the state of the filter so that it can be reused.
-    fn reset(&mut self) {
-        // By default, does nothing.
-    }
+    fn reset(&mut self) {}
 }
 
+/// Implements `Filter` for a Boxed `Filter`.
 impl<T: ?Sized> Filter for Box<T> where T: Filter {
     fn filter(&mut self, event: &Event, listener: &mut Listener) -> ListenResult {
         (**self).filter(event, listener)
@@ -78,6 +82,25 @@ fn send_null(target: &mut Listener) -> ListenResult {
     Ok(Signal::Done)
 }
 
+/// Signals to an emitter whether or not a `Listener` wants more `Events`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Signal {
+    /// The `Listener` wants to receive more events.
+    More,
+    /// The `Listener` does not want to receive more events.
+    Done
+}
+
+/// Represents an error occurred while listening or filtering events.
+#[derive(Debug, Clone, PartialEq)]
+pub enum StreamError {
+    /// A JSON error occurred (e.g., invalid syntax, mangled ordering, etc.)
+    JsonError(String),
+    /// A JMESPath error occurred (e.g., an invalid type).
+    JmesPathError(String),
+}
+
+/// JMESPath JSON event.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Event {
     StartObject,
@@ -98,6 +121,7 @@ impl Event {
     }
 }
 
+/// JSON Event scalar stream value.
 #[derive(Debug, Clone, PartialEq)]
 pub enum StreamValue {
     Null,
@@ -109,6 +133,7 @@ pub enum StreamValue {
 }
 
 impl StreamValue {
+    /// Attempts to represent the StreamValue as a number.
     pub fn as_number(&self) -> Option<f64> {
         match *self {
             StreamValue::F64(f) => Some(f),
@@ -133,20 +158,99 @@ impl fmt::Display for StreamValue {
     }
 }
 
+/* ------------------------------------------
+ * Event stack
+ * ------------------------------------------ */
+
+/// Closing tokens that are pending.
 #[derive(Debug, Clone, PartialEq)]
-pub enum Signal {
-    More,
-    Done
+enum PendingToken {
+    Object,
+    Array
 }
 
+/// Validates the order of open and close events that flow through.
 #[derive(Debug, Clone, PartialEq)]
-pub enum StreamError {
-    JsonError(String),
-    JmesPathError(String),
+pub struct EventStack {
+    events: Vec<PendingToken>
 }
 
-/// Compiles an AST into a stream filter.
+impl EventStack {
+    /// Create a new EventStack container.
+    #[inline]
+    pub fn new() -> EventStack {
+        EventStack {
+            events: Vec::new()
+        }
+    }
+
+    /// Clears out any pending events.
+    pub fn clear(&mut self) {
+        self.events.clear();
+    }
+
+    /// Pushes a pending object event.
+    #[inline]
+    pub fn push_object(&mut self) {
+        self.events.push(PendingToken::Object);
+    }
+
+    /// Pushes a pending array event.
+    #[inline]
+    pub fn push_array(&mut self) {
+        self.events.push(PendingToken::Array);
+    }
+
+    /// Checks if there are no more pending events.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.events.is_empty()
+    }
+
+    /// Pops a pending event and ensures it is an array.
+    pub fn pop_array(&mut self) -> Result<(), StreamError> {
+        match self.events.pop() {
+            Some(PendingToken::Array) => Ok(()),
+            Some(PendingToken::Object) => {
+                Err(StreamError::JsonError("Expected ']', but received '}'".to_owned()))
+            },
+            _ => Err(StreamError::JsonError("Unexpected token: ]".to_owned()))
+        }
+    }
+
+    /// Pops a pending event and ensures it is an object.
+    pub fn pop_object(&mut self) -> Result<(), StreamError> {
+        match self.events.pop() {
+            Some(PendingToken::Object) => Ok(()),
+            Some(PendingToken::Array) => {
+                Err(StreamError::JsonError("Expected '}', but received ']'".to_owned()))
+            },
+            _ => Err(StreamError::JsonError("Unexpected token: }".to_owned()))
+        }
+    }
+
+    /// Ensures that the document is closed correctly.
+    pub fn end_document(&mut self) -> ListenResult {
+        if self.is_empty() {
+            Ok(Signal::Done)
+        } else {
+            Err(StreamError::JsonError(format!("Unclosed elements: {:?}", self.events)))
+        }
+    }
+}
+
+/* ------------------------------------------
+ * Event filter compiler
+ * ------------------------------------------ */
+
+/// Compiles a JMESPath AST into a stream filter.
+///
+/// If the expression cannot be compiled into a filter, then an Error is
+/// returned. This can happen, for example, when a functiont that works in
+/// an in-memory context cannot be executed from a streaming context.
 pub fn compile_filter(ast: &Ast, ctx: &mut Context) -> Result<Box<Filter>, Error> {
+    use filters::*;
+
     match *ast {
         Ast::Subexpr { ref lhs, ref rhs, .. } => {
             Ok(Box::new(PipedFilter::new(
@@ -245,603 +349,41 @@ pub fn compile_filter(ast: &Ast, ctx: &mut Context) -> Result<Box<Filter>, Error
                     _ => {}
                 }
             }
-            Ok(Box::new(ValueSliceFilter::new(start.clone(), stop.clone(), step.clone())))
+            Ok(Box::new(ValueSliceFilter::new(start.clone(), stop.clone(), step)))
         },
-        Ast::Function { ref name, ref args, offset } => {
-            ctx.offset = offset;
-            match ctx.fn_registry.get_signature(name) {
-                None => {
-                    Err(Error::from_ctx(ctx, ErrorReason::Runtime(
-                        RuntimeError::UnknownFunction(name.to_owned())
-                    )))
-                },
-                Some(signature) => {
-                    try!(signature.validate_arity(ctx, args.len()));
-                    let mut compiled_args = Vec::with_capacity(args.len());
-                    for arg in args {
-                        compiled_args.push(try!(compile_filter(arg, ctx)));
-                    }
-                    // let args_filter = Box::new(MultiListFilter::new(compiled_args));
-                    panic!("Functions are not yet implemented");
-                }
-            }
+        Ast::Function { ref name, ref args, offset } => compile_function(name, args, offset, ctx),
+    }
+}
+
+/// Compiles a function stream filter.
+fn compile_function(name: &str, args: &Vec<Ast>, offset: usize, ctx: &mut Context)
+        -> Result<Box<Filter>, Error> {
+    ctx.offset = offset;
+    match ctx.fn_registry.get_signature(name) {
+        None => {
+            Err(Error::from_ctx(ctx, ErrorReason::Runtime(
+                RuntimeError::UnknownFunction(name.to_owned())
+            )))
         },
-    }
-}
-
-/// Event listener that filters events before sending them to a listener.
-pub struct FilteredListener<'a> {
-    pub filter: &'a mut Filter,
-    pub listener: &'a mut Listener,
-}
-
-impl<'a> FilteredListener<'a> {
-    #[inline]
-    pub fn new(filter: &'a mut Filter, listener: &'a mut Listener) -> FilteredListener<'a> {
-        FilteredListener {
-            filter: filter,
-            listener: listener,
-        }
-    }
-}
-
-impl<'a> Listener for FilteredListener<'a> {
-    #[inline]
-    fn push(&mut self, event: &Event) -> ListenResult {
-        self.filter.filter(event, self.listener)
-    }
-}
-
-/// Filter that is used when a streaming function is not implemented.
-pub struct NotImplementedFilter;
-
-impl Filter for NotImplementedFilter {
-    fn filter(&mut self, _event: &Event, _target: &mut Listener) -> ListenResult {
-        Err(StreamError::JmesPathError(
-            "Invoked a function that does not implement filter".to_owned()
-        ))
-    }
-}
-
-/// Filter that forwards all events to the Listener
-pub struct IdentityFilter;
-
-impl Filter for IdentityFilter {
-    fn filter(&mut self, event: &Event, target: &mut Listener) -> ListenResult {
-        target.push(event)
-    }
-}
-
-/// Sends the result of filtering on LHS to RHS.
-pub struct PipedFilter {
-    a: Box<Filter>,
-    b: Box<Filter>,
-}
-
-impl PipedFilter {
-    #[inline]
-    pub fn new(a: Box<Filter>, b: Box<Filter>) -> PipedFilter {
-        PipedFilter {
-            a: a,
-            b: b,
-        }
-    }
-}
-
-impl Filter for PipedFilter {
-    #[inline]
-    fn filter(&mut self, event: &Event, listener: &mut Listener) -> ListenResult {
-        let mut filtered_listener = FilteredListener::new(&mut *self.b, listener);
-        self.a.filter(event, &mut filtered_listener)
-    }
-
-    #[inline]
-    fn reset(&mut self) {
-        self.a.reset();
-        self.b.reset();
-    }
-}
-
-/// Passes an entire value, ensuring it is not sent to the listener.
-struct SkipValueFilter {
-    pending: EventStack,
-}
-
-impl SkipValueFilter {
-    #[inline]
-    pub fn new() -> SkipValueFilter {
-        SkipValueFilter {
-            pending: EventStack::new(),
-        }
-    }
-}
-
-impl Filter for SkipValueFilter {
-    #[inline]
-    fn filter(&mut self, event: &Event, _listener: &mut Listener) -> ListenResult {
-        match *event {
-            Event::StartObject => {
-                self.pending.push_object();
-                return Ok(Signal::More);
-            },
-            Event::StartArray => {
-                self.pending.push_array();
-                return Ok(Signal::More);
-            },
-            Event::EndObject => try!(self.pending.pop_object()),
-            Event::EndArray => try!(self.pending.pop_array()),
-            Event::EndDocument => return self.pending.end_document(),
-            _ => {}
-        }
-        if self.pending.is_empty() {
-            Ok(Signal::Done)
-        } else {
-            Ok(Signal::More)
-        }
-    }
-
-    fn reset(&mut self) {
-        self.pending = EventStack::new();
-    }
-}
-
-/// Sends an entire value to a listener
-struct SendValueFilter {
-    pending: EventStack,
-    allow_early_termination: bool,
-}
-
-impl SendValueFilter {
-    #[inline]
-    pub fn new(allow_early_termination: bool) -> SendValueFilter {
-        SendValueFilter {
-            pending: EventStack::new(),
-            allow_early_termination: allow_early_termination,
-        }
-    }
-}
-
-impl Filter for SendValueFilter {
-    #[inline]
-    fn filter(&mut self, event: &Event, listener: &mut Listener) -> ListenResult {
-        let listener_result = match *event {
-            Event::StartObject => {
-                self.pending.push_object();
-                return listener.push(event);
-            },
-            Event::StartArray => {
-                self.pending.push_array();
-                return listener.push(event);
-            },
-            Event::EndObject => {
-                try!(self.pending.pop_object());
-                try!(listener.push(event))
-            },
-            Event::EndArray => {
-                try!(self.pending.pop_array());
-                try!(listener.push(event))
-            },
-            Event::EndDocument => return self.pending.end_document(),
-            _ => try!(listener.push(event))
-        };
-        if self.pending.is_empty() {
-            Ok(Signal::Done)
-        } else if self.allow_early_termination {
-            Ok(listener_result)
-        } else {
-            Ok(Signal::More)
-        }
-    }
-
-    fn reset(&mut self) {
-        self.pending = EventStack::new();
-    }
-}
-
-enum NotExpectState {
-    Expecting,
-    Forwarding,
-    Rejecting,
-}
-
-/// Filter that expects anything other than a specific event.
-struct NotExpectFilter {
-    event: Event,
-    state: NotExpectState,
-}
-
-impl NotExpectFilter {
-    #[inline]
-    pub fn new(event: Event) -> NotExpectFilter {
-        NotExpectFilter {
-            event: event,
-            state: NotExpectState::Expecting,
-        }
-    }
-}
-
-impl Filter for NotExpectFilter {
-    fn filter(&mut self, event: &Event, listener: &mut Listener) -> ListenResult {
-        match self.state {
-            NotExpectState::Expecting => {
-                if *event != self.event {
-                    self.state = NotExpectState::Forwarding;
-                    listener.push(event)
-                } else {
-                    self.state = NotExpectState::Rejecting;
-                    Ok(Signal::Done)
-                }
-            },
-            NotExpectState::Forwarding => listener.push(event),
-            NotExpectState::Rejecting => Ok(Signal::Done),
-        }
-    }
-
-    fn reset(&mut self) {
-        self.state = NotExpectState::Expecting;
-    }
-}
-
-/* ------------------------------------------
- * Event stack
- * ------------------------------------------ */
-
-/// Closing tokens that are pending.
-#[derive(Debug, Clone, PartialEq)]
-pub enum PendingToken {
-    Object,
-    Array
-}
-
-/// Handles account for pending closing tokens in a stack.
-#[derive(Debug, Clone, PartialEq)]
-pub struct EventStack {
-    events: Vec<PendingToken>
-}
-
-impl EventStack {
-    /// Create a new EventStack container.
-    #[inline]
-    pub fn new() -> EventStack {
-        EventStack {
-            events: Vec::new()
-        }
-    }
-
-    /// Clears out any pending events.
-    pub fn clear(&mut self) {
-        self.events.clear();
-    }
-
-    /// Pushes a pending object event.
-    #[inline]
-    pub fn push_object(&mut self) {
-        self.events.push(PendingToken::Object);
-    }
-
-    /// Pushes a pending array event.
-    #[inline]
-    pub fn push_array(&mut self) {
-        self.events.push(PendingToken::Array);
-    }
-
-    /// Checks if there are no more pending events.
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.events.is_empty()
-    }
-
-    /// Pops a pending event and ensures it is an array.
-    pub fn pop_array(&mut self) -> Result<(), StreamError> {
-        match self.events.pop() {
-            Some(PendingToken::Array) => Ok(()),
-            Some(PendingToken::Object) => {
-                Err(StreamError::JsonError("Expected ']', but received '}'".to_owned()))
-            },
-            _ => Err(StreamError::JsonError("Unexpected token: ]".to_owned()))
-        }
-    }
-
-    /// Pops a pending event and ensures it is an object.
-    pub fn pop_object(&mut self) -> Result<(), StreamError> {
-        match self.events.pop() {
-            Some(PendingToken::Object) => Ok(()),
-            Some(PendingToken::Array) => {
-                Err(StreamError::JsonError("Expected '}', but received ']'".to_owned()))
-            },
-            _ => Err(StreamError::JsonError("Unexpected token: }".to_owned()))
-        }
-    }
-
-    /// Ensures that the document is closed correctly.
-    pub fn end_document(&mut self) -> ListenResult {
-        if self.is_empty() {
-            Ok(Signal::Done)
-        } else {
-            Err(StreamError::JsonError(format!("Unclosed elements: {:?}", self.events)))
-        }
-    }
-}
-
-/* ------------------------------------------
- * Emitters
- * ------------------------------------------ */
-
-macro_rules! emit_event {
-    ($listener:expr, $event:expr) => {
-        if let Signal::Done = try!($listener.push($event)) {
-            return Ok(Signal::Done);
-        }
-    };
-}
-
-/// Emits events to a Listener.
-pub trait Emitter {
-    /// Emits values from the emitter into a listener.
-    fn emit(&self, listener: &mut Listener) -> ListenResult;
-
-    /// Emits filtered values from the emitter into a listener.
-    fn emit_filter(&self, filter: &mut Filter, listener: &mut Listener) -> ListenResult {
-        self.emit(&mut FilteredListener::new(filter, listener))
-    }
-}
-
-impl<'a, T> Emitter for &'a T where T: Emitter {
-    fn emit(&self, listener: &mut Listener) -> ListenResult {
-        (**self).emit(listener)
-    }
-}
-
-impl<T> Emitter for Rc<T> where T: Emitter {
-    fn emit(&self, listener: &mut Listener) -> ListenResult {
-        (**self).emit(listener)
-    }
-}
-
-impl Emitter for Variable {
-    fn emit(&self, listener: &mut Listener) -> ListenResult {
-        match *self {
-            Variable::Expref(_) => {
-                Err(StreamError::JmesPathError("Cannot emit expref".to_owned()))
-            },
-            Variable::Null => listener.push(&Event::Value(StreamValue::Null)),
-            Variable::I64(i) => listener.push(&Event::Value(StreamValue::I64(i))),
-            Variable::F64(f) => listener.push(&Event::Value(StreamValue::F64(f))),
-            Variable::U64(u) => listener.push(&Event::Value(StreamValue::U64(u))),
-            Variable::Bool(b) => listener.push(&Event::Value(StreamValue::Bool(b))),
-            Variable::String(ref s) => {
-                listener.push(&Event::Value(StreamValue::String(Rc::new(s.to_owned()))))
-            },
-            Variable::Array(ref a) => {
-                emit_event!(listener, &Event::StartArray);
-                for v in a.iter() {
-                    try!(v.emit(listener));
-                }
-                listener.push(&Event::EndArray)
-            },
-            Variable::Object(ref o) => {
-                emit_event!(listener, &Event::StartObject);
-                for (k, v) in o.iter() {
-                    emit_event!(listener, &Event::FieldName(Rc::new(k.to_owned())));
-                    try!(v.emit(listener));
-                }
-                listener.push(&Event::EndObject)
+        Some(signature) => {
+            try!(signature.validate_arity(ctx, args.len()));
+            let mut compiled_args = Vec::with_capacity(args.len());
+            for arg in args {
+                compiled_args.push(try!(compile_filter(arg, ctx)));
             }
+            // let args_filter = Box::new(MultiListFilter::new(compiled_args));
+            panic!("Functions are not yet implemented");
         }
-    }
-}
-
-impl Emitter for Value {
-    fn emit(&self, listener: &mut Listener) -> ListenResult {
-        match *self {
-            Value::Null => listener.push(&Event::Value(StreamValue::Null)),
-            Value::I64(i) => listener.push(&Event::Value(StreamValue::I64(i))),
-            Value::F64(f) => listener.push(&Event::Value(StreamValue::F64(f))),
-            Value::U64(u) => listener.push(&Event::Value(StreamValue::U64(u))),
-            Value::Bool(b) => listener.push(&Event::Value(StreamValue::Bool(b))),
-            Value::String(ref s) => {
-                listener.push(&Event::Value(StreamValue::String(Rc::new(s.to_owned()))))
-            },
-            Value::Array(ref a) => {
-                emit_event!(listener, &Event::StartArray);
-                for v in a.iter() {
-                    if let Signal::Done = try!(v.emit(listener)) {
-                        return Ok(Signal::Done);
-                    }
-                }
-                listener.push(&Event::EndArray)
-            },
-            Value::Object(ref o) => {
-                emit_event!(listener, &Event::StartObject);
-                for (k, v) in o.iter() {
-                    emit_event!(listener, &Event::FieldName(Rc::new(k.to_owned())));
-                    if let Signal::Done = try!(v.emit(listener)) {
-                        return Ok(Signal::Done);
-                    }
-                }
-                listener.push(&Event::EndObject)
-            }
-        }
-    }
-}
-
-/* ------------------------------------------
- * Array filtering
- * ------------------------------------------ */
-
-pub type ArrayFilterPredicateResult = Result<bool, StreamError>;
-
-pub trait ArrayFilterPredicate : Filter {
-    /// Signals to the predicate that a new value is about to be sent.
-    /// The predicate can accept the value by returning Ok(true), reject
-    /// it, skipping the value, by returning Ok(false), or cause an error
-    // by returning an Err..
-    fn accept(&mut self) -> ArrayFilterPredicateResult;
-}
-
-struct DefaultArrayFilterPredicate {
-    filter: Box<Filter>,
-}
-
-impl DefaultArrayFilterPredicate {
-    pub fn new(filter: Box<Filter>) -> DefaultArrayFilterPredicate {
-        DefaultArrayFilterPredicate {
-            filter: filter,
-        }
-    }
-}
-
-impl ArrayFilterPredicate for DefaultArrayFilterPredicate {
-    fn accept(&mut self) -> ArrayFilterPredicateResult {
-        self.filter.reset();
-        Ok(true)
-    }
-}
-
-impl Filter for DefaultArrayFilterPredicate {
-    fn filter(&mut self, event: &Event, listener: &mut Listener) -> ListenResult {
-        self.filter.filter(event, listener)
-    }
-
-    fn reset(&mut self) {
-        self.filter.reset();
-    }
-}
-
-#[derive(Debug)]
-enum ArrayFilterState {
-    ExpectArray,
-    FilterValue,
-    SendValue,
-    SkipValue,
-    Done,
-}
-
-/// Filters and maps events emitted from array values hrough a predicate.
-///
-/// If the first event is not an array, this filter emits null. Each value
-/// emit is emitted through the predicate until the value has finished or
-/// until the predicate returns Done. Once an entire value has been emitted
-/// through the predicate, the predicate is reset so that it may receive the
-/// next value, until finally, the EndArray event is emitted to close out.
-pub struct ArrayValueFilter {
-    state: ArrayFilterState,
-    predicate: Box<ArrayFilterPredicate>,
-    send_value_filter: SendValueFilter,
-    skip_value_filter: SkipValueFilter,
-}
-
-impl ArrayValueFilter {
-    /// Creates a new ArrayValueFilter.
-    ///
-    /// The `predicate` filter receives each event emitted from an array value
-    /// and the listener that was intended to receive the event. The predicate
-    /// is free to not emit events it receives (filtering) or to map and
-    /// transform events before passing them on to the listener.
-    #[inline]
-    pub fn new(predicate: Box<ArrayFilterPredicate>) -> ArrayValueFilter {
-        ArrayValueFilter {
-            state: ArrayFilterState::ExpectArray,
-            predicate: predicate,
-            send_value_filter: SendValueFilter::new(false),
-            skip_value_filter: SkipValueFilter::new(),
-        }
-    }
-
-    #[inline]
-    fn expect_array_state(&mut self, event: &Event, listener: &mut Listener) -> ListenResult {
-        match *event {
-            Event::StartArray => {
-                match try!(listener.push(event)) {
-                    Signal::Done => {
-                        // The listener doesn't want an array, so stop.
-                        self.state = ArrayFilterState::Done;
-                        Ok(Signal::Done)
-                    },
-                    Signal::More => {
-                        // The array was accepted, so transition to emitting
-                        // events mapped through the predicate.
-                        self.state = ArrayFilterState::FilterValue;
-                        Ok(Signal::More)
-                    }
-                }
-            },
-            _ => {
-                // Received something that was not an array so emit null.
-                self.state = ArrayFilterState::Done;
-                send_null(listener)
-            }
-        }
-    }
-
-    #[inline]
-    fn filter_value_state(&mut self, event: &Event, listener: &mut Listener) -> ListenResult {
-        match *event {
-            Event::EndArray => {
-                // When the outer array is closed, we need to emit the event
-                // the listener and transition to the done state.
-                self.state = ArrayFilterState::Done;
-                try!(listener.push(event));
-                Ok(Signal::Done)
-            },
-            _ => {
-                // Another value was received, so ask the predicate to accept.
-                // If accepted, begin emitting mapped events through the predicate
-                // map/filter function.
-                if !try!(self.predicate.accept()) {
-                    self.state = ArrayFilterState::SkipValue;
-                    self.filter(event, listener)
-                } else {
-                    self.state = ArrayFilterState::SendValue;
-                    self.filter(event, listener)
-                }
-            }
-        }
-    }
-}
-
-impl Filter for ArrayValueFilter {
-    fn filter(&mut self, event: &Event, listener: &mut Listener) -> ListenResult {
-        match self.state {
-            ArrayFilterState::ExpectArray => self.expect_array_state(event, listener),
-            ArrayFilterState::FilterValue => self.filter_value_state(event, listener),
-            ArrayFilterState::SendValue => {
-                let result = {
-                    let mut filtered = FilteredListener::new(&mut self.predicate, listener);
-                    try!(self.send_value_filter.filter(event, &mut filtered))
-                };
-                if let Signal::Done = result {
-                    self.state = ArrayFilterState::FilterValue;
-                    self.send_value_filter.reset();
-                }
-                Ok(Signal::More)
-            },
-            ArrayFilterState::SkipValue => {
-                if let Signal::Done = try!(self.skip_value_filter.filter(event, listener)) {
-                    // Received the Done signal from the predicate, so begin
-                    // filtering and emit the next value.
-                    self.state = ArrayFilterState::FilterValue;
-                    self.skip_value_filter.reset();
-                }
-                Ok(Signal::More)
-            },
-            ArrayFilterState::Done => Ok(Signal::Done),
-        }
-    }
-
-    fn reset(&mut self) {
-        self.predicate.reset();
-        self.state = ArrayFilterState::ExpectArray;
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::rc::Rc;
     use super::*;
+    use std::rc::Rc;
     use jmespath::{Expression, Context, Variable};
     use jmespath::functions::BuiltinFnRegistry;
-    use listener::StringListener;
+    use listeners::StringListener;
 
     pub fn run_test_cases(cases: Vec<(&str, &str, &str)>) {
         for (expr, json, result) in cases {

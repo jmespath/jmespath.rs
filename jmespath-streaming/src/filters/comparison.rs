@@ -1,12 +1,9 @@
+///! JMESPath comparision filters.
+
 use jmespath::RcVar;
 use jmespath::ast::{OrdComparator, EqComparator};
-use listener::{BufferedListener, ValueListener, JmesPathValueCreator};
-use Listener;
-use ListenResult;
-use Filter;
-use Event;
-use Signal;
-use StreamValue;
+use prelude::*;
+use listeners::{BufferedListener, ValueListener, JmesPathValueCreator};
 
 /* ------------------------------------------
  * Equality comparisons
