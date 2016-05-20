@@ -1,11 +1,13 @@
 //! Module for tokenizing JMESPath expression.
 
-use std::rc::Rc;
+extern crate serde_json;
+
 use std::iter::Peekable;
 use std::str::CharIndices;
 use std::collections::VecDeque;
+use serde_json::Value;
 
-use super::{Error, ErrorReason, RcVar};
+use super::{Error, ErrorReason};
 use self::Token::*;
 use super::variable::Variable;
 
@@ -15,7 +17,7 @@ pub enum Token {
     Identifier(String),
     QuotedIdentifier(String),
     Number(i32),
-    Literal(RcVar),
+    Literal(Box<Value>),
     Dot,
     Star,
     Flatten,
@@ -272,7 +274,7 @@ impl<'a> Lexer<'a> {
     fn consume_raw_string(&mut self, pos: usize) -> Result<Token, Error> {
         // Note: we need to unescape here because the backslashes are passed through.
         self.consume_inside(pos, '\'',
-            |s| Ok(Literal(Rc::new(Variable::String(s.replace("\\'", "'"))))))
+            |s| Ok(Literal(Box::new(Value::String(s.replace("\\'", "'"))))))
     }
 
     // Consume and parse a literal JSON token.
@@ -280,8 +282,8 @@ impl<'a> Lexer<'a> {
     fn consume_literal(&mut self, pos: usize) -> Result<Token, Error> {
         self.consume_inside(pos, '`', |s| {
             let unescaped = s.replace("\\`", "`");
-            match Variable::from_json(unescaped.as_ref()) {
-                Ok(j) => Ok(Literal(Rc::new(j))),
+            match serde_json::from_str(unescaped.as_ref()) {
+                Ok(j) => Ok(Literal(Box::new(j))),
                 Err(err) => Err(format!("Unable to parse literal JSON {}: {}", s, err))
             }
         })
@@ -302,10 +304,11 @@ impl<'a> Lexer<'a> {
 
 #[cfg(test)]
 mod tests {
-    use std::rc::Rc;
+    extern crate serde_json;
+
     use super::*;
     use super::Token::*;
-    use variable::Variable;
+    use serde_json::Value;
 
     fn tokenize_queue(expr: &str) -> Vec<TokenTuple> {
         let mut result = tokenize(expr).unwrap();
@@ -430,15 +433,15 @@ mod tests {
     #[test]
     fn tokenize_raw_string_test() {
         assert_eq!(tokenize_queue("'foo'"), vec![
-            (0, Literal(Rc::new(Variable::String("foo".to_string())))),
+            (0, Literal(Box::new(Value::String("foo".to_string())))),
             (5, Eof)
         ]);
         assert_eq!(tokenize_queue("''"), vec![
-            (0, Literal(Rc::new(Variable::String("".to_string())))),
+            (0, Literal(Box::new(Value::String("".to_string())))),
             (2, Eof)
         ]);
         assert_eq!(tokenize_queue("'a\\nb'"), vec![
-            (0, Literal(Rc::new(Variable::String("a\\nb".to_string())))),
+            (0, Literal(Box::new(Value::String("a\\nb".to_string())))),
             (6, Eof)
         ]);
     }
@@ -448,11 +451,11 @@ mod tests {
         // Must enclose in quotes. See JEP 12.
         assert!(tokenize("`a`").unwrap_err().to_string().contains("Unable to parse"));
         assert_eq!(tokenize_queue("`\"a\"`"), vec![
-            (0, Literal(Rc::new(Variable::String("a".to_string())))),
+            (0, Literal(Box::new(Value::String("a".to_string())))),
             (5, Eof)
         ]);
         assert_eq!(tokenize_queue("`\"a b\"`"), vec![
-            (0, Literal(Rc::new(Variable::String("a b".to_string())))),
+            (0, Literal(Box::new(Value::String("a b".to_string())))),
             (7, Eof)
         ]);
     }
@@ -482,7 +485,7 @@ mod tests {
         assert_eq!(tokens[1], (3, Dot));
         assert_eq!(tokens[2], (4, Identifier("bar".to_string())));
         assert_eq!(tokens[3], (8, Or));
-        assert_eq!(tokens[4], (11, Literal(Rc::new(Variable::String("a".to_string())))));
+        assert_eq!(tokens[4], (11, Literal(Box::new(Value::String("a".to_string())))));
         assert_eq!(tokens[5], (17, Pipe));
         assert_eq!(tokens[6], (19, Number(10)));
         assert_eq!(tokens[7], (21, Eof));

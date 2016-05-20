@@ -93,7 +93,7 @@ macro_rules! arg {
  * ------------------------------------------ */
 
 /// Stores and evaluates JMESPath functions.
-pub trait FnRegistry {
+pub trait FnRegistry : Sync {
     /// Gets a function signature by name from the registry.
     ///
     /// Returns the signature if found, or None if not found.

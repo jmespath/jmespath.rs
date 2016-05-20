@@ -1,13 +1,15 @@
 //! JMESPath AST
 
+extern crate serde_json;
+
 use std::fmt;
 
-use super::RcVar;
-use super::Coordinates;
+use serde_json::Value;
+use Coordinates;
 use lexer::Token;
 
 /// Abstract syntax tree of a JMESPath expression.
-#[derive(Clone, PartialEq, PartialOrd, Debug)]
+#[derive(Clone, PartialEq, Debug)]
 pub enum Ast {
     /// Compares two nodes using a comparator, returning true/false.
     Comparison {
@@ -77,7 +79,7 @@ pub enum Ast {
         /// Approximate absolute position in the parsed expression.
         offset: usize,
         /// Literal value
-        value: RcVar,
+        value: Value,
     },
     /// Evaluates to a list of evaluated expressions.
     MultiList {
@@ -190,7 +192,7 @@ impl fmt::Display for Ast {
 }
 
 /// Represents a key value pair in a multi-hash
-#[derive(Clone, PartialEq, PartialOrd, Debug)]
+#[derive(Clone, PartialEq, Debug)]
 pub struct KeyValuePair {
     /// Key name.
     pub key: String,
@@ -199,7 +201,7 @@ pub struct KeyValuePair {
 }
 
 /// Comparators used in Comparison nodes
-#[derive(Clone, PartialEq, PartialOrd, Debug)]
+#[derive(Clone, PartialEq, Debug)]
 pub enum Comparator {
     Eq(EqComparator),
     Ord(OrdComparator),

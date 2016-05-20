@@ -624,7 +624,7 @@ impl<'a> Parser<'a> {
             },
             Token::Literal(value) => {
                 Ok(Trampoline::Value(Ast::Literal {
-                    value: value,
+                    value: *value,
                     offset: offset
                 }))
             },

@@ -23,7 +23,7 @@ pub fn interpret(data: &RcVar, node: &Ast, ctx: &mut Context) -> SearchResult {
         },
         Ast::Field { ref name, .. } => Ok(get_field(data, name)),
         Ast::Identity { .. } => Ok(data.clone()),
-        Ast::Literal { ref value, .. } => Ok(value.clone()),
+        Ast::Literal { ref value, .. } => Ok(Rc::new(Variable::from_serde_value(value))),
         Ast::Index { idx, .. } => {
             if idx >= 0 {
                 Ok(get_index(data, idx as usize))

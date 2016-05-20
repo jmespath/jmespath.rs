@@ -13,6 +13,7 @@ use std::string::ToString;
 use self::serde::de;
 use self::serde::ser;
 use self::serde::Serialize;
+use self::serde_json::Value;
 use self::serde_json::error::Error;
 
 use super::RcVar;
@@ -22,7 +23,7 @@ use super::ast::{Ast, Comparator, EqComparator, OrdComparator};
 ///
 /// Note: this enum and implementation is based on rustc-serialize:
 /// https://github.com/rust-lang-nursery/rustc-serialize
-#[derive(Clone, PartialEq, PartialOrd, Debug)]
+#[derive(Clone, PartialEq, Debug)]
 pub enum Variable {
     Null,
     String(String),
@@ -36,6 +37,31 @@ pub enum Variable {
 }
 
 impl Eq for Variable {}
+
+/// Implement PartialOrd so that Ast can be in the PartialOrd of Variable.
+impl PartialOrd<Variable> for Variable {
+    fn partial_cmp(&self, other: &Variable) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+
+    fn lt(&self, other: &Variable) -> bool {
+        self.cmp(other) == Ordering::Less
+    }
+
+    fn le(&self, other: &Variable) -> bool {
+        let ordering = self.cmp(other);
+        ordering == Ordering::Equal || ordering == Ordering::Less
+    }
+
+    fn gt(&self, other: &Variable) -> bool {
+        self.cmp(other) == Ordering::Greater
+    }
+
+    fn ge(&self, other: &Variable) -> bool {
+        let ordering = self.cmp(other);
+        ordering == Ordering::Equal || ordering == Ordering::Greater
+    }
+}
 
 impl Ord for Variable {
     fn cmp(&self, other: &Self) -> Ordering {
@@ -67,6 +93,31 @@ impl Variable {
     /// Create a JMESPath Variable from a JSON encoded string.
     pub fn from_json(s: &str) -> Result<Self, String> {
         serde_json::from_str::<Variable>(s).map_err(|e| e.to_string())
+    }
+
+    /// Create a JMESPath `Variable` from a `serde_json::Value` type.
+    /// TODO: Can trait specialization remove the need for this?
+    pub fn from_serde_value(value: &Value) -> Variable {
+        match *value {
+            Value::String(ref s) => Variable::String(s.to_owned()),
+            Value::Null => Variable::Null,
+            Value::Bool(b) => Variable::Bool(b),
+            Value::F64(f) => Variable::F64(f),
+            Value::I64(i) => Variable::I64(i),
+            Value::U64(u) => Variable::U64(u),
+            Value::Array(ref values) => {
+                Variable::Array(
+                    values.iter().map(|v| Rc::new(Variable::from_serde_value(v))).collect()
+                )
+            },
+            Value::Object(ref values) => {
+                let mut map: BTreeMap<String, RcVar> = BTreeMap::new();
+                for kvp in values.iter() {
+                    map.insert(kvp.0.to_owned(), Rc::new(Variable::from_serde_value(kvp.1)));
+                }
+                Variable::Object(map)
+            },
+        }
     }
 
     /// Create a JMESPath `Variable` from a `serde::se::Serialize` type.
