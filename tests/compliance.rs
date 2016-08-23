@@ -117,15 +117,10 @@ impl Assertion {
                 match try!(self.try_parse(suite, case)).search(given) {
                     Err(e) => Err(self.err_message(suite, case, format!("{}", e))),
                     Ok(r) => {
-                        match r.as_string() {
-                            Some(s) if s != expected_result.as_string().unwrap() => {
-                                Err(self.err_message(suite, case, r.to_string()))
-                            },
-                            Some(_) if r != expected_result.clone() => {
-                                Err(self.err_message(suite, case, r.to_string()))
-                            },
-                            _ => Ok(())
+                        if r == *expected_result {
+                            return Ok(());
                         }
+                        return Err(self.err_message(suite, case, r.to_string()));
                     }
                 }
             },
