@@ -181,7 +181,7 @@ impl Assertion {
 
     /// Formats an error message for a test case failure.
     fn err_message(&self, suite: &str, case: &TestCase, message: String) -> String {
-        format!("Test suite: {}\nExpression: {}\nAssertion: {}\nResult: {}\n==============",
+        format!("Test suite: {}\n\tExpression: {}\n\tAssertion: {}\n\tResult: {}",
                  suite, case.expression, self, message).to_string()
     }
 }
