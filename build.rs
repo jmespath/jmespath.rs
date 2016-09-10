@@ -169,11 +169,18 @@ fn generate_test(filename: &str,
 
     f.write_all(format!("\
 #[test]
-fn test_{}() {{
-    let case: TestCase = TestCase::from_str({:?}).unwrap();
-    let data = Rc::new(Variable::from_json({:?}).unwrap());
-    case.assert({:?}, data).unwrap();
+fn test_{fns}() {{
+    let case: TestCase = TestCase::from_str({case:?}).unwrap();
+    let data = Rc::new(Variable::from_json({gs:?}).unwrap());
+    let e = match case.assert({filen:?}, data) {{
+        Ok(_) => true,
+        Err(e) => {{
+            println!(\"{{}}\", e);
+            false
+        }},
+    }};
+    assert!(e);
 }}
 
-", fn_suffix, case_string, given_string, filename).as_bytes()).expect("Unable to write test");
+", fns=fn_suffix, case=case_string, gs=given_string, filen=filename).as_bytes()).expect("Unable to write test");
 }
