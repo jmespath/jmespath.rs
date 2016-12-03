@@ -75,8 +75,6 @@ impl Token {
 /// A tuple of the token position and the token.
 pub type TokenTuple = (usize, Token);
 
-type CharIter<'a> = Peekable<CharIndices<'a>>;
-
 /// Tokenizes a JMESPath expression.
 pub fn tokenize(expr: &str) -> Result<VecDeque<TokenTuple>, Error> {
     Lexer::new(expr).tokenize()
@@ -88,7 +86,7 @@ struct Lexer<'a> {
 }
 
 impl<'a> Lexer<'a> {
-    pub fn new(expr: &'a str) -> Lexer<'a> {
+    fn new(expr: &'a str) -> Lexer<'a> {
         Lexer {
             expr: expr,
             iter: expr.char_indices().peekable()

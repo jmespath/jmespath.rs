@@ -12,7 +12,6 @@ use std::string::ToString;
 
 use self::serde::de;
 use self::serde::ser;
-use self::serde::Serialize;
 use self::serde_json::Value;
 use self::serde_json::error::Error;
 
