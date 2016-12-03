@@ -11,9 +11,6 @@
 //! `thunks` stack of the parser. When the thunk is popped from the stack,
 //! it is sent the current LHS node so that it can continue its parsing.
 
-// Note that we need to allow boxed locals as it's part of ThunkParser.
-#![cfg_attr(feature="clippy", allow(boxed_local))]
-
 use std::collections::VecDeque;
 
 use super::{Error, ErrorReason};
@@ -34,227 +31,280 @@ type SendResult = Result<Trampoline, Error>;
 /// Pushing to a state maching can return a node or push a new state.
 enum Trampoline {
     Value(Ast),
-    Thunk(Box<ThunkParser>)
+    Thunk(ThunkParser),
 }
 
-/// Represents a pending parser that needs an additional value.
-trait ThunkParser {
+enum ThunkParser {
+    Subexpression {
+        lbp: usize,
+        offset: usize,
+        lhs: Box<Ast>,
+    },
+    SliceProjection {
+        offset: usize,
+        start: Option<i32>,
+        stop: Option<i32>,
+        step: i32,
+    },
+    FilterProjection {
+        offset: usize,
+        lhs: Box<Ast>,
+        predicate: Option<Box<Ast>>,
+        lbp: usize,
+    },
+    Comparison {
+        offset: usize,
+        cmp: Comparator,
+        lhs: Box<Ast>,
+    },
+    MultiList {
+        offset: usize,
+        elements: Vec<Ast>,
+    },
+    MultiHash {
+        offset: usize,
+        key: Option<String>,
+        elements: Vec<KeyValuePair>,
+    },
+    Function {
+        name: String,
+        offset: usize,
+        args: Vec<Ast>,
+    },
+    Or {
+        offset: usize,
+        lhs: Box<Ast>,
+    },
+    And {
+        offset: usize,
+        lhs: Box<Ast>,
+    },
+    Not {
+        offset: usize,
+    },
+    Expref {
+        offset: usize,
+    },
+    PrecedenceParen,
+    WildcardIndex {
+        offset: usize,
+        lhs: Box<Ast>,
+    },
+    WildcardValues {
+        offset: usize,
+        lhs: Box<Ast>,
+    },
+    Flatten {
+        offset: usize,
+        lhs: Box<Ast>,
+    },
+    Then {
+        first: Box<ThunkParser>,
+        then: Box<ThunkParser>,
+    },
+}
+
+impl ThunkParser {
     /// Sends an AST node into the parser, completing or continuing it
-    fn send(self: Box<Self>, parser: &mut Parser, node: Ast) -> SendResult;
-
-    /// Get the left binding power of the parser.
-    fn lbp(&self) -> usize;
-}
-
-/// Parses the RHS of a Subexpr AST node.
-struct SubexpressionParser {
-    lbp: usize,
-    offset: usize,
-    lhs: Ast,
-}
-
-impl ThunkParser for SubexpressionParser {
-    fn send(self: Box<Self>, _parser: &mut Parser, node: Ast) -> SendResult {
-        Ok(Trampoline::Value(Ast::Subexpr {
-            offset: self.offset,
-            lhs: Box::new(self.lhs),
-            rhs: Box::new(node)
-        }))
-    }
-
-    fn lbp(&self) -> usize {
-        self.lbp
-    }
-}
-
-/// Parses the RHS of a slice projection.
-struct SliceProjectionParser {
-    offset: usize,
-    start: Option<i32>,
-    stop: Option<i32>,
-    step: i32
-}
-
-impl ThunkParser for SliceProjectionParser {
-    fn send(self: Box<Self>, _parser: &mut Parser, node: Ast) -> SendResult {
-        Ok(Trampoline::Value(Ast::Projection {
-            offset: self.offset,
-            lhs: Box::new(Ast::Slice {
-                offset: self.offset,
-                start: self.start,
-                stop: self.stop,
-                step: self.step
-            }),
-            rhs: Box::new(node)
-        }))
-    }
-
-    fn lbp(&self) -> usize {
-        Token::Star.lbp()
-    }
-}
-
-/// Parses a filter Projection that filters the right side of the
-/// projection using a Condition node. If the Condition node returns
-/// a truthy value, then the value is yielded by the projection.
-struct FilterProjectionParser {
-    offset: usize,
-    lhs: Ast,
-    predicate: Option<Ast>,
-}
-
-impl ThunkParser for FilterProjectionParser {
-    fn send(self: Box<Self>, parser: &mut Parser, node: Ast) -> SendResult {
-        let thunk_parser = *self;
-        match thunk_parser.predicate {
-            None => {
-                // After receiving the parsed predicate, parse the projection.
-                match parser.advance() {
-                    // Ensure the ']' was closed
-                    Token::Rbracket => {
-                        parser.projection_rhs(Box::new(FilterProjectionParser {
-                            offset: thunk_parser.offset,
-                            lhs: thunk_parser.lhs,
-                            predicate: Some(node)
-                        }))
-                    },
-                    ref t => Err(parser.err(t, &"Expected ']'", false))
-                }
-            },
-            Some(predicate) => {
-                Ok(Trampoline::Value(Ast::Projection {
-                    offset: thunk_parser.offset,
-                    lhs: Box::new(thunk_parser.lhs),
-                    rhs: Box::new(Ast::Condition {
-                        offset: thunk_parser.offset,
-                        predicate: Box::new(predicate),
-                        then: Box::new(node)
-                   })
-               }))
-            }
-        }
-    }
-
-    fn lbp(&self) -> usize {
-        match self.predicate {
-            None => 0,
-            Some(_) => Token::Filter.lbp()
-        }
-    }
-}
-
-/// Parses the comparison and RHS of a comparison (e.g., foo [> bar]), and
-/// creates an Ast::Comparison node holding the LHS, RHS, and comparator.
-struct ComparisonParser {
-    offset: usize,
-    cmp: Comparator,
-    lhs: Ast
-}
-
-impl ThunkParser for ComparisonParser {
-    fn send(self: Box<Self>, _parser: &mut Parser, node: Ast) -> SendResult {
-        let thunk_parser = *self;
-        Ok(Trampoline::Value(Ast::Comparison {
-            offset: thunk_parser.offset,
-            comparator: thunk_parser.cmp,
-            lhs: Box::new(thunk_parser.lhs),
-            rhs: Box::new(node)
-        }))
-    }
-
-    fn lbp(&self) -> usize {
-        // All comparators have the same precedence.
-        Token::Eq.lbp()
-    }
-}
-
-/// Parses a multi-select-list AST node until an Rbracket token is found.
-struct MultiListParser {
-    offset: usize,
-    elements: Vec<Ast>
-}
-
-impl ThunkParser for MultiListParser {
-    fn send(mut self: Box<Self>, parser: &mut Parser, node: Ast) -> SendResult {
-        self.elements.push(node);
-        if try!(push_list_value(parser, Token::Rbracket)) {
-            Ok(Trampoline::Value(Ast::MultiList {
-                offset: self.offset,
-                elements: self.elements
-            }))
-        } else {
-            Ok(Trampoline::Thunk(self))
-        }
-    }
-
-    fn lbp(&self) -> usize {
-        0
-    }
-}
-
-/// Parses a an Ast::Function node until an Rparen token is found.
-struct FunctionParser {
-    name: String,
-    offset: usize,
-    args: Vec<Ast>,
-}
-
-impl ThunkParser for FunctionParser {
-    fn send(self: Box<Self>, parser: &mut Parser, node: Ast) -> SendResult {
-        let mut thunk_parser = *self;
-        thunk_parser.args.push(node);
-        if try!(push_list_value(parser, Token::Rparen)) {
-            Ok(Trampoline::Value(Ast::Function {
-                offset: thunk_parser.offset,
-                name: thunk_parser.name,
-                args: thunk_parser.args
-            }))
-        } else {
-            Ok(Trampoline::Thunk(Box::new(thunk_parser)))
-        }
-    }
-
-    fn lbp(&self) -> usize {
-        0
-    }
-}
-
-/// Parses an Ast::MultiHash node until an Rbrace. Key value pairs are all
-/// pushed onto a single Vec. We then treat each odd element as a key and even
-/// element as a value to build the KeyValuePair AST nodes.
-struct MultiHashParser {
-    offset: usize,
-    key: Option<String>,
-    elements: Vec<KeyValuePair>,
-}
-
-impl ThunkParser for MultiHashParser {
-    fn send(self: Box<Self>, parser: &mut Parser, node: Ast) -> SendResult {
-        let mut thunk_parser = *self;
-        thunk_parser.elements.push(KeyValuePair {
-            key: thunk_parser.key.take().unwrap(),
-            value: node
-        });
-        match parser.advance() {
-            Token::Rbrace => {
-                Ok(Trampoline::Value(Ast::MultiHash {
-                    offset: thunk_parser.offset,
-                    elements: thunk_parser.elements
+    fn send(self, parser: &mut Parser, node: Ast) -> SendResult {
+        match self {
+            ThunkParser::Subexpression {offset, lhs, ..} => {
+                Ok(Trampoline::Value(Ast::Subexpr {
+                    offset: offset,
+                    lhs: lhs,
+                    rhs: Box::new(node),
                 }))
             },
-            Token::Comma => Self::with_key(parser, thunk_parser.offset, thunk_parser.elements),
-            ref t => Err(parser.err(t, "Expected '}' or ','", false))
+            ThunkParser::SliceProjection {offset, start, stop, step} => {
+                Ok(Trampoline::Value(Ast::Projection {
+                    offset: offset,
+                    lhs: Box::new(Ast::Slice {
+                        offset: offset,
+                        start: start,
+                        stop: stop,
+                        step: step
+                    }),
+                    rhs: Box::new(node),
+                }))
+            },
+            ThunkParser::FilterProjection {offset, lhs, predicate, ..} => {
+                match predicate {
+                    None => {
+                        // After receiving the parsed predicate, parse the projection.
+                        match parser.advance() {
+                            // Ensure the ']' was closed
+                            Token::Rbracket => {
+                                parser.projection_rhs(ThunkParser::FilterProjection {
+                                    offset: offset,
+                                    lhs: lhs,
+                                    predicate: Some(Box::new(node)),
+                                    lbp: Token::Star.lbp(),
+                                })
+                            },
+                            ref t => Err(parser.err(t, &"Expected ']'", false))
+                        }
+                    },
+                    Some(predicate) => {
+                        Ok(Trampoline::Value(Ast::Projection {
+                            offset: offset,
+                            lhs: lhs,
+                            rhs: Box::new(Ast::Condition {
+                                offset: offset,
+                                predicate: predicate,
+                                then: Box::new(node),
+                           })
+                       }))
+                    }
+                }
+            },
+            ThunkParser::Comparison {offset, cmp, lhs} => {
+                Ok(Trampoline::Value(Ast::Comparison {
+                    offset: offset,
+                    comparator: cmp,
+                    lhs: lhs,
+                    rhs: Box::new(node),
+                }))
+            },
+            ThunkParser::MultiList {offset, mut elements} => {
+                elements.push(node);
+                if try!(push_list_value(parser, Token::Rbracket)) {
+                    Ok(Trampoline::Value(Ast::MultiList {
+                        offset: offset,
+                        elements: elements,
+                    }))
+                } else {
+                    Ok(Trampoline::Thunk(ThunkParser::MultiList {
+                        offset: offset,
+                        elements: elements,
+                    }))
+                }
+            },
+            ThunkParser::MultiHash {offset, mut key, mut elements} => {
+                elements.push(KeyValuePair {
+                    key: key.take().unwrap(),
+                    value: node,
+                });
+                match parser.advance() {
+                    Token::Rbrace => {
+                        Ok(Trampoline::Value(Ast::MultiHash {
+                            offset: offset,
+                            elements: elements
+                        }))
+                    },
+                    Token::Comma => ThunkParser::hash_with_key(parser, offset, elements),
+                    ref t => Err(parser.err(t, "Expected '}' or ','", false))
+                }
+            },
+            ThunkParser::Function {name, offset, mut args} => {
+                args.push(node);
+                if try!(push_list_value(parser, Token::Rparen)) {
+                    Ok(Trampoline::Value(Ast::Function {offset: offset, name: name, args: args}))
+                } else {
+                    Ok(Trampoline::Thunk(ThunkParser::Function {
+                        name: name,
+                        offset: offset,
+                        args: args,
+                    }))
+                }
+            },
+            ThunkParser::Or {offset, lhs} => {
+                Ok(Trampoline::Value(Ast::Or {
+                    offset: offset,
+                    lhs: lhs,
+                    rhs: Box::new(node),
+                }))
+            },
+            ThunkParser::And {offset, lhs} => {
+                Ok(Trampoline::Value(Ast::And {
+                    offset: offset,
+                    lhs: lhs,
+                    rhs: Box::new(node),
+                }))
+            },
+            ThunkParser::Not {offset} => {
+                Ok(Trampoline::Value(Ast::Not {
+                    offset: offset,
+                    node: Box::new(node),
+                }))
+            },
+            ThunkParser::Expref {offset} => {
+                Ok(Trampoline::Value(Ast::Expref {
+                    offset: offset,
+                    ast: Box::new(node),
+                }))
+            },
+            ThunkParser::PrecedenceParen => {
+                match parser.advance() {
+                    Token::Rparen => Ok(Trampoline::Value(node)),
+                    ref t => Err(parser.err(t, "Expected ')' to close '('", false))
+                }
+            },
+            ThunkParser::WildcardIndex {offset, lhs} => {
+                Ok(Trampoline::Value(Ast::Projection {
+                    offset: offset,
+                    lhs: lhs,
+                    rhs: Box::new(node),
+                }))
+            },
+            ThunkParser::WildcardValues {offset, lhs} => {
+                Ok(Trampoline::Value(Ast::Projection {
+                    offset: offset,
+                    lhs: Box::new(Ast::ObjectValues {
+                        offset: offset,
+                        node: lhs,
+                    }),
+                    rhs: Box::new(node),
+                }))
+            },
+            ThunkParser::Flatten {offset, lhs} => {
+                Ok(Trampoline::Value(Ast::Projection {
+                    offset: offset,
+                    lhs: Box::new(Ast::Flatten {
+                        offset: offset,
+                        node: lhs,
+                    }),
+                    rhs: Box::new(node),
+                }))
+            },
+            ThunkParser::Then {first, then} => {
+                match try!(first.send(parser, node)) {
+                    Trampoline::Value(result) => then.send(parser, result),
+                    Trampoline::Thunk(thunk) => {
+                        Ok(Trampoline::Thunk(ThunkParser::Then {
+                            first: Box::new(thunk),
+                            then: then,
+                        }))
+                    }
+                }
+            },
         }
     }
 
+    /// Get the left binding power of the parser.
     fn lbp(&self) -> usize {
-        0
+        match *self {
+            ThunkParser::Subexpression { lbp, .. } => lbp,
+            ThunkParser::SliceProjection {..} => Token::Star.lbp(),
+            ThunkParser::FilterProjection {lbp, ..} => lbp,
+            ThunkParser::Comparison {..} => Token::Eq.lbp(),
+            ThunkParser::MultiList {..} => 0,
+            ThunkParser::MultiHash {..} => 0,
+            ThunkParser::Function {..} => 0,
+            ThunkParser::Or {..} => Token::Or.lbp(),
+            ThunkParser::And {..} => Token::And.lbp(),
+            ThunkParser::Not {..} => Token::Not.lbp(),
+            ThunkParser::Expref {..} => Token::Ampersand.lbp(),
+            ThunkParser::PrecedenceParen {..} => 0,
+            ThunkParser::WildcardIndex {..} => Token::Star.lbp(),
+            ThunkParser::WildcardValues {..} => Token::Star.lbp(),
+            ThunkParser::Flatten {..} => Token::Flatten.lbp(),
+            ThunkParser::Then {ref first, ..} => first.lbp(),
+        }
     }
-}
 
-impl MultiHashParser {
     /// Creates a new MultiHashParser with an added key from the parser.
-    fn with_key(parser: &mut Parser, offset: usize, elements: Vec<KeyValuePair>) -> SendResult {
+    fn hash_with_key(parser: &mut Parser, offset: usize, elements: Vec<KeyValuePair>)
+            -> SendResult {
         // Ensure the key is valid
         let key_name = try!(match parser.advance() {
             Token::Identifier(v) => Ok(v),
@@ -264,200 +314,14 @@ impl MultiHashParser {
         // Ensure that the key is followed by ":"
         match parser.advance() {
             Token::Colon =>  {
-                Ok(Trampoline::Thunk(Box::new(MultiHashParser {
+                Ok(Trampoline::Thunk(ThunkParser::MultiHash {
                     key: Some(key_name),
                     offset: offset,
                     elements: elements
-                })))
+                }))
             },
             ref t => Err(parser.err(t, &"Expected ':' to follow key", true))
         }
-    }
-}
-
-/// Parses the RHS of an Or expression to creat an Ast::Or node.
-struct OrParser {
-    offset: usize,
-    lhs: Ast
-}
-
-impl ThunkParser for OrParser {
-    fn send(self: Box<Self>, _parser: &mut Parser, node: Ast) -> SendResult {
-        Ok(Trampoline::Value(Ast::Or {
-            offset: self.offset,
-            lhs: Box::new(self.lhs),
-            rhs: Box::new(node)
-        }))
-    }
-
-    fn lbp(&self) -> usize {
-        Token::Or.lbp()
-    }
-}
-
-/// Parses the RHS of an And expression to creat an Ast::And node.
-struct AndParser {
-    offset: usize,
-    lhs: Ast
-}
-
-impl ThunkParser for AndParser {
-    fn send(self: Box<Self>, _parser: &mut Parser, node: Ast) -> SendResult {
-        Ok(Trampoline::Value(Ast::And {
-            offset: self.offset,
-            lhs: Box::new(self.lhs),
-            rhs: Box::new(node)
-        }))
-    }
-
-    fn lbp(&self) -> usize {
-        Token::And.lbp()
-    }
-}
-
-/// Parses the contents of a not expression to create an Ast::Not node.
-struct NotParser {
-    offset: usize
-}
-
-impl ThunkParser for NotParser {
-    fn send(self: Box<Self>, _parser: &mut Parser, node: Ast) -> SendResult {
-        Ok(Trampoline::Value(Ast::Not {
-            offset: self.offset,
-            node: Box::new(node)
-        }))
-    }
-
-    fn lbp(&self) -> usize {
-        Token::Not.lbp()
-    }
-}
-
-/// Parses an expression reference.
-struct ExprefParser {
-    offset: usize
-}
-
-impl ThunkParser for ExprefParser {
-    fn send(self: Box<Self>, _parser: &mut Parser, node: Ast) -> SendResult {
-        Ok(Trampoline::Value(Ast::Expref {
-            offset: self.offset,
-            ast: Box::new(node)
-        }))
-    }
-
-    fn lbp(&self) -> usize {
-        Token::Ampersand.lbp()
-    }
-}
-
-/// Parses a precedence parenthesis.
-struct PrecedenceParenParser;
-
-impl ThunkParser for PrecedenceParenParser {
-    fn send(self: Box<Self>, parser: &mut Parser, node: Ast) -> SendResult {
-        match parser.advance() {
-            Token::Rparen => Ok(Trampoline::Value(node)),
-            ref t => Err(parser.err(t, "Expected ')' to close '('", false))
-        }
-    }
-
-    fn lbp(&self) -> usize {
-        0
-    }
-}
-
-/// Parses the RHS of a wildcard index projection (e.g., foo.*.bar.baz)
-struct WildcardValuesParser {
-    offset: usize,
-    lhs: Ast
-}
-
-impl ThunkParser for WildcardValuesParser {
-    fn send(self: Box<Self>, _parser: &mut Parser, node: Ast) -> SendResult {
-        Ok(Trampoline::Value(Ast::Projection {
-            offset: self.offset,
-            lhs: Box::new(Ast::ObjectValues {
-                offset: self.offset,
-                node: Box::new(self.lhs)
-            }),
-            rhs: Box::new(node)
-        }))
-    }
-
-    fn lbp(&self) -> usize {
-        Token::Star.lbp()
-    }
-}
-
-/// Parses the RHS of a wildcard index projection (e.g., foo[*].bar.baz)
-struct WildcardIndexParser {
-    offset: usize,
-    lhs: Ast
-}
-
-impl ThunkParser for WildcardIndexParser {
-    fn send(self: Box<Self>, _parser: &mut Parser, node: Ast) -> SendResult {
-        let thunk_parser = *self;
-        Ok(Trampoline::Value(Ast::Projection {
-            offset: thunk_parser.offset,
-            lhs:Box::new(thunk_parser.lhs),
-            rhs: Box::new(node)
-        }))
-    }
-
-    fn lbp(&self) -> usize {
-        Token::Star.lbp()
-    }
-}
-
-/// Parses the RHS of a flatten projection.
-struct FlattenProjectionParser {
-    offset: usize,
-    lhs: Ast
-}
-
-impl ThunkParser for FlattenProjectionParser {
-    fn send(self: Box<Self>, _parser: &mut Parser, node: Ast) -> SendResult {
-        Ok(Trampoline::Value(Ast::Projection {
-            offset: self.offset,
-            lhs: Box::new(Ast::Flatten {
-                offset: self.offset,
-                node: Box::new(self.lhs)
-            }),
-            rhs: Box::new(node)
-        }))
-    }
-
-    fn lbp(&self) -> usize {
-        Token::Flatten.lbp()
-    }
-}
-
-/// Parses the first thunk. If it returns another thunk, returns a new
-/// ThenParser that wraps the new thunk and the "then" pending thunk.
-/// When a value is received, it is sent to the pending "then" thunk.
-struct ThenParser {
-    first: Box<ThunkParser>,
-    then: Box<ThunkParser>,
-}
-
-impl ThunkParser for ThenParser {
-    fn send(self: Box<Self>, parser: &mut Parser, node: Ast) -> SendResult {
-        let thunk_parser = *self;
-        match try!(thunk_parser.first.send(parser, node)) {
-            Trampoline::Value(result) => thunk_parser.then.send(parser, result),
-            Trampoline::Thunk(thunk) => {
-                Ok(Trampoline::Thunk(Box::new(ThenParser {
-                    first: thunk,
-                    then: thunk_parser.then
-                })))
-            }
-        }
-    }
-
-    fn lbp(&self) -> usize {
-        self.first.lbp()
     }
 }
 
@@ -486,7 +350,7 @@ struct Parser<'a> {
     /// The current character offset in the expression
     offset: usize,
     /// Stack of pending parsers to provide AST nodes.
-    thunks: Vec<Box<ThunkParser>>
+    thunks: Vec<ThunkParser>,
 }
 
 impl<'a> Parser<'a> {
@@ -638,14 +502,14 @@ impl<'a> Parser<'a> {
                     _ => self.parse_multi_list()
                 }
             },
-            Token::Lbrace => MultiHashParser::with_key(self, offset, Vec::new()),
+            Token::Lbrace => ThunkParser::hash_with_key(self, offset, Vec::new()),
             Token::At => Ok(Trampoline::Value(Ast::Identity { offset: offset })),
             Token::Flatten => self.parse_flatten(Ast::Identity { offset: offset }),
             Token::Star => self.parse_wildcard_values(Ast::Identity { offset: offset }),
-            Token::Ampersand => Ok(Trampoline::Thunk(Box::new(ExprefParser { offset: offset }))),
-            Token::Not => Ok(Trampoline::Thunk(Box::new(NotParser { offset: offset }))),
+            Token::Ampersand => Ok(Trampoline::Thunk(ThunkParser::Expref { offset: offset })),
+            Token::Not => Ok(Trampoline::Thunk(ThunkParser::Not { offset: offset })),
             Token::Filter => self.parse_filter(Ast::Identity { offset: offset }),
-            Token::Lparen => Ok(Trampoline::Thunk(Box::new(PrecedenceParenParser))),
+            Token::Lparen => Ok(Trampoline::Thunk(ThunkParser::PrecedenceParen)),
             ref t => Err(self.err(t, &"Unexpected nud token", false))
         }
     }
@@ -660,23 +524,33 @@ impl<'a> Parser<'a> {
                     self.advance();
                     self.parse_wildcard_values(left)
                 } else {
-                    self.parse_dot_rhs(Box::new(SubexpressionParser {
+                    self.parse_dot_rhs(ThunkParser::Subexpression {
                         lbp: Token::Dot.lbp(),
                         offset: offset,
-                        lhs: left
-                    }))
+                        lhs: Box::new(left),
+                    })
                 }
             },
             Token::Pipe => {
-                Ok(Trampoline::Thunk(Box::new(SubexpressionParser {
+                Ok(Trampoline::Thunk(ThunkParser::Subexpression {
                     lbp: Token::Pipe.lbp(),
                     offset: offset,
-                    lhs: left
-                })))
+                    lhs: Box::new(left),
+                }))
             },
             Token::Lbracket => self.parse_led_lbracket(offset, left),
-            Token::Or => Ok(Trampoline::Thunk(Box::new(OrParser { offset: offset, lhs: left }))),
-            Token::And => Ok(Trampoline::Thunk(Box::new(AndParser { offset: offset, lhs: left }))),
+            Token::Or => {
+                Ok(Trampoline::Thunk(ThunkParser::Or {
+                    offset: offset,
+                    lhs: Box::new(left),
+                }))
+            },
+            Token::And => {
+                Ok(Trampoline::Thunk(ThunkParser::And {
+                    offset: offset,
+                    lhs: Box::new(left),
+                }))
+            },
             Token::Lparen => self.parse_function(left, offset),
             Token::Filter => self.parse_filter(left),
             Token::Flatten => self.parse_flatten(left),
@@ -700,11 +574,11 @@ impl<'a> Parser<'a> {
                         args: Vec::new()
                     }))
                 } else {
-                    Ok(Trampoline::Thunk(Box::new(FunctionParser {
+                    Ok(Trampoline::Thunk(ThunkParser::Function {
                         offset: offset,
                         name: name,
                         args: vec![],
-                    })))
+                    }))
                 }
             },
             _ => Err(self.err(&Token::Lparen, &"Invalid start of function", false))
@@ -713,38 +587,39 @@ impl<'a> Parser<'a> {
 
     #[inline]
     fn parse_filter(&mut self, lhs: Ast) -> SendResult {
-        Ok(Trampoline::Thunk(Box::new(FilterProjectionParser {
+        Ok(Trampoline::Thunk(ThunkParser::FilterProjection {
             offset: self.offset,
-            lhs: lhs,
-            predicate: None
-        })))
+            lhs: Box::new(lhs),
+            predicate: None,
+            lbp: 0,
+        }))
     }
 
     #[inline]
     fn parse_comparator(&mut self, cmp: Comparator, lhs: Ast) -> SendResult {
-        Ok(Trampoline::Thunk(Box::new(ComparisonParser {
+        Ok(Trampoline::Thunk(ThunkParser::Comparison {
             offset: self.offset,
             cmp: cmp,
-            lhs: lhs
-        })))
+            lhs: Box::new(lhs),
+        }))
     }
 
     #[inline]
     fn parse_flatten(&mut self, lhs: Ast) -> SendResult {
         let offset = self.offset;
-        self.projection_rhs(Box::new(FlattenProjectionParser {
+        self.projection_rhs(ThunkParser::Flatten {
             offset: offset,
-            lhs: lhs
-        }))
+            lhs: Box::new(lhs),
+        })
     }
 
     #[inline]
     fn parse_wildcard_values(&mut self, lhs: Ast) -> SendResult {
         let offset = self.offset;
-        self.projection_rhs(Box::new(WildcardValuesParser {
+        self.projection_rhs(ThunkParser::WildcardValues {
             offset: offset,
-            lhs: lhs
-        }))
+            lhs: Box::new(lhs),
+        })
     }
 
     #[inline]
@@ -752,10 +627,10 @@ impl<'a> Parser<'a> {
         let offset = self.offset;
         match self.advance() {
             Token::Rbracket => {
-                self.projection_rhs(Box::new(WildcardIndexParser {
+                self.projection_rhs(ThunkParser::WildcardIndex {
                     offset: offset,
-                    lhs: lhs
-                }))
+                    lhs: Box::new(lhs),
+                })
             },
             ref t => Err(self.err(t, &"Expected ']' for wildcard index", false))
         }
@@ -764,7 +639,7 @@ impl<'a> Parser<'a> {
     /// Parses the right hand side of a projection, using the given LBP to
     /// determine when to stop consuming tokens.
     #[inline]
-    fn projection_rhs(&mut self, then: Box<ThunkParser>) -> SendResult {
+    fn projection_rhs(&mut self, then: ThunkParser) -> SendResult {
         match match *self.peek(0) {
             Token::Dot => 0,
             Token::Lbracket | Token::Filter => 1,
@@ -785,7 +660,7 @@ impl<'a> Parser<'a> {
 
     /// Parses the right hand side of a dot expression.
     #[inline]
-    fn parse_dot_rhs(&mut self, then: Box<ThunkParser>) -> SendResult {
+    fn parse_dot_rhs(&mut self, then: ThunkParser) -> SendResult {
         let is_next_lbracket = match *self.peek(0) {
             Token::Lbracket => true,
             Token::Identifier(_) | Token::QuotedIdentifier(_) | Token::Star | Token::Lbrace
@@ -819,18 +694,18 @@ impl<'a> Parser<'a> {
                 Trampoline::Value(node) => Ok(Trampoline::Value(Ast::Subexpr {
                     offset: offset,
                     lhs: Box::new(lhs),
-                    rhs: Box::new(node)
+                    rhs: Box::new(node),
                 })),
                 // The parsed value is a projection, so wrap it when done.
                 Trampoline::Thunk(thunk) => {
-                    Ok(Trampoline::Thunk(Box::new(ThenParser {
-                        first: thunk,
-                        then: Box::new(SubexpressionParser {
+                    Ok(Trampoline::Thunk(ThunkParser::Then {
+                        first: Box::new(thunk),
+                        then: Box::new(ThunkParser::Subexpression {
                             lbp: Token::Lbracket.lbp(),
                             offset: offset,
-                            lhs: lhs
+                            lhs: Box::new(lhs),
                         })
-                    })))
+                    }))
                 }
             }
         }
@@ -869,27 +744,25 @@ impl<'a> Parser<'a> {
             // No colons were found, so this is a simple index extraction.
             Ok(Trampoline::Value(Ast::Index {
                 offset: self.offset,
-                idx: parts[0].unwrap()
+                idx: parts[0].unwrap(),
             }))
         } else {
             // Sliced array from start (e.g., [2:])
             let offset = self.offset;
-            self.projection_rhs(
-                Box::new(SliceProjectionParser {
-                    offset: offset,
-                    start: parts[0],
-                    stop: parts[1],
-                    step: parts[2].unwrap_or(1)
-                })
-            )
+            self.projection_rhs(ThunkParser::SliceProjection {
+                offset: offset,
+                start: parts[0],
+                stop: parts[1],
+                step: parts[2].unwrap_or(1)
+            })
         }
     }
 
     #[inline]
     fn parse_multi_list(&mut self) -> SendResult {
-        Ok(Trampoline::Thunk(Box::new(MultiListParser {
+        Ok(Trampoline::Thunk(ThunkParser::MultiList {
             offset: self.offset,
             elements: vec![]
-        })))
+        }))
     }
 }
