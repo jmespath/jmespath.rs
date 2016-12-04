@@ -1,17 +1,18 @@
 //! Module for JMESPath runtime variables
+//!
+//! Note: currently requires the nightly compiler for specialization.
 
 extern crate serde;
 extern crate serde_json;
 
 use std::collections::BTreeMap;
-use std::cmp::Ordering;
+use std::cmp::{max, Ordering};
 use std::fmt;
 use std::iter::Iterator;
 use std::rc::Rc;
 use std::string::ToString;
 
-use self::serde::de;
-use self::serde::ser;
+use self::serde::{de, ser};
 use self::serde_json::Value;
 use self::serde_json::error::Error;
 
@@ -83,15 +84,22 @@ impl fmt::Display for Variable {
     }
 }
 
-impl Variable {
-    /// Create a JMESPath Variable from a JSON encoded string.
-    pub fn from_json(s: &str) -> Result<Self, String> {
-        serde_json::from_str::<Variable>(s).map_err(|e| e.to_string())
+impl<'a, T: ser::Serialize> From<&'a T> for Variable {
+    default fn from(value: &'a T) -> Variable {
+        let mut ser = Serializer::new();
+        value.serialize(&mut ser).ok().unwrap();
+        ser.unwrap()
     }
+}
 
-    /// Create a JMESPath `Variable` from a `serde_json::Value` type.
-    /// TODO: Can trait specialization remove the need for this?
-    pub fn from_serde_value(value: &Value) -> Variable {
+impl From<RcVar> for Variable {
+    fn from(value: RcVar) -> Variable {
+        (*value).clone()
+    }
+}
+
+impl<'a> From<&'a Value> for Variable {
+    fn from(value: &'a Value) -> Variable {
         match *value {
             Value::String(ref s) => Variable::String(s.to_owned()),
             Value::Null => Variable::Null,
@@ -101,29 +109,126 @@ impl Variable {
             Value::I64(n) => Variable::Number(n as f64),
             Value::Array(ref values) => {
                 Variable::Array(
-                    values.iter().map(|v| Rc::new(Variable::from_serde_value(v))).collect()
+                    values.iter().map(|v| Rc::new(Variable::from(v))).collect()
                 )
             },
             Value::Object(ref values) => {
                 let mut map: BTreeMap<String, RcVar> = BTreeMap::new();
                 for kvp in values.iter() {
-                    map.insert(kvp.0.to_owned(), Rc::new(Variable::from_serde_value(kvp.1)));
+                    map.insert(kvp.0.to_owned(), Rc::new(Variable::from(kvp.1)));
                 }
                 Variable::Object(map)
             },
         }
     }
+}
 
-    /// Create a JMESPath `Variable` from a `serde::se::Serialize` type.
-    pub fn from_serialize<T: ser::Serialize>(value: &T) -> Variable {
-        let mut ser = Serializer::new();
-        value.serialize(&mut ser).ok().unwrap();
-        ser.unwrap()
+impl From<Value> for Variable {
+    fn from(value: Value) -> Variable {
+        Variable::from(&value)
     }
+}
 
-    /// Converts a JMESPath `Variable` to a `serde::de::Deserialize` type.
-    pub fn to_deserialize<T: de::Deserialize>(&self) -> Result<T, Error> {
-        serde_json::from_value(serde_json::to_value(&self))
+impl From<String> for Variable {
+    fn from(value: String) -> Variable {
+        Variable::String(value)
+    }
+}
+
+impl<'a> From<&'a str> for Variable {
+    fn from(value: &'a str) -> Variable {
+        Variable::String(value.to_owned())
+    }
+}
+
+impl From<i8> for Variable {
+    fn from(value: i8) -> Variable {
+        Variable::Number(value as f64)
+    }
+}
+
+impl From<i16> for Variable {
+    fn from(value: i16) -> Variable {
+        Variable::Number(value as f64)
+    }
+}
+
+impl From<i32> for Variable {
+    fn from(value: i32) -> Variable {
+        Variable::Number(value as f64)
+    }
+}
+
+impl From<i64> for Variable {
+    fn from(value: i64) -> Variable {
+        Variable::Number(value as f64)
+    }
+}
+
+impl From<u8> for Variable {
+    fn from(value: u8) -> Variable {
+        Variable::Number(value as f64)
+    }
+}
+
+impl From<u16> for Variable {
+    fn from(value: u16) -> Variable {
+        Variable::Number(value as f64)
+    }
+}
+
+impl From<u32> for Variable {
+    fn from(value: u32) -> Variable {
+        Variable::Number(value as f64)
+    }
+}
+
+impl From<u64> for Variable {
+    fn from(value: u64) -> Variable {
+        Variable::Number(value as f64)
+    }
+}
+
+impl From<isize> for Variable {
+    fn from(value: isize) -> Variable {
+        Variable::Number(value as f64)
+    }
+}
+
+impl From<usize> for Variable {
+    fn from(value: usize) -> Variable {
+        Variable::Number(value as f64)
+    }
+}
+
+impl From<f32> for Variable {
+    fn from(value: f32) -> Variable {
+        Variable::Number(value as f64)
+    }
+}
+
+impl From<f64> for Variable {
+    fn from(value: f64) -> Variable {
+        Variable::Number(value)
+    }
+}
+
+impl From<()> for Variable {
+    fn from(_: ()) -> Variable {
+        Variable::Null
+    }
+}
+
+impl From<bool> for Variable {
+    fn from(value: bool) -> Variable {
+        Variable::Bool(value)
+    }
+}
+
+impl Variable {
+    /// Create a JMESPath Variable from a JSON encoded string.
+    pub fn from_json(s: &str) -> Result<Self, String> {
+        serde_json::from_str::<Variable>(s).map_err(|e| e.to_string())
     }
 
     /// Returns true if the Variable is an Array. Returns false otherwise.
@@ -228,10 +333,40 @@ impl Variable {
         }
     }
 
-    /// If the `Value` is an Object, returns the value associated with the provided key.
-    /// Otherwise, returns None.
-    pub fn find(&self, key: &str) -> Option<RcVar> {
-        self.as_object().and_then(|map| map.get(key)).cloned()
+    /// If the value is an object, returns the value associated with the provided key.
+    /// Otherwise, returns Null.
+    pub fn get_field(&self, key: &str) -> RcVar {
+        if let Variable::Object(ref map) = *self {
+            if let Some(result) = map.get(key) {
+                return result.clone();
+            }
+        }
+        Rc::new(Variable::Null)
+    }
+
+    /// If the value is an array, then gets an array value by index. Otherwise returns Null.
+    pub fn get_index(&self, index: usize) -> RcVar {
+        if let Variable::Array(ref array) = *self {
+            if let Some(result) = array.get(index) {
+                return result.clone();
+            }
+        }
+        Rc::new(Variable::Null)
+    }
+
+    /// Retrieves an index from the end of an array.
+    ///
+    /// Returns Null if not an array or if the index is not present.
+    /// The formula for determining the index position is length - index (i.e., an
+    /// index of 0 or 1 is treated as the end of the array).
+    pub fn get_negative_index(&self, index: usize) -> RcVar {
+        if let Variable::Array(ref array) = *self {
+            let adjusted_index = max(index, 1);
+            if array.len() >= adjusted_index {
+                return array[array.len() - adjusted_index].clone();
+            }
+        }
+        Rc::new(Variable::Null)
     }
 
     /// Returns true or false based on if the Variable value is considered truthy.
@@ -567,7 +702,7 @@ impl ser::Serializer for Serializer {
                                     value: T) -> Result<(), Error>
                                     where T: ser::Serialize {
         let mut values = BTreeMap::new();
-        values.insert(String::from(variant), Rc::new(Variable::from_serialize(&value)));
+        values.insert(String::from(variant), Rc::new(Variable::from(&value)));
         self.state.push(State::Value(Variable::Object(values)));
         Ok(())
     }
@@ -754,12 +889,12 @@ mod tests {
     #[test]
     fn gets_value_from_object() {
         let var = Variable::from_json("{\"foo\":1}").unwrap();
-        assert_eq!(Some(Rc::new(Variable::Number(1.0))), var.find("foo"));
+        assert_eq!(Rc::new(Variable::Number(1.0)), var.get_field("foo"));
     }
 
     #[test]
-    fn getting_value_from_non_object_is_none() {
-        assert_eq!(None, Variable::Bool(false).find("foo"));
+    fn getting_value_from_non_object_is_null() {
+        assert_eq!(Rc::new(Variable::Null), Variable::Bool(false).get_field("foo"));
     }
 
     #[test]
@@ -904,51 +1039,41 @@ mod tests {
     /// Tests that the Serde serialization directly to Variable works correctly.
     #[test]
     fn test_creates_variable_from_scalar_serialization() {
-        assert_eq!("\"foo\"", Variable::from_serialize(&"foo").to_string());
-        assert_eq!("\"foo\"", Variable::from_serialize(&"foo".to_string()).to_string());
-        assert_eq!("\"f\"", Variable::from_serialize(&'f').to_string());
-        assert_eq!("1", Variable::from_serialize(&1).to_string());
-        assert_eq!("1", Variable::from_serialize(&(1 as i64)).to_string());
-        assert_eq!("-1", Variable::from_serialize(&-1).to_string());
-        assert_eq!("1.5", Variable::from_serialize(&1.5).to_string());
-        assert_eq!("true", Variable::from_serialize(&true).to_string());
-        assert_eq!("false", Variable::from_serialize(&false).to_string());
-        assert_eq!("null", Variable::from_serialize(&()).to_string());
+        assert_eq!("\"foo\"", Variable::from(&"foo").to_string());
+        assert_eq!("\"foo\"", Variable::from(&"foo".to_string()).to_string());
+        assert_eq!("\"f\"", Variable::from(&'f').to_string());
+        assert_eq!("1", Variable::from(&1).to_string());
+        assert_eq!("1", Variable::from(&(1 as i64)).to_string());
+        assert_eq!("-1", Variable::from(&-1).to_string());
+        assert_eq!("1.5", Variable::from(&1.5).to_string());
+        assert_eq!("true", Variable::from(&true).to_string());
+        assert_eq!("false", Variable::from(&false).to_string());
+        assert_eq!("null", Variable::from(&()).to_string());
         let null_val: Option<bool> = None;
-        assert_eq!("null", Variable::from_serialize(&null_val).to_string());
+        assert_eq!("null", Variable::from(&null_val).to_string());
     }
 
     #[test]
     fn test_creates_variable_from_vec_serialization() {
         let empty_vec: Vec<String> = Vec::new();
-        assert_eq!("[]", Variable::from_serialize(&empty_vec).to_string());
-        assert_eq!("[\"abc\"]", Variable::from_serialize(&vec!["abc"]).to_string());
+        assert_eq!("[]", Variable::from(&empty_vec).to_string());
+        assert_eq!("[\"abc\"]", Variable::from(&vec!["abc"]).to_string());
         let s_vec: Vec<Vec<&'static str>> = vec![vec!["foo", "baz"], vec!["bar"]];
-        assert_eq!("[[\"foo\",\"baz\"],[\"bar\"]]", Variable::from_serialize(&s_vec).to_string());
+        assert_eq!("[[\"foo\",\"baz\"],[\"bar\"]]", Variable::from(&s_vec).to_string());
     }
 
     #[test]
     fn test_creates_variable_from_map_serialization() {
         let empty_map: BTreeMap<String, String> = BTreeMap::new();
-        assert_eq!("{}", Variable::from_serialize(&empty_map).to_string());
+        assert_eq!("{}", Variable::from(&empty_map).to_string());
         let mut b_map: BTreeMap<&'static str, bool> = BTreeMap::new();
         b_map.insert("foo", true);
-        assert_eq!("{\"foo\":true}", Variable::from_serialize(&b_map).to_string());
+        assert_eq!("{\"foo\":true}", Variable::from(&b_map).to_string());
     }
 
     #[test]
     fn test_creates_variable_from_tuple_serialization() {
         let t = (true, false);
-        assert_eq!("[true,false]", Variable::from_serialize(&t).to_string());
-    }
-
-    #[test]
-    fn test_can_round_trip_to_and_from_value() {
-        let value1 = Value::Array(vec![Value::Bool(true), Value::Bool(false)]);
-        let variable = Variable::from_serialize(&value1);
-        assert_eq!("[true,false]", variable.to_string());
-        let value2: Value = variable.to_deserialize().unwrap();
-        assert_eq!(value1, value2);
-        assert_eq!("[true,false]", serde_json::to_string(&value2).unwrap());
+        assert_eq!("[true,false]", Variable::from(&t).to_string());
     }
 }

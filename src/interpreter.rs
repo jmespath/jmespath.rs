@@ -4,7 +4,6 @@ extern crate serde;
 
 use std::rc::Rc;
 use std::collections::BTreeMap;
-use std::cmp::max;
 
 use super::{RcVar, Error, ErrorReason, RuntimeError};
 use super::Context;
@@ -21,14 +20,14 @@ pub fn interpret(data: &RcVar, node: &Ast, ctx: &mut Context) -> SearchResult {
             let left_result = try!(interpret(data, lhs, ctx));
             interpret(&left_result, rhs, ctx)
         },
-        Ast::Field { ref name, .. } => Ok(get_field(data, name)),
+        Ast::Field { ref name, .. } => Ok(data.get_field(name)),
         Ast::Identity { .. } => Ok(data.clone()),
-        Ast::Literal { ref value, .. } => Ok(Rc::new(Variable::from_serde_value(value))),
+        Ast::Literal { ref value, .. } => Ok(Rc::new(Variable::from(value))),
         Ast::Index { idx, .. } => {
             if idx >= 0 {
-                Ok(get_index(data, idx as usize))
+                Ok(data.get_index(idx as usize))
             } else {
-                Ok(get_negative_index(data, (-1 * idx) as usize))
+                Ok(data.get_negative_index((-1 * idx) as usize))
             }
         },
         Ast::Or { ref lhs, ref rhs, .. } => {
@@ -159,38 +158,4 @@ pub fn interpret(data: &RcVar, node: &Ast, ctx: &mut Context) -> SearchResult {
             }
         }
     }
-}
-
-#[inline]
-fn get_field(data: &RcVar, key: &str) -> RcVar {
-    if let Variable::Object(ref map) = **data {
-        if let Some(result) = map.get(key) {
-            return result.clone();
-        }
-    }
-    Rc::new(Variable::Null)
-}
-
-#[inline]
-fn get_index(data: &RcVar, index: usize) -> RcVar {
-    if let Variable::Array(ref array) = **data {
-        if let Some(result) = array.get(index) {
-            return result.clone();
-        }
-    }
-    Rc::new(Variable::Null)
-}
-
-/// Retrieves an index from the end of a Variable if the Variable is an array.
-/// Returns Null if not an array or if the index is not present.
-/// The formula for determining the index position is length - index (i.e., an
-/// index of 0 or 1 is treated as the end of the array).
-fn get_negative_index(data: &RcVar, index: usize) -> RcVar {
-    if let Variable::Array(ref array) = **data {
-        let adjusted_index = max(index, 1);
-        if array.len() >= adjusted_index {
-            return array[array.len() - adjusted_index].clone();
-        }
-    }
-    Rc::new(Variable::Null)
 }

@@ -305,7 +305,6 @@ mod tests {
     extern crate serde_json;
 
     use super::*;
-    use super::Token::*;
     use serde_json::Value;
 
     fn tokenize_queue(expr: &str) -> Vec<TokenTuple> {
