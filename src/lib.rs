@@ -111,7 +111,7 @@
 extern crate serde;
 extern crate serde_json;
 
-pub use errors::{Error, ErrorReason, RuntimeError, Coordinates};
+pub use errors::{Error, ErrorReason, RuntimeError};
 pub use parser::{parse, ParseResult};
 pub use lexer::tokenize;
 pub use variable::Variable;
@@ -139,12 +139,15 @@ lazy_static! {
     static ref DEFAULT_FN_REGISTRY: BuiltinFnRegistry = BuiltinFnRegistry::new();
 }
 
+/// Ref counted JMESPath variable.
 pub type RcVar = Rc<Variable>;
+
 
 /// Parses an expression and performs a search over the data.
 pub fn search<T: Serialize>(expression: &str, data: T) -> Result<RcVar, Error> {
     Expression::new(expression).and_then(|expr| expr.search(data))
 }
+
 
 /// A compiled JMESPath expression.
 pub struct Expression<'a> {
@@ -212,6 +215,7 @@ impl<'a> PartialEq for Expression<'a> {
     }
 }
 
+
 /// ExpressionBuilder is used to build more complex expressions.
 ///
 /// ExpressionBuilder also allows the injection of a custom AST. This
@@ -261,6 +265,7 @@ impl<'a, 'b> ExpressionBuilder<'a, 'b> {
     }
 }
 
+
 /// Context object used for error reporting.
 pub struct Context<'a> {
     /// Original expression that is being interpreted.
@@ -281,12 +286,8 @@ impl<'a> Context<'a> {
             offset: 0,
         }
     }
-
-    /// Create a coordinates struct from the context.
-    pub fn create_coordinates(&self) -> Coordinates {
-        Coordinates::from_offset(self.expression, self.offset)
-    }
 }
+
 
 #[cfg(test)]
 mod test {
@@ -294,7 +295,6 @@ mod test {
 
     use super::*;
     use super::ast::Ast;
-    use functions::BuiltinFnRegistry;
 
     #[test]
     fn formats_expression_as_string_or_debug() {
@@ -371,16 +371,5 @@ mod test {
             .build()
             .unwrap();
         assert_eq!(Rc::new(Variable::Bool(true)), expr.search(()).unwrap());
-    }
-
-    #[test]
-    fn context_creates_coordinates() {
-        let fns = BuiltinFnRegistry::new();
-        let mut ctx = Context::new("foo.bar", &fns);
-        ctx.offset = 3;
-        let coords = ctx.create_coordinates();
-        assert_eq!(3, coords.offset);
-        assert_eq!(3, coords.column);
-        assert_eq!(0, coords.line);
     }
 }

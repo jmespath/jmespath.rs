@@ -2,15 +2,17 @@
 
 use std::fmt;
 
-use super::RcVar;
 use super::Context;
 
 /// JMESPath error
 #[derive(Clone,Debug,PartialEq)]
 pub struct Error {
-    /// Coordinates to where the error was encountered in the original
-    /// expression string.
-    pub coordinates: Coordinates,
+    /// Absolute character position.
+    pub offset: usize,
+    /// Line number of the coordinate.
+    pub line: usize,
+    /// Column of the line number.
+    pub column: usize,
     /// Expression being evaluated.
     pub expression: String,
     /// Error reason information.
@@ -20,27 +22,57 @@ pub struct Error {
 impl Error {
     /// Create a new JMESPath Error
     pub fn new(expr: &str, offset: usize, error_reason: ErrorReason) -> Error {
+        // Find each new line so we can create a formatted error message.
+        let mut line: usize = 0;
+        let mut column: usize = 0;
+        for c in expr.chars().take(offset) {
+            match c {
+                '\n' => { line += 1; column = 0; },
+                _ => column += 1
+            }
+        }
         Error {
             expression: expr.to_owned(),
-            coordinates: Coordinates::from_offset(expr, offset),
+            offset: offset,
+            line: line,
+            column: column,
             error_reason: error_reason
         }
     }
 
     /// Create a new JMESPath Error from a Context struct.
     pub fn from_ctx(ctx: &Context, error_reason: ErrorReason) -> Error {
-        Error {
-            expression: ctx.expression.to_owned(),
-            coordinates: ctx.create_coordinates(),
-            error_reason: error_reason
-        }
+        Error::new(ctx.expression, ctx.offset, error_reason)
     }
+}
+
+fn inject_carat(column: usize, buff: &mut String) {
+    buff.push_str(&(0..column).map(|_| ' ').collect::<String>());
+    buff.push_str(&"^\n");
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(fmt, "{} ({})\n{}", self.error_reason, self.coordinates,
-            self.coordinates.expression_with_carat(&self.expression))
+        let mut error_location = String::new();
+        let mut matched = false;
+        let mut current_line = 0;
+        for c in self.expression.chars() {
+            error_location.push(c);
+            if c == '\n' {
+                current_line += 1;
+                if current_line == self.line + 1 {
+                    matched = true;
+                    inject_carat(self.column, &mut error_location);
+                }
+            }
+        }
+        if !matched {
+            error_location.push('\n');
+            inject_carat(self.column, &mut error_location);
+        }
+
+        write!(fmt, "{} (line {}, column {})\n{}",
+                self.error_reason, self.line, self.column, error_location)
     }
 }
 
@@ -83,14 +115,12 @@ pub enum RuntimeError {
     InvalidType {
         expected: String,
         actual: String,
-        actual_value: RcVar,
         position: usize,
     },
     /// Encountered when an expression reference returns an invalid type.
     InvalidReturnType {
         expected: String,
         actual: String,
-        actual_value: RcVar,
         position: usize,
         invocation: usize,
     },
@@ -109,124 +139,52 @@ impl fmt::Display for RuntimeError {
             NotEnoughArguments { ref expected, ref actual } => {
                 write!(fmt, "Not enough arguments: expected {}, found {}", expected, actual)
             },
-            InvalidType { ref expected, ref actual, ref position, ref actual_value } => {
-                write!(fmt, "Argument {} expects type {}, given {} {}",
-                    position, expected, actual, actual_value.to_owned())
+            InvalidType { ref expected, ref actual, ref position } => {
+                write!(fmt, "Argument {} expects type {}, given {}",
+                    position, expected, actual)
             },
             InvalidSlice => write!(fmt, "Invalid slice"),
-            InvalidReturnType { ref expected, ref actual, ref position, ref invocation,
-                    ref actual_value } => {
-                write!(fmt, "Argument {} must return {} but invocation {} returned {} {}",
-                    position, expected, invocation, actual, actual_value.to_owned())
+            InvalidReturnType { ref expected, ref actual, ref position, ref invocation } => {
+                write!(fmt, "Argument {} must return {} but invocation {} returned {}",
+                    position, expected, invocation, actual)
             },
         }
     }
 }
 
-/// Defines the coordinates to a position in an expression string.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Coordinates {
-    /// Absolute character position.
-    pub offset: usize,
-    /// Line number of the coordinate.
-    pub line: usize,
-    /// Column of the line number.
-    pub column: usize,
-}
-
-impl Coordinates {
-    /// Create an expression coordinates struct based on an offset
-    // position in the expression.
-    pub fn from_offset(expr: &str, offset: usize) -> Coordinates {
-        // Find each new line and create a formatted error message.
-        let mut current_line: usize = 0;
-        let mut current_col: usize = 0;
-        for c in expr.chars().take(offset) {
-            match c {
-                '\n' => {
-                    current_line += 1;
-                    current_col = 0;
-                },
-                _ => current_col += 1
-            }
-        }
-        Coordinates {
-            line: current_line,
-            column: current_col,
-            offset: offset
-        }
-    }
-
-    fn inject_carat(&self, buff: &mut String) {
-        buff.push_str(&(0..self.column).map(|_| ' ').collect::<String>());
-        buff.push_str(&"^\n");
-    }
-
-    /// Returns a string that shows the expression and a carat pointing to
-    /// the coordinate.
-    pub fn expression_with_carat(&self, expr: &str) -> String {
-        let mut buff = String::new();
-        let mut matched = false;
-        let mut current_line = 0;
-        for c in expr.chars() {
-            buff.push(c);
-            if c == '\n' {
-                current_line += 1;
-                if current_line == self.line + 1 {
-                    matched = true;
-                    self.inject_carat(&mut buff);
-                }
-            }
-        }
-        if !matched {
-            buff.push('\n');
-            self.inject_carat(&mut buff);
-        }
-        buff
-    }
-}
-
-impl fmt::Display for Coordinates {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(fmt, "line {}, column {}", self.line, self.column)
-    }
-}
 
 #[cfg(test)]
 mod test {
-    use std::rc::Rc;
-
     use super::*;
-    use Variable;
 
     #[test]
     fn coordinates_can_be_created_from_string_with_new_lines() {
         let expr = "foo\n..bar";
-        let coords = Coordinates::from_offset(expr, 5);
-        assert_eq!(1, coords.line);
-        assert_eq!(1, coords.column);
-        assert_eq!(5, coords.offset);
-        assert_eq!("foo\n..bar\n ^\n", coords.expression_with_carat(expr));
+        let err = Error::new(&expr, 5, ErrorReason::Parse("Test".to_owned()));
+        assert_eq!(1, err.line);
+        assert_eq!(1, err.column);
+        assert_eq!(5, err.offset);
+        assert_eq!("Parse error: Test (line 1, column 1)\nfoo\n..bar\n ^\n", err.to_string());
     }
 
     #[test]
     fn coordinates_can_be_created_from_string_with_new_lines_pointing_to_non_last() {
         let expr = "foo\n..bar\nbaz";
-        let coords = Coordinates::from_offset(expr, 5);
-        assert_eq!(1, coords.line);
-        assert_eq!(1, coords.column);
-        assert_eq!(5, coords.offset);
-        assert_eq!("foo\n..bar\n ^\nbaz", coords.expression_with_carat(expr));
+        let err = Error::new(&expr, 5, ErrorReason::Parse("Test".to_owned()));
+        assert_eq!(1, err.line);
+        assert_eq!(1, err.column);
+        assert_eq!(5, err.offset);
+        assert_eq!("Parse error: Test (line 1, column 1)\nfoo\n..bar\n ^\nbaz", err.to_string());
     }
 
     #[test]
     fn coordinates_can_be_created_from_string_with_no_new_lines() {
         let expr = "foo..bar";
-        let coords = Coordinates::from_offset(expr, 4);
-        assert_eq!(0, coords.line);
-        assert_eq!(4, coords.column);
-        assert_eq!(4, coords.offset);
-        assert_eq!("foo..bar\n    ^\n", coords.expression_with_carat(expr));
+        let err = Error::new(&expr, 4, ErrorReason::Parse("Test".to_owned()));
+        assert_eq!(0, err.line);
+        assert_eq!(4, err.column);
+        assert_eq!(4, err.offset);
+        assert_eq!("Parse error: Test (line 0, column 4)\nfoo..bar\n    ^\n", err.to_string());
     }
 
     #[test]
@@ -246,10 +204,9 @@ mod test {
         let error = RuntimeError::InvalidType {
             expected: "string".to_owned(),
             actual: "boolean".to_owned(),
-            actual_value: Rc::new(Variable::Bool(true)),
             position: 0,
         };
-        assert_eq!("Argument 0 expects type string, given boolean true", error.to_string());
+        assert_eq!("Argument 0 expects type string, given boolean", error.to_string());
     }
 
     #[test]
@@ -281,11 +238,10 @@ mod test {
         let error = RuntimeError::InvalidReturnType {
             expected: "string".to_string(),
             actual: "boolean".to_string(),
-            actual_value: Rc::new(Variable::Bool(true)),
             position: 0,
             invocation: 2,
         };
-        assert_eq!("Argument 0 must return string but invocation 2 returned boolean true",
+        assert_eq!("Argument 0 must return string but invocation 2 returned boolean",
                    error.to_string());
     }
 }

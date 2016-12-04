@@ -5,7 +5,6 @@ extern crate serde_json;
 use std::fmt;
 
 use serde_json::Value;
-use Coordinates;
 use lexer::Token;
 
 /// Abstract syntax tree of a JMESPath expression.
@@ -158,33 +157,6 @@ pub enum Ast {
     },
 }
 
-impl Ast {
-    /// Create a coordinates struct for the AST node.
-    pub fn make_coordinates(&self, expr: &str) -> Coordinates {
-        let offset = match *self {
-            Ast::Comparison { offset, .. } => offset,
-            Ast::Condition { offset, .. } => offset,
-            Ast::Identity { offset, .. } => offset,
-            Ast::Expref { offset, .. } => offset,
-            Ast::Flatten { offset, .. } => offset,
-            Ast::Function { offset, .. } => offset,
-            Ast::Field { offset, .. } => offset,
-            Ast::Index { offset, .. } => offset,
-            Ast::Literal { offset, .. } => offset,
-            Ast::MultiList { offset, .. } => offset,
-            Ast::MultiHash { offset, .. } => offset,
-            Ast::Not { offset, .. } => offset,
-            Ast::Projection { offset, .. } => offset,
-            Ast::ObjectValues { offset, .. } => offset,
-            Ast::And { offset, .. } => offset,
-            Ast::Or { offset, .. } => offset,
-            Ast::Slice { offset, .. } => offset,
-            Ast::Subexpr { offset, .. } => offset,
-        };
-        Coordinates::from_offset(expr, offset)
-    }
-}
-
 impl fmt::Display for Ast {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         write!(fmt, "{:#?}", self)
@@ -237,19 +209,10 @@ pub enum OrdComparator {
     GreaterThanEqual,
 }
 
+
 #[cfg(test)]
 mod test {
     use super::*;
-
-    #[test]
-    fn makes_coordinates_from_ast_node() {
-        let expr = "foo.abc";
-        let node = Ast::Field { name: "abc".to_string(), offset: 4 };
-        let coords = node.make_coordinates(expr);
-        assert_eq!(0, coords.line);
-        assert_eq!(4, coords.column);
-        assert_eq!(4, coords.offset);
-    }
 
     #[test]
     fn displays_pretty_printed_ast_node() {

@@ -315,7 +315,6 @@ impl Signature {
             Err(Error::from_ctx(ctx, ErrorReason::Runtime(RuntimeError::InvalidType {
                 expected: validator.to_string(),
                 actual: value.get_type().to_owned(),
-                actual_value: value.clone(),
                 position: position
             })))
         }
@@ -370,7 +369,6 @@ macro_rules! min_and_max_by {
                     ErrorReason::Runtime(RuntimeError::InvalidReturnType {
                         expected: "expression->number|expression->string".to_owned(),
                         actual: entered_type.to_owned(),
-                        actual_value: initial.clone(),
                         position: 1,
                         invocation: 1
                     }
@@ -385,7 +383,6 @@ macro_rules! min_and_max_by {
                         ErrorReason::Runtime(RuntimeError::InvalidReturnType {
                             expected: format!("expression->{}", entered_type),
                             actual: mapped.get_type().to_owned(),
-                            actual_value: mapped.clone(),
                             position: 1,
                             invocation: invocation
                         }
@@ -720,7 +717,6 @@ impl Function for SortByFn {
             return Err(Error::from_ctx(ctx, ErrorReason::Runtime(RuntimeError::InvalidReturnType {
                 expected: "expression->string|expression->number".to_owned(),
                 actual: first_type.to_owned(),
-                actual_value: first_value.clone(),
                 position: 1,
                 invocation: 1
             })));
@@ -733,7 +729,6 @@ impl Function for SortByFn {
                     ErrorReason::Runtime(RuntimeError::InvalidReturnType {
                         expected: format!("expression->{}", first_type),
                         actual: mapped_value.get_type().to_owned(),
-                        actual_value: mapped_value.clone(),
                         position: 1,
                         invocation: invocation
                     }
