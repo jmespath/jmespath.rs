@@ -32,21 +32,6 @@
 //! assert_eq!(&Ast::Field {name: "foo".to_string(), offset: 0}, expr.as_ast());
 //! ```
 //!
-//! # Using `jmespath::search`
-//!
-//! The `jmespath::search` function can be used for more simplified searching
-//! when expression reuse is not important. `jmespath::search` will compile
-//! the given expression and evaluate the expression against the provided
-//! data.
-//!
-//! ```
-//! use jmespath;
-//!
-//! let data = jmespath::Variable::from_json("{\"foo\":null}").unwrap();
-//! let result = jmespath::search("foo", data).unwrap();
-//! assert!(result.is_null());
-//! ```
-//!
 //! ## JMESPath variables
 //!
 //! In order to evaluate expressions against a known data type, the
@@ -67,16 +52,6 @@
 //! `Rc<Variable>`). `Variable` has a number of helper methods that make
 //! it a data type that can be used directly, or you can convert `Variable`
 //! to any serde value implementing `serde::de::Deserialize`.
-//!
-//! ```
-//! // Search an arbitrary data type that implements serde::ser::Serialize
-//! let data = vec![true, false];
-//! // Get the result as an RcVar
-//! let result = jmespath::search("[0]", data).unwrap();
-//! // Convert the result to a type that implements serde::de::Deserialize
-//! let my_bool: bool = result.to_deserialize().unwrap();
-//! assert_eq!(true, my_bool);
-//! ```
 //!
 //! # Custom Functions
 //!
@@ -143,16 +118,10 @@ lazy_static! {
 pub type RcVar = Rc<Variable>;
 
 
-/// Parses an expression and performs a search over the data.
-pub fn search<T: Serialize>(expression: &str, data: T) -> Result<RcVar, Error> {
-    Expression::new(expression).and_then(|expr| expr.search(data))
-}
-
-
 /// A compiled JMESPath expression.
 pub struct Expression<'a> {
     ast: Ast,
-    original: String,
+    expression: String,
     fn_registry: &'a FnRegistry,
 }
 
@@ -161,7 +130,7 @@ impl<'a> Expression<'a> {
     #[inline]
     pub fn new(expression: &str) -> Result<Expression<'a>, Error> {
         Ok(Expression {
-            original: expression.to_owned(),
+            expression: expression.to_owned(),
             ast: try!(parse(expression)),
             fn_registry: &*DEFAULT_FN_REGISTRY,
         })
@@ -179,13 +148,13 @@ impl<'a> Expression<'a> {
     /// NOTE: This specific method could eventually be removed once specialization
     ///     lands in Rust. See https://github.com/rust-lang/rfcs/pull/1210
     pub fn search_variable(&self, data: &RcVar) -> SearchResult {
-        let mut ctx = Context::new(&self.original, &*self.fn_registry);
+        let mut ctx = Context::new(&self.expression, &*self.fn_registry);
         interpret(data, &self.ast, &mut ctx)
     }
 
     /// Returns the JMESPath expression from which the Expression was compiled.
     pub fn as_str(&self) -> &str {
-        &self.original
+        &self.expression
     }
 
     /// Returns the AST of the parsed JMESPath expression.
@@ -195,14 +164,14 @@ impl<'a> Expression<'a> {
 }
 
 impl<'a> fmt::Display for Expression<'a> {
-    /// Shows the original jmespath expression.
+    /// Shows the jmespath expression as a string.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.as_str())
     }
 }
 
 impl<'a> fmt::Debug for Expression<'a> {
-    /// Shows the original jmespath expression.
+    /// Shows the jmespath expression as a string.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Display::fmt(self, f)
     }
@@ -223,16 +192,16 @@ impl<'a> PartialEq for Expression<'a> {
 /// expression. Furthermore, ExpressionBuilder allows you to easily inject
 /// custom JMESPath functions.
 pub struct ExpressionBuilder<'a, 'b> {
-    original: &'a str,
+    expression: &'a str,
     ast: Option<Ast>,
     fn_registry: Option<&'b FnRegistry>,
 }
 
 impl<'a, 'b> ExpressionBuilder<'a, 'b> {
     /// Creates a new ExpressionBuilder using the given JMESPath expression.
-    pub fn new(original_expression: &'a str) -> ExpressionBuilder<'a, 'b> {
+    pub fn new(expression: &'a str) -> ExpressionBuilder<'a, 'b> {
         ExpressionBuilder {
-            original: original_expression,
+            expression: expression,
             ast: None,
             fn_registry: None,
         }
@@ -257,9 +226,9 @@ impl<'a, 'b> ExpressionBuilder<'a, 'b> {
         Ok(Expression {
             ast: match self.ast {
                 Some(a) => a,
-                None => try!(parse(self.original)),
+                None => try!(parse(self.expression)),
             },
-            original: self.original.to_owned(),
+            expression: self.expression.to_owned(),
             fn_registry: self.fn_registry.unwrap_or(&*DEFAULT_FN_REGISTRY)
         })
     }
@@ -268,7 +237,7 @@ impl<'a, 'b> ExpressionBuilder<'a, 'b> {
 
 /// Context object used for error reporting.
 pub struct Context<'a> {
-    /// Original expression that is being interpreted.
+    /// Expression that is being interpreted.
     pub expression: &'a str,
     /// Function dispatcher
     pub fn_registry: &'a FnRegistry,
@@ -317,11 +286,6 @@ mod test {
     }
 
     #[test]
-    fn can_search() {
-        assert_eq!(Rc::new(Variable::Bool(true)), search("`true`", ()).unwrap());
-    }
-
-    #[test]
     fn can_get_expression_ast() {
         let expr = Expression::new("foo").unwrap();
         assert_eq!(&Ast::Field {offset: 0, name: "foo".to_string()}, expr.as_ast());
@@ -334,7 +298,7 @@ mod test {
             .with_ast(Ast::Identity { offset: 0 })
             .build()
             .unwrap();
-        assert_eq!(Rc::new(Variable::U64(99)), expr.search(99).unwrap());
+        assert_eq!(Rc::new(Variable::Number(99.0)), expr.search(99).unwrap());
     }
 
     #[test]

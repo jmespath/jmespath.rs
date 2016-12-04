@@ -424,8 +424,7 @@ impl Function for AbsFn {
 
     fn evaluate(&self, args: &[RcVar], _: &mut Context) -> SearchResult {
         match *args[0] {
-            Variable::I64(n) => Ok(Rc::new(Variable::I64(n.abs()))),
-            Variable::F64(f) => Ok(Rc::new(Variable::F64(f.abs()))),
+            Variable::Number(n) => Ok(Rc::new(Variable::Number(n.abs()))),
             _ => Ok(args[0].clone())
         }
     }
@@ -441,9 +440,9 @@ impl Function for AvgFn {
     fn evaluate(&self, args: &[RcVar], _: &mut Context) -> SearchResult {
         let values = args[0].as_array().unwrap();
         let sum = values.iter()
-            .map(|n| n.as_f64().unwrap())
+            .map(|n| n.as_number().unwrap())
             .fold(0f64, |a, ref b| a + b);
-        Ok(Rc::new(Variable::F64(sum / (values.len() as f64))))
+        Ok(Rc::new(Variable::Number(sum / (values.len() as f64))))
     }
 }
 
@@ -455,8 +454,8 @@ impl Function for CeilFn {
     }
 
     fn evaluate(&self, args: &[RcVar], _: &mut Context) -> SearchResult {
-        let n = args[0].as_f64().unwrap();
-        Ok(Rc::new(Variable::F64(n.ceil())))
+        let n = args[0].as_number().unwrap();
+        Ok(Rc::new(Variable::Number(n.ceil())))
     }
 }
 
@@ -507,8 +506,8 @@ impl Function for FloorFn {
     }
 
     fn evaluate(&self, args: &[RcVar], _: &mut Context) -> SearchResult {
-        let n = args[0].as_f64().unwrap();
-        Ok(Rc::new(Variable::F64(n.floor())))
+        let n = args[0].as_number().unwrap();
+        Ok(Rc::new(Variable::Number(n.floor())))
     }
 }
 
@@ -556,10 +555,10 @@ impl Function for LengthFn {
 
     fn evaluate(&self, args: &[RcVar], _: &mut Context) -> SearchResult {
         match *args[0] {
-            Variable::Array(ref a) => Ok(Rc::new(Variable::U64(a.len() as u64))),
-            Variable::Object(ref m) => Ok(Rc::new(Variable::U64(m.len() as u64))),
+            Variable::Array(ref a) => Ok(Rc::new(Variable::Number(a.len() as f64))),
+            Variable::Object(ref m) => Ok(Rc::new(Variable::Number(m.len() as f64))),
             // Note that we need to count the code points not the number of unicode characters
-            Variable::String(ref s) => Ok(Rc::new(Variable::U64(s.chars().count() as u64))),
+            Variable::String(ref s) => Ok(Rc::new(Variable::Number(s.chars().count() as f64))),
             _ => unreachable!()
         }
     }
@@ -764,8 +763,8 @@ impl Function for SumFn {
 
     fn evaluate(&self, args: &[RcVar], _: &mut Context) -> SearchResult {
         let result = args[0].as_array().unwrap().iter().fold(
-            0.0, |acc, item| acc + item.as_f64().unwrap());
-        Ok(Rc::new(Variable::F64(result)))
+            0.0, |acc, item| acc + item.as_number().unwrap());
+        Ok(Rc::new(Variable::Number(result)))
     }
 }
 
@@ -793,7 +792,7 @@ impl Function for ToNumberFn {
 
     fn evaluate(&self, args: &[RcVar], _: &mut Context) -> SearchResult {
         match *args[0] {
-            Variable::I64(_) | Variable::F64(_) | Variable::U64(_) => Ok(args[0].clone()),
+            Variable::Number(_) => Ok(args[0].clone()),
             Variable::String(ref s) => {
                 match Variable::from_json(s) {
                     Ok(f)  => Ok(Rc::new(f)),

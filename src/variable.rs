@@ -19,17 +19,12 @@ use super::RcVar;
 use super::ast::{Ast, Comparator, EqComparator, OrdComparator};
 
 /// JMESPath variable.
-///
-/// Note: this enum and implementation is based on rustc-serialize:
-/// https://github.com/rust-lang-nursery/rustc-serialize
 #[derive(Clone, PartialEq, Debug)]
 pub enum Variable {
     Null,
     String(String),
     Bool(bool),
-    I64(i64),
-    U64(u64),
-    F64(f64),
+    Number(f64),
     Array(Vec<RcVar>),
     Object(BTreeMap<String, RcVar>),
     Expref(Ast)
@@ -71,8 +66,8 @@ impl Ord for Variable {
         } else {
             match var_type {
                 "string" => self.as_string().unwrap().cmp(other.as_string().unwrap()),
-                "number" => self.as_f64().unwrap()
-                    .partial_cmp(&other.as_f64().unwrap())
+                "number" => self.as_number().unwrap()
+                    .partial_cmp(&other.as_number().unwrap())
                     .unwrap_or(Ordering::Less),
                 _ => Ordering::Equal
             }
@@ -101,9 +96,9 @@ impl Variable {
             Value::String(ref s) => Variable::String(s.to_owned()),
             Value::Null => Variable::Null,
             Value::Bool(b) => Variable::Bool(b),
-            Value::F64(f) => Variable::F64(f),
-            Value::I64(i) => Variable::I64(i),
-            Value::U64(u) => Variable::U64(u),
+            Value::U64(n) => Variable::Number(n as f64),
+            Value::F64(n) => Variable::Number(n as f64),
+            Value::I64(n) => Variable::Number(n as f64),
             Value::Array(ref values) => {
                 Variable::Array(
                     values.iter().map(|v| Rc::new(Variable::from_serde_value(v))).collect()
@@ -176,18 +171,16 @@ impl Variable {
     /// Returns true if the value is a Number. Returns false otherwise.
     pub fn is_number(&self) -> bool {
         match *self {
-            Variable::F64(_) | Variable::I64(_) | Variable::U64(_) => true,
+            Variable::Number(_) => true,
             _ => false,
         }
     }
 
     /// If the value is a number, return or cast it to a f64.
     /// Returns None otherwise.
-    pub fn as_f64(&self) -> Option<f64> {
+    pub fn as_number(&self) -> Option<f64> {
         match *self {
-            Variable::F64(n) => Some(n),
-            Variable::U64(n) => Some(n as f64),
-            Variable::I64(n) => Some(n as f64),
+            Variable::Number(f) => Some(f),
             _ => None
         }
     }
@@ -248,9 +241,7 @@ impl Variable {
             Variable::String(ref s) if !s.is_empty() => true,
             Variable::Array(ref a) if !a.is_empty() => true,
             Variable::Object(ref o) if !o.is_empty() => true,
-            Variable::F64(_) => true,
-            Variable::I64(_) => true,
-            Variable::U64(_) => true,
+            Variable::Number(_) => true,
             _ => false
         }
     }
@@ -260,7 +251,7 @@ impl Variable {
         match *self {
             Variable::Bool(_) => "boolean",
             Variable::String(_) => "string",
-            Variable::F64(_) | Variable::U64(_) | Variable::I64(_)=> "number",
+            Variable::Number(_) => "number",
             Variable::Array(_) => "array",
             Variable::Object(_) => "object",
             Variable::Null => "null",
@@ -271,16 +262,16 @@ impl Variable {
     /// Compares two Variable values using a comparator.
     pub fn compare(&self, cmp: &Comparator, value: &Variable) -> Option<bool> {
         match *cmp {
-            Comparator::Eq(ref e) => self.compare_equality(e, value),
+            Comparator::Eq(ref e) => Some(self.compare_equality(e, value)),
             Comparator::Ord(ref o) => self.compare_ordering(o, value),
         }
     }
 
     /// Compares two Variable values for equality.
-    pub fn compare_equality(&self, cmp: &EqComparator, value: &Variable) -> Option<bool> {
+    pub fn compare_equality(&self, cmp: &EqComparator, value: &Variable) -> bool {
         match *cmp {
-            EqComparator::Equal => Some(*self == *value),
-            EqComparator::NotEqual => Some(*self != *value),
+            EqComparator::Equal => *self == *value,
+            EqComparator::NotEqual => *self != *value,
         }
     }
 
@@ -385,21 +376,17 @@ impl de::Deserialize for Variable {
 
             #[inline]
             fn visit_i64<E>(&mut self, value: i64) -> Result<Variable, E> {
-                if value < 0 {
-                    Ok(Variable::I64(value))
-                } else {
-                    Ok(Variable::U64(value as u64))
-                }
+                Ok(Variable::Number(value as f64))
             }
 
             #[inline]
             fn visit_u64<E>(&mut self, value: u64) -> Result<Variable, E> {
-                Ok(Variable::U64(value))
+                Ok(Variable::Number(value as f64))
             }
 
             #[inline]
             fn visit_f64<E>(&mut self, value: f64) -> Result<Variable, E> {
-                Ok(Variable::F64(value))
+                Ok(Variable::Number(value))
             }
 
             #[inline]
@@ -465,9 +452,7 @@ impl ser::Serialize for Variable {
         match *self {
             Variable::Null => serializer.serialize_unit(),
             Variable::Bool(v) => serializer.serialize_bool(v),
-            Variable::I64(v) => serializer.serialize_i64(v),
-            Variable::U64(v) => serializer.serialize_u64(v),
-            Variable::F64(v) => serializer.serialize_f64(v),
+            Variable::Number(v) => serializer.serialize_f64(v),
             Variable::String(ref v) => serializer.serialize_str(&v),
             Variable::Array(ref v) => v.serialize(serializer),
             Variable::Object(ref v) => v.serialize(serializer),
@@ -519,23 +504,19 @@ impl ser::Serializer for Serializer {
 
     #[inline]
     fn serialize_i64(&mut self, value: i64) -> Result<(), Error> {
-        if value < 0 {
-            self.state.push(State::Value(Variable::I64(value)));
-        } else {
-            self.state.push(State::Value(Variable::U64(value as u64)));
-        }
+        self.state.push(State::Value(Variable::Number(value as f64)));
         Ok(())
     }
 
     #[inline]
     fn serialize_u64(&mut self, value: u64) -> Result<(), Error> {
-        self.state.push(State::Value(Variable::U64(value)));
+        self.state.push(State::Value(Variable::Number(value as f64)));
         Ok(())
     }
 
     #[inline]
     fn serialize_f64(&mut self, value: f64) -> Result<(), Error> {
-        self.state.push(State::Value(Variable::F64(value as f64)));
+        self.state.push(State::Value(Variable::Number(value)));
         Ok(())
     }
 
@@ -728,9 +709,7 @@ mod tests {
          assert_eq!("null", Variable::Null.get_type());
          assert_eq!("boolean", Variable::Bool(true).get_type());
          assert_eq!("string", Variable::String("foo".to_string()).get_type());
-         assert_eq!("number", Variable::F64(1.0).get_type());
-         assert_eq!("number", Variable::I64(1 as i64).get_type());
-         assert_eq!("number", Variable::U64(1).get_type());
+         assert_eq!("number", Variable::Number(1.0).get_type());
     }
 
     #[test]
@@ -744,8 +723,8 @@ mod tests {
         assert_eq!(false, Variable::Bool(false).is_truthy());
         assert_eq!(true, Variable::String("foo".to_string()).is_truthy());
         assert_eq!(false, Variable::String("".to_string()).is_truthy());
-        assert_eq!(true, Variable::F64(10.0).is_truthy());
-        assert_eq!(true, Variable::U64(0).is_truthy());
+        assert_eq!(true, Variable::Number(10.0).is_truthy());
+        assert_eq!(true, Variable::Number(0.0).is_truthy());
     }
 
     #[test]
@@ -759,8 +738,8 @@ mod tests {
     #[test]
     fn test_compare() {
         let invalid = Variable::String("foo".to_string());
-        let l = Variable::F64(10.0);
-        let r = Variable::F64(20.0);
+        let l = Variable::Number(10.0);
+        let r = Variable::Number(20.0);
         assert_eq!(None, invalid.compare(&Comparator::Ord(OrdComparator::GreaterThan), &r));
         assert_eq!(Some(false), l.compare(&Comparator::Ord(OrdComparator::GreaterThan), &r));
         assert_eq!(Some(false), l.compare(&Comparator::Ord(OrdComparator::GreaterThanEqual), &r));
@@ -775,7 +754,7 @@ mod tests {
     #[test]
     fn gets_value_from_object() {
         let var = Variable::from_json("{\"foo\":1}").unwrap();
-        assert_eq!(Some(Rc::new(Variable::U64(1))), var.find("foo"));
+        assert_eq!(Some(Rc::new(Variable::Number(1.0))), var.find("foo"));
     }
 
     #[test]
@@ -826,9 +805,9 @@ mod tests {
     }
 
     #[test]
-    fn test_as_f64() {
+    fn test_as_number() {
         let value = Variable::from_json("12.0").unwrap();
-        assert_eq!(value.as_f64(), Some(12f64));
+        assert_eq!(value.as_number(), Some(12f64));
     }
 
     #[test]
@@ -869,9 +848,9 @@ mod tests {
         assert_eq!(Variable::Null, Variable::from_json("null").unwrap());
         assert_eq!(Variable::Bool(true), Variable::from_json("true").unwrap());
         assert_eq!(Variable::Bool(false), Variable::from_json("false").unwrap());
-        assert_eq!(Variable::U64(1), Variable::from_json("1").unwrap());
-        assert_eq!(Variable::I64(-1), Variable::from_json("-1").unwrap());
-        assert_eq!(Variable::F64(1.5), Variable::from_json("1.5").unwrap());
+        assert_eq!(Variable::Number(1.0), Variable::from_json("1").unwrap());
+        assert_eq!(Variable::Number(-1.0), Variable::from_json("-1").unwrap());
+        assert_eq!(Variable::Number(1.5), Variable::from_json("1.5").unwrap());
         assert_eq!(Variable::String("abc".to_string()), Variable::from_json("\"abc\"").unwrap());
     }
 
@@ -892,7 +871,7 @@ mod tests {
         let var = Variable::from_json("{\"a\": 1, \"b\": {\"c\": true}}").unwrap();
         let mut expected = BTreeMap::new();
         let mut sub_obj = BTreeMap::new();
-        expected.insert("a".to_string(), Rc::new(Variable::U64(1)));
+        expected.insert("a".to_string(), Rc::new(Variable::Number(1.0)));
         sub_obj.insert("c".to_string(), Rc::new(Variable::Bool(true)));
         expected.insert("b".to_string(), Rc::new(Variable::Object(sub_obj)));
         assert_eq!(var, Variable::Object(expected));
