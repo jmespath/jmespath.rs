@@ -8,7 +8,7 @@ use std::rc::Rc;
 
 use super::{Context, Error, ErrorReason, RcVar, RuntimeError};
 use super::interpreter::{interpret, SearchResult};
-use super::variable::Variable;
+use super::variable::{Variable, JmespathType};
 
 /* ------------------------------------------
  * Argument types
@@ -314,7 +314,7 @@ impl Signature {
         } else {
             Err(Error::from_ctx(ctx, ErrorReason::Runtime(RuntimeError::InvalidType {
                 expected: validator.to_string(),
-                actual: value.get_type().to_owned(),
+                actual: value.get_type().to_string(),
                 position: position
             })))
         }
@@ -364,11 +364,11 @@ macro_rules! min_and_max_by {
             // Map over the first value to get the homogeneous required return type
             let initial = try!(interpret(&vals[0], &ast, $ctx));
             let entered_type = initial.get_type();
-            if entered_type != "string" && entered_type != "number" {
+            if entered_type != JmespathType::String && entered_type != JmespathType::Number {
                 return Err(Error::from_ctx($ctx,
                     ErrorReason::Runtime(RuntimeError::InvalidReturnType {
                         expected: "expression->number|expression->string".to_owned(),
-                        actual: entered_type.to_owned(),
+                        actual: entered_type.to_string(),
                         position: 1,
                         invocation: 1
                     }
@@ -382,7 +382,7 @@ macro_rules! min_and_max_by {
                     return Err(Error::from_ctx($ctx,
                         ErrorReason::Runtime(RuntimeError::InvalidReturnType {
                             expected: format!("expression->{}", entered_type),
-                            actual: mapped.get_type().to_owned(),
+                            actual: mapped.get_type().to_string(),
                             position: 1,
                             invocation: invocation
                         }
@@ -712,10 +712,10 @@ impl Function for SortByFn {
         let mut mapped: Vec<(RcVar, RcVar)> = vec![];
         let first_value = try!(interpret(&vals[0], &ast, ctx));
         let first_type = first_value.get_type();
-        if first_type != "string" && first_type != "number" {
+        if first_type != JmespathType::String && first_type != JmespathType::Number {
             return Err(Error::from_ctx(ctx, ErrorReason::Runtime(RuntimeError::InvalidReturnType {
                 expected: "expression->string|expression->number".to_owned(),
-                actual: first_type.to_owned(),
+                actual: first_type.to_string(),
                 position: 1,
                 invocation: 1
             })));
@@ -727,7 +727,7 @@ impl Function for SortByFn {
                 return Err(Error::from_ctx(ctx,
                     ErrorReason::Runtime(RuntimeError::InvalidReturnType {
                         expected: format!("expression->{}", first_type),
-                        actual: mapped_value.get_type().to_owned(),
+                        actual: mapped_value.get_type().to_string(),
                         position: 1,
                         invocation: invocation
                     }
@@ -736,7 +736,8 @@ impl Function for SortByFn {
             mapped.push((v.clone(), mapped_value));
         }
         mapped.sort_by(|a, b| a.1.cmp(&b.1));
-        Ok(Rc::new(Variable::Array(vals)))
+        let result = mapped.iter().map(|tuple| tuple.0.clone()).collect();
+        Ok(Rc::new(Variable::Array(result)))
     }
 }
 
@@ -827,7 +828,7 @@ impl Function for TypeFn {
     }
 
     fn evaluate(&self, args: &[RcVar], _: &mut Context) -> SearchResult {
-        Ok(Rc::new(Variable::String(args[0].get_type().to_owned())))
+        Ok(Rc::new(Variable::String(args[0].get_type().to_string())))
     }
 }
 

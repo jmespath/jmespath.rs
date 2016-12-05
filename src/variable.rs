@@ -17,10 +17,36 @@ use self::serde_json::Value;
 use self::serde_json::error::Error;
 
 use super::RcVar;
-use super::ast::{Ast, Comparator, EqComparator, OrdComparator};
+use super::ast::{Ast, Comparator};
+
+/// JMESPath types.
+#[derive(Debug, PartialEq, PartialOrd, Eq, Ord)]
+pub enum JmespathType {
+    Null,
+    String,
+    Number,
+    Boolean,
+    Array,
+    Object,
+    Expref,
+}
+
+impl fmt::Display for JmespathType {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(fmt, "{}", match *self {
+            JmespathType::Null => "null",
+            JmespathType::String => "string",
+            JmespathType::Number => "number",
+            JmespathType::Boolean => "boolean",
+            JmespathType::Array => "array",
+            JmespathType::Object => "object",
+            JmespathType::Expref => "expref",
+        })
+    }
+}
 
 /// JMESPath variable.
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, Debug)]
 pub enum Variable {
     Null,
     String(String),
@@ -28,10 +54,52 @@ pub enum Variable {
     Number(f64),
     Array(Vec<RcVar>),
     Object(BTreeMap<String, RcVar>),
-    Expref(Ast)
+    Expref(Ast),
 }
 
 impl Eq for Variable {}
+
+/// Compares two floats for equality.
+///
+/// Allows for equivalence of floating point numbers like
+/// 0.7100000000000002 and 0.71.
+///
+/// Based on http://stackoverflow.com/a/4915891
+fn float_eq(a: f64, b: f64) -> bool {
+    use std::f64;
+    let abs_a = a.abs();
+    let abs_b = b.abs();
+    let diff = (a - b).abs();
+    if a == b {
+        true
+    } else if !a.is_normal() || !b.is_normal() {
+        // a or b is zero or both are extremely close to it
+        // relative error is less meaningful here.
+        diff < (f64::EPSILON * f64::MIN_POSITIVE)
+    } else {
+        // use relative error.
+        diff / (abs_a + abs_b) < f64::EPSILON
+    }
+}
+
+/// Implement PartialEq for looser floating point comparisons.
+impl PartialEq for Variable {
+    fn eq(&self, other: &Variable) -> bool {
+        if self.get_type() != other.get_type() {
+            false
+        } else {
+            match *self {
+                Variable::Number(a) => float_eq(a, other.as_number().unwrap()),
+                Variable::String(ref s) => s == other.as_string().unwrap(),
+                Variable::Bool(b) => b == other.as_boolean().unwrap(),
+                Variable::Array(ref a) => a == other.as_array().unwrap(),
+                Variable::Object(ref o) => o == other.as_object().unwrap(),
+                Variable::Expref(ref e) => e == other.as_expref().unwrap(),
+                Variable::Null => true,
+            }
+        }
+    }
+}
 
 /// Implement PartialOrd so that Ast can be in the PartialOrd of Variable.
 impl PartialOrd<Variable> for Variable {
@@ -66,10 +134,12 @@ impl Ord for Variable {
             Ordering::Equal
         } else {
             match var_type {
-                "string" => self.as_string().unwrap().cmp(other.as_string().unwrap()),
-                "number" => self.as_number().unwrap()
-                    .partial_cmp(&other.as_number().unwrap())
-                    .unwrap_or(Ordering::Less),
+                JmespathType::String => self.as_string().unwrap().cmp(other.as_string().unwrap()),
+                JmespathType::Number => {
+                    self.as_number().unwrap()
+                        .partial_cmp(&other.as_number().unwrap())
+                        .unwrap_or(Ordering::Less)
+                },
                 _ => Ordering::Equal
             }
         }
@@ -105,7 +175,7 @@ impl<'a> From<&'a Value> for Variable {
             Value::Null => Variable::Null,
             Value::Bool(b) => Variable::Bool(b),
             Value::U64(n) => Variable::Number(n as f64),
-            Value::F64(n) => Variable::Number(n as f64),
+            Value::F64(n) => Variable::Number(n),
             Value::I64(n) => Variable::Number(n as f64),
             Value::Array(ref values) => {
                 Variable::Array(
@@ -382,45 +452,33 @@ impl Variable {
     }
 
     /// Returns the JMESPath type name of a Variable value.
-    pub fn get_type(&self) -> &str {
+    pub fn get_type(&self) -> JmespathType {
         match *self {
-            Variable::Bool(_) => "boolean",
-            Variable::String(_) => "string",
-            Variable::Number(_) => "number",
-            Variable::Array(_) => "array",
-            Variable::Object(_) => "object",
-            Variable::Null => "null",
-            Variable::Expref(_) => "expref"
+            Variable::Bool(_) => JmespathType::Boolean,
+            Variable::String(_) => JmespathType::String,
+            Variable::Number(_) => JmespathType::Number,
+            Variable::Array(_) => JmespathType::Array,
+            Variable::Object(_) => JmespathType::Object,
+            Variable::Null => JmespathType::Null,
+            Variable::Expref(_) => JmespathType::Expref,
         }
     }
 
     /// Compares two Variable values using a comparator.
     pub fn compare(&self, cmp: &Comparator, value: &Variable) -> Option<bool> {
-        match *cmp {
-            Comparator::Eq(ref e) => Some(self.compare_equality(e, value)),
-            Comparator::Ord(ref o) => self.compare_ordering(o, value),
-        }
-    }
-
-    /// Compares two Variable values for equality.
-    pub fn compare_equality(&self, cmp: &EqComparator, value: &Variable) -> bool {
-        match *cmp {
-            EqComparator::Equal => *self == *value,
-            EqComparator::NotEqual => *self != *value,
-        }
-    }
-
-    /// Compares two Variable values for ordering.
-    pub fn compare_ordering(&self, cmp: &OrdComparator, value: &Variable) -> Option<bool> {
-        if !self.is_number() || !value.is_number() {
-            None
-        } else {
-            match *cmp {
-                OrdComparator::LessThan => Some(*self < *value),
-                OrdComparator::LessThanEqual => Some(*self <= *value),
-                OrdComparator::GreaterThan => Some(*self > *value),
-                OrdComparator::GreaterThanEqual => Some(*self >= *value),
+        // Ordering requires numeric values.
+        if !(*cmp == Comparator::Equal || *cmp == Comparator::NotEqual) {
+            if !self.is_number() || !value.is_number() {
+                return None;
             }
+        }
+        match *cmp {
+            Comparator::Equal => Some(*self == *value),
+            Comparator::NotEqual => Some(*self != *value),
+            Comparator::LessThan => Some(*self < *value),
+            Comparator::LessThanEqual => Some(*self <= *value),
+            Comparator::GreaterThan => Some(*self > *value),
+            Comparator::GreaterThanEqual => Some(*self >= *value),
         }
     }
 
@@ -827,8 +885,8 @@ mod tests {
     use std::rc::Rc;
     use std::collections::BTreeMap;
     use super::serde_json::{self, Value};
-    use super::Variable;
-    use ast::{Ast, Comparator, EqComparator, OrdComparator};
+    use super::{Variable, JmespathType};
+    use ast::{Ast, Comparator};
 
     #[test]
     fn creates_variable_from_str() {
@@ -839,12 +897,13 @@ mod tests {
 
     #[test]
     fn test_determines_types() {
-         assert_eq!("object", Variable::from_json(&"{\"foo\": \"bar\"}").unwrap().get_type());
-         assert_eq!("array", Variable::from_json(&"[\"foo\"]").unwrap().get_type());
-         assert_eq!("null", Variable::Null.get_type());
-         assert_eq!("boolean", Variable::Bool(true).get_type());
-         assert_eq!("string", Variable::String("foo".to_string()).get_type());
-         assert_eq!("number", Variable::Number(1.0).get_type());
+         assert_eq!(JmespathType::Object,
+                Variable::from_json(&"{\"foo\": \"bar\"}").unwrap().get_type());
+         assert_eq!(JmespathType::Array, Variable::from_json(&"[\"foo\"]").unwrap().get_type());
+         assert_eq!(JmespathType::Null, Variable::Null.get_type());
+         assert_eq!(JmespathType::Boolean, Variable::Bool(true).get_type());
+         assert_eq!(JmespathType::String, Variable::String("foo".to_string()).get_type());
+         assert_eq!(JmespathType::Number, Variable::Number(1.0).get_type());
     }
 
     #[test]
@@ -866,8 +925,8 @@ mod tests {
     fn test_eq_ne_compare() {
         let l = Variable::String("foo".to_string());
         let r = Variable::String("foo".to_string());
-        assert_eq!(Some(true), l.compare(&Comparator::Eq(EqComparator::Equal), &r));
-        assert_eq!(Some(false), l.compare(&Comparator::Eq(EqComparator::NotEqual), &r));
+        assert_eq!(Some(true), l.compare(&Comparator::Equal, &r));
+        assert_eq!(Some(false), l.compare(&Comparator::NotEqual, &r));
     }
 
     #[test]
@@ -875,15 +934,15 @@ mod tests {
         let invalid = Variable::String("foo".to_string());
         let l = Variable::Number(10.0);
         let r = Variable::Number(20.0);
-        assert_eq!(None, invalid.compare(&Comparator::Ord(OrdComparator::GreaterThan), &r));
-        assert_eq!(Some(false), l.compare(&Comparator::Ord(OrdComparator::GreaterThan), &r));
-        assert_eq!(Some(false), l.compare(&Comparator::Ord(OrdComparator::GreaterThanEqual), &r));
-        assert_eq!(Some(true), r.compare(&Comparator::Ord(OrdComparator::GreaterThan), &l));
-        assert_eq!(Some(true), r.compare(&Comparator::Ord(OrdComparator::GreaterThanEqual), &l));
-        assert_eq!(Some(true), l.compare(&Comparator::Ord(OrdComparator::LessThan), &r));
-        assert_eq!(Some(true), l.compare(&Comparator::Ord(OrdComparator::LessThanEqual), &r));
-        assert_eq!(Some(false), r.compare(&Comparator::Ord(OrdComparator::LessThan), &l));
-        assert_eq!(Some(false), r.compare(&Comparator::Ord(OrdComparator::LessThanEqual), &l));
+        assert_eq!(None, invalid.compare(&Comparator::GreaterThan, &r));
+        assert_eq!(Some(false), l.compare(&Comparator::GreaterThan, &r));
+        assert_eq!(Some(false), l.compare(&Comparator::GreaterThanEqual, &r));
+        assert_eq!(Some(true), r.compare(&Comparator::GreaterThan, &l));
+        assert_eq!(Some(true), r.compare(&Comparator::GreaterThanEqual, &l));
+        assert_eq!(Some(true), l.compare(&Comparator::LessThan, &r));
+        assert_eq!(Some(true), l.compare(&Comparator::LessThanEqual, &r));
+        assert_eq!(Some(false), r.compare(&Comparator::LessThan, &l));
+        assert_eq!(Some(false), r.compare(&Comparator::LessThanEqual, &l));
     }
 
     #[test]
@@ -1075,5 +1134,17 @@ mod tests {
     fn test_creates_variable_from_tuple_serialization() {
         let t = (true, false);
         assert_eq!("[true,false]", Variable::from(&t).to_string());
+    }
+
+    #[test]
+    fn test_compares_float_equality() {
+        assert!(Variable::from(1) == Variable::from(1.0));
+        assert!(Variable::from(0) == Variable::from(0));
+        assert!(Variable::from(0.00001) != Variable::from(0));
+        assert!(Variable::from(999.999) == Variable::from(999.999));
+        assert!(Variable::from(1.000000000001) == Variable::from(1.000000000001));
+        assert!(Variable::from(0.7100000000000002) == Variable::from(0.71));
+        assert!(Variable::from(0.0000000000000002) == Variable::from(0.0000000000000002));
+        assert!(Variable::from(0.0000000000000002) != Variable::from(0.0000000000000003));
     }
 }

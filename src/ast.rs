@@ -175,8 +175,12 @@ pub struct KeyValuePair {
 /// Comparators used in Comparison nodes
 #[derive(Clone, PartialEq, Debug)]
 pub enum Comparator {
-    Eq(EqComparator),
-    Ord(OrdComparator),
+    Equal,
+    NotEqual,
+    LessThan,
+    LessThanEqual,
+    GreaterThan,
+    GreaterThanEqual,
 }
 
 /// Creates a Comparator from a Token.
@@ -184,29 +188,15 @@ pub enum Comparator {
 impl From<Token> for Comparator {
     fn from(token: Token) -> Self {
         match token {
-            Token::Lt => Comparator::Ord(OrdComparator::LessThan),
-            Token::Lte => Comparator::Ord(OrdComparator::LessThanEqual),
-            Token::Gt => Comparator::Ord(OrdComparator::GreaterThan),
-            Token::Gte => Comparator::Ord(OrdComparator::GreaterThanEqual),
-            Token::Eq => Comparator::Eq(EqComparator::Equal),
-            Token::Ne => Comparator::Eq(EqComparator::NotEqual),
+            Token::Lt => Comparator::LessThan,
+            Token::Lte => Comparator::LessThanEqual,
+            Token::Gt => Comparator::GreaterThan,
+            Token::Gte => Comparator::GreaterThanEqual,
+            Token::Eq => Comparator::Equal,
+            Token::Ne => Comparator::NotEqual,
             _ => panic!("Invalid token for comparator: {:?}", token)
         }
     }
-}
-
-#[derive(Clone, PartialEq, PartialOrd, Debug)]
-pub enum EqComparator {
-    Equal,
-    NotEqual,
-}
-
-#[derive(Clone, PartialEq, PartialOrd, Debug)]
-pub enum OrdComparator {
-    LessThan,
-    LessThanEqual,
-    GreaterThan,
-    GreaterThanEqual,
 }
 
 
