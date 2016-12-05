@@ -4,8 +4,8 @@ sudo: false
 
 # run builds for all the trains (and more)
 rust:
-  - stable
-  - beta
+  #- stable
+  #- beta
   - nightly
 
 matrix:
