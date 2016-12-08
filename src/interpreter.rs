@@ -13,7 +13,6 @@ use super::variable::Variable;
 pub type SearchResult = Result<RcVar, Error>;
 
 /// Interprets the given data using an AST node.
-#[inline(never)]
 pub fn interpret(data: &RcVar, node: &Ast, ctx: &mut Context) -> SearchResult {
     match *node {
         Ast::Subexpr { ref lhs, ref rhs, .. } => {

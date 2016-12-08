@@ -4,7 +4,6 @@ use std::collections::HashMap;
 use std::collections::BTreeMap;
 use std::cmp::{max, min};
 use std::fmt;
-use std::rc::Rc;
 
 use super::{Context, Error, ErrorReason, RcVar, RuntimeError};
 use super::interpreter::{interpret, SearchResult};
@@ -358,7 +357,7 @@ macro_rules! min_and_max_by {
             let vals = $args[0].as_array().unwrap();
             // Return null when there are not values in the array
             if vals.is_empty() {
-                return Ok(Rc::new(Variable::Null));
+                return Ok(RcVar::new(Variable::Null));
             }
             let ast = $args[1].as_expref().unwrap();
             // Map over the first value to get the homogeneous required return type
@@ -403,7 +402,7 @@ macro_rules! min_and_max {
         {
             let values = $args[0].as_array().unwrap();
             if values.is_empty() {
-                Ok(Rc::new(Variable::Null))
+                Ok(RcVar::new(Variable::Null))
             } else {
                 let result: RcVar = values
                     .iter()
@@ -424,7 +423,7 @@ impl Function for AbsFn {
 
     fn evaluate(&self, args: &[RcVar], _: &mut Context) -> SearchResult {
         match *args[0] {
-            Variable::Number(n) => Ok(Rc::new(Variable::Number(n.abs()))),
+            Variable::Number(n) => Ok(RcVar::new(Variable::Number(n.abs()))),
             _ => Ok(args[0].clone())
         }
     }
@@ -442,7 +441,7 @@ impl Function for AvgFn {
         let sum = values.iter()
             .map(|n| n.as_number().unwrap())
             .fold(0f64, |a, ref b| a + b);
-        Ok(Rc::new(Variable::Number(sum / (values.len() as f64))))
+        Ok(RcVar::new(Variable::Number(sum / (values.len() as f64))))
     }
 }
 
@@ -455,7 +454,7 @@ impl Function for CeilFn {
 
     fn evaluate(&self, args: &[RcVar], _: &mut Context) -> SearchResult {
         let n = args[0].as_number().unwrap();
-        Ok(Rc::new(Variable::Number(n.ceil())))
+        Ok(RcVar::new(Variable::Number(n.ceil())))
     }
 }
 
@@ -471,12 +470,12 @@ impl Function for ContainsFn {
         let needle = &args[1];
         match **haystack {
            Variable::Array(ref a) => {
-               Ok(Rc::new(Variable::Bool(a.contains(&needle))))
+               Ok(RcVar::new(Variable::Bool(a.contains(&needle))))
            },
            Variable::String(ref subj) => {
                match needle.as_string() {
-                   None => Ok(Rc::new(Variable::Bool(false))),
-                   Some(s) => Ok(Rc::new(Variable::Bool(subj.contains(s))))
+                   None => Ok(RcVar::new(Variable::Bool(false))),
+                   Some(s) => Ok(RcVar::new(Variable::Bool(subj.contains(s))))
                }
            },
            _ => unreachable!()
@@ -494,7 +493,7 @@ impl Function for EndsWithFn {
     fn evaluate(&self, args: &[RcVar], _: &mut Context) -> SearchResult {
         let subject = args[0].as_string().unwrap();
         let search = args[1].as_string().unwrap();
-        Ok(Rc::new(Variable::Bool(subject.ends_with(search))))
+        Ok(RcVar::new(Variable::Bool(subject.ends_with(search))))
     }
 }
 
@@ -507,7 +506,7 @@ impl Function for FloorFn {
 
     fn evaluate(&self, args: &[RcVar], _: &mut Context) -> SearchResult {
         let n = args[0].as_number().unwrap();
-        Ok(Rc::new(Variable::Number(n.floor())))
+        Ok(RcVar::new(Variable::Number(n.floor())))
     }
 }
 
@@ -526,7 +525,7 @@ impl Function for JoinFn {
             .cloned()
             .collect::<Vec<String>>()
             .join(&glue);
-        Ok(Rc::new(Variable::String(result)))
+        Ok(RcVar::new(Variable::String(result)))
     }
 }
 
@@ -540,9 +539,9 @@ impl Function for KeysFn {
     fn evaluate(&self, args: &[RcVar], _: &mut Context) -> SearchResult {
         let object = args[0].as_object().unwrap();
         let keys = object.keys()
-            .map(|k| Rc::new(Variable::String((*k).clone())))
+            .map(|k| RcVar::new(Variable::String((*k).clone())))
             .collect::<Vec<RcVar>>();
-        Ok(Rc::new(Variable::Array(keys)))
+        Ok(RcVar::new(Variable::Array(keys)))
     }
 }
 
@@ -555,10 +554,10 @@ impl Function for LengthFn {
 
     fn evaluate(&self, args: &[RcVar], _: &mut Context) -> SearchResult {
         match *args[0] {
-            Variable::Array(ref a) => Ok(Rc::new(Variable::Number(a.len() as f64))),
-            Variable::Object(ref m) => Ok(Rc::new(Variable::Number(m.len() as f64))),
+            Variable::Array(ref a) => Ok(RcVar::new(Variable::Number(a.len() as f64))),
+            Variable::Object(ref m) => Ok(RcVar::new(Variable::Number(m.len() as f64))),
             // Note that we need to count the code points not the number of unicode characters
-            Variable::String(ref s) => Ok(Rc::new(Variable::Number(s.chars().count() as f64))),
+            Variable::String(ref s) => Ok(RcVar::new(Variable::Number(s.chars().count() as f64))),
             _ => unreachable!()
         }
     }
@@ -578,7 +577,7 @@ impl Function for MapFn {
         for value in values {
             results.push(try!(interpret(&value, &ast, ctx)));
         }
-        Ok(Rc::new(Variable::Array(results)))
+        Ok(RcVar::new(Variable::Array(results)))
     }
 }
 
@@ -642,7 +641,7 @@ impl Function for MergeFn {
         for arg in args {
             result.extend(arg.as_object().unwrap().clone());
         }
-        Ok(Rc::new(Variable::Object(result)))
+        Ok(RcVar::new(Variable::Object(result)))
     }
 }
 
@@ -659,7 +658,7 @@ impl Function for NotNullFn {
                 return Ok(arg.clone());
             }
         }
-        Ok(Rc::new(Variable::Null))
+        Ok(RcVar::new(Variable::Null))
     }
 }
 
@@ -674,10 +673,10 @@ impl Function for ReverseFn {
         if args[0].is_array() {
             let mut values = args[0].as_array().unwrap().clone();
             values.reverse();
-            Ok(Rc::new(Variable::Array(values)))
+            Ok(RcVar::new(Variable::Array(values)))
         } else {
             let word: String = args[0].as_string().unwrap().chars().rev().collect();
-            Ok(Rc::new(Variable::String(word)))
+            Ok(RcVar::new(Variable::String(word)))
         }
     }
 }
@@ -692,7 +691,7 @@ impl Function for SortFn {
     fn evaluate(&self, args: &[RcVar], _: &mut Context) -> SearchResult {
         let mut values = args[0].as_array().unwrap().clone();
         values.sort();
-        Ok(Rc::new(Variable::Array(values)))
+        Ok(RcVar::new(Variable::Array(values)))
     }
 }
 
@@ -706,7 +705,7 @@ impl Function for SortByFn {
     fn evaluate(&self, args: &[RcVar], ctx: &mut Context) -> SearchResult {
         let vals = args[0].as_array().unwrap().clone();
         if vals.is_empty() {
-            return Ok(Rc::new(Variable::Array(vals)));
+            return Ok(RcVar::new(Variable::Array(vals)));
         }
         let ast = args[1].as_expref().unwrap();
         let mut mapped: Vec<(RcVar, RcVar)> = vec![];
@@ -737,7 +736,7 @@ impl Function for SortByFn {
         }
         mapped.sort_by(|a, b| a.1.cmp(&b.1));
         let result = mapped.iter().map(|tuple| tuple.0.clone()).collect();
-        Ok(Rc::new(Variable::Array(result)))
+        Ok(RcVar::new(Variable::Array(result)))
     }
 }
 
@@ -751,7 +750,7 @@ impl Function for StartsWithFn {
     fn evaluate(&self, args: &[RcVar], _: &mut Context) -> SearchResult {
         let subject = args[0].as_string().unwrap();
         let search = args[1].as_string().unwrap();
-        Ok(Rc::new(Variable::Bool(subject.starts_with(search))))
+        Ok(RcVar::new(Variable::Bool(subject.starts_with(search))))
     }
 }
 
@@ -765,7 +764,7 @@ impl Function for SumFn {
     fn evaluate(&self, args: &[RcVar], _: &mut Context) -> SearchResult {
         let result = args[0].as_array().unwrap().iter().fold(
             0.0, |acc, item| acc + item.as_number().unwrap());
-        Ok(Rc::new(Variable::Number(result)))
+        Ok(RcVar::new(Variable::Number(result)))
     }
 }
 
@@ -779,7 +778,7 @@ impl Function for ToArrayFn {
     fn evaluate(&self, args: &[RcVar], _: &mut Context) -> SearchResult {
         match *args[0] {
             Variable::Array(_) => Ok(args[0].clone()),
-            _ => Ok(Rc::new(Variable::Array(vec![args[0].clone()])))
+            _ => Ok(RcVar::new(Variable::Array(vec![args[0].clone()])))
         }
     }
 }
@@ -796,11 +795,11 @@ impl Function for ToNumberFn {
             Variable::Number(_) => Ok(args[0].clone()),
             Variable::String(ref s) => {
                 match Variable::from_json(s) {
-                    Ok(f)  => Ok(Rc::new(f)),
-                    Err(_) => Ok(Rc::new(Variable::Null))
+                    Ok(f)  => Ok(RcVar::new(f)),
+                    Err(_) => Ok(RcVar::new(Variable::Null))
                 }
             },
-            _ => Ok(Rc::new(Variable::Null))
+            _ => Ok(RcVar::new(Variable::Null))
         }
     }
 }
@@ -815,7 +814,7 @@ impl Function for ToStringFn {
     fn evaluate(&self, args: &[RcVar], _: &mut Context) -> SearchResult {
         match *args[0] {
             Variable::String(_) => Ok(args[0].clone()),
-            _ => Ok(Rc::new(Variable::String(args[0].to_string())))
+            _ => Ok(RcVar::new(Variable::String(args[0].to_string())))
         }
     }
 }
@@ -828,7 +827,7 @@ impl Function for TypeFn {
     }
 
     fn evaluate(&self, args: &[RcVar], _: &mut Context) -> SearchResult {
-        Ok(Rc::new(Variable::String(args[0].get_type().to_string())))
+        Ok(RcVar::new(Variable::String(args[0].get_type().to_string())))
     }
 }
 
@@ -841,6 +840,6 @@ impl Function for ValuesFn {
 
     fn evaluate(&self, args: &[RcVar], _: &mut Context) -> SearchResult {
         let map = args[0].as_object().unwrap();
-        Ok(Rc::new(Variable::Array(map.values().cloned().collect::<Vec<RcVar>>())))
+        Ok(RcVar::new(Variable::Array(map.values().cloned().collect::<Vec<RcVar>>())))
     }
 }

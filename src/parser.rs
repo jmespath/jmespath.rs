@@ -11,7 +11,8 @@ pub type ParseResult = Result<Ast, Error>;
 
 /// Parses a JMESPath expression into an AST
 pub fn parse(expr: &str) -> ParseResult {
-    Parser::new(expr).and_then(|mut p| p.parse())
+    let tokens = try!(tokenize(expr));
+    Parser::new(tokens, expr).parse()
 }
 
 struct Parser<'a> {
@@ -26,13 +27,13 @@ struct Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
-    fn new(expr: &'a str) -> Result<Parser<'a>, Error> {
-        Ok(Parser {
-            token_queue: try!(tokenize(expr)),
+    fn new(tokens: VecDeque<TokenTuple>, expr: &'a str) -> Parser<'a> {
+        Parser {
+            token_queue: tokens,
             eof_token: Token::Eof,
             offset: 0,
             expr: expr,
-        })
+        }
     }
 
     fn parse(&mut self) -> ParseResult {
@@ -134,12 +135,12 @@ impl<'a> Parser<'a> {
                 }
                 Ok(Ast::MultiHash { elements: pairs, offset: offset })
             },
-            Token::Ampersand => {
-                let rhs = try!(self.expr(Token::Ampersand.lbp()));
+            t @ Token::Ampersand => {
+                let rhs = try!(self.expr(t.lbp()));
                 Ok(Ast::Expref { ast: Box::new(rhs), offset: offset })
             },
-            Token::Not => Ok(Ast::Not {
-                node: Box::new(try!(self.expr(Token::Not.lbp()))),
+            t @ Token::Not => Ok(Ast::Not {
+                node: Box::new(try!(self.expr(t.lbp()))),
                 offset: offset
             }),
             Token::Filter => self.parse_filter(Box::new(Ast::Identity { offset: offset })),
@@ -157,14 +158,14 @@ impl<'a> Parser<'a> {
     fn led(&mut self, left: Box<Ast>) -> ParseResult {
         let (offset, token) = self.advance_with_pos();
         match token {
-            Token::Dot => {
+            t @ Token::Dot => {
                 if self.peek(0) == &Token::Star {
                     // Skip the star and parse the rhs
                     self.advance();
                     self.parse_wildcard_values(left)
                 } else {
                     let offset = offset;
-                    let rhs = try!(self.parse_dot(Token::Dot.lbp()));
+                    let rhs = try!(self.parse_dot(t.lbp()));
                     Ok(Ast::Subexpr {
                         offset: offset,
                         lhs: left,
@@ -191,19 +192,19 @@ impl<'a> Parser<'a> {
                     }
                 }
             },
-            Token::Or => {
+            t @ Token::Or => {
                 let offset = offset;
-                let rhs = try!(self.expr(Token::Or.lbp()));
+                let rhs = try!(self.expr(t.lbp()));
                 Ok(Ast::Or { offset: offset, lhs: left, rhs: Box::new(rhs) })
             },
-            Token::And => {
+            t @ Token::And => {
                 let offset = offset;
-                let rhs = try!(self.expr(Token::And.lbp()));
+                let rhs = try!(self.expr(t.lbp()));
                 Ok(Ast::And { offset: offset, lhs: left, rhs: Box::new(rhs) })
             },
-            Token::Pipe => {
+            t @ Token::Pipe => {
                 let offset = offset;
-                let rhs = try!(self.expr(Token::Pipe.lbp()));
+                let rhs = try!(self.expr(t.lbp()));
                 Ok(Ast::Subexpr { offset: offset, lhs: left, rhs: Box::new(rhs) })
             },
             Token::Lparen => {

@@ -5,19 +5,18 @@
 extern crate serde;
 extern crate serde_json;
 
+use serde::{de, ser};
+use serde_json::value::Value;
+use serde_json::error::Error;
 use std::collections::BTreeMap;
 use std::cmp::{max, Ordering};
 use std::fmt;
 use std::iter::Iterator;
-use std::rc::Rc;
 use std::string::ToString;
 
-use self::serde::{de, ser};
-use self::serde_json::Value;
-use self::serde_json::error::Error;
-
-use super::RcVar;
-use super::ast::{Ast, Comparator};
+use IntoJmespath;
+use RcVar;
+use ast::{Ast, Comparator};
 
 /// JMESPath types.
 #[derive(Debug, PartialEq, PartialOrd, Eq, Ord)]
@@ -154,20 +153,16 @@ impl fmt::Display for Variable {
     }
 }
 
-impl<'a, T: ser::Serialize> From<&'a T> for Variable {
-    default fn from(value: &'a T) -> Variable {
-        let mut ser = Serializer::new();
-        value.serialize(&mut ser).ok().unwrap();
-        ser.unwrap()
+/// Generic way of converting a Map in a Value to a Variable.
+fn convert_map<'a, T>(value: T) -> Variable where T: Iterator<Item=(&'a String, &'a Value)> {
+    let mut map: BTreeMap<String, RcVar> = BTreeMap::new();
+    for kvp in value {
+        map.insert(kvp.0.to_owned(), kvp.1.into_jmespath());
     }
+    Variable::Object(map)
 }
 
-impl From<RcVar> for Variable {
-    fn from(value: RcVar) -> Variable {
-        (*value).clone()
-    }
-}
-
+/// Convert a borrowed Value to a Variable.
 impl<'a> From<&'a Value> for Variable {
     fn from(value: &'a Value) -> Variable {
         match *value {
@@ -177,121 +172,29 @@ impl<'a> From<&'a Value> for Variable {
             Value::U64(n) => Variable::Number(n as f64),
             Value::F64(n) => Variable::Number(n),
             Value::I64(n) => Variable::Number(n as f64),
+            Value::Object(ref values) => convert_map(values.iter()),
             Value::Array(ref values) => {
-                Variable::Array(
-                    values.iter().map(|v| Rc::new(Variable::from(v))).collect()
-                )
-            },
-            Value::Object(ref values) => {
-                let mut map: BTreeMap<String, RcVar> = BTreeMap::new();
-                for kvp in values.iter() {
-                    map.insert(kvp.0.to_owned(), Rc::new(Variable::from(kvp.1)));
-                }
-                Variable::Object(map)
+                Variable::Array(values.iter().map(|v| v.into_jmespath()).collect())
             },
         }
     }
 }
 
+/// Slightly optimized method for converting from an owned Value.
 impl From<Value> for Variable {
     fn from(value: Value) -> Variable {
-        Variable::from(&value)
-    }
-}
-
-impl From<String> for Variable {
-    fn from(value: String) -> Variable {
-        Variable::String(value)
-    }
-}
-
-impl<'a> From<&'a str> for Variable {
-    fn from(value: &'a str) -> Variable {
-        Variable::String(value.to_owned())
-    }
-}
-
-impl From<i8> for Variable {
-    fn from(value: i8) -> Variable {
-        Variable::Number(value as f64)
-    }
-}
-
-impl From<i16> for Variable {
-    fn from(value: i16) -> Variable {
-        Variable::Number(value as f64)
-    }
-}
-
-impl From<i32> for Variable {
-    fn from(value: i32) -> Variable {
-        Variable::Number(value as f64)
-    }
-}
-
-impl From<i64> for Variable {
-    fn from(value: i64) -> Variable {
-        Variable::Number(value as f64)
-    }
-}
-
-impl From<u8> for Variable {
-    fn from(value: u8) -> Variable {
-        Variable::Number(value as f64)
-    }
-}
-
-impl From<u16> for Variable {
-    fn from(value: u16) -> Variable {
-        Variable::Number(value as f64)
-    }
-}
-
-impl From<u32> for Variable {
-    fn from(value: u32) -> Variable {
-        Variable::Number(value as f64)
-    }
-}
-
-impl From<u64> for Variable {
-    fn from(value: u64) -> Variable {
-        Variable::Number(value as f64)
-    }
-}
-
-impl From<isize> for Variable {
-    fn from(value: isize) -> Variable {
-        Variable::Number(value as f64)
-    }
-}
-
-impl From<usize> for Variable {
-    fn from(value: usize) -> Variable {
-        Variable::Number(value as f64)
-    }
-}
-
-impl From<f32> for Variable {
-    fn from(value: f32) -> Variable {
-        Variable::Number(value as f64)
-    }
-}
-
-impl From<f64> for Variable {
-    fn from(value: f64) -> Variable {
-        Variable::Number(value)
-    }
-}
-
-impl From<()> for Variable {
-    fn from(_: ()) -> Variable {
-        Variable::Null
-    }
-}
-
-impl From<bool> for Variable {
-    fn from(value: bool) -> Variable {
-        Variable::Bool(value)
+        match value {
+            Value::String(s) => Variable::String(s),
+            Value::Null => Variable::Null,
+            Value::Bool(b) => Variable::Bool(b),
+            Value::U64(n) => Variable::Number(n as f64),
+            Value::F64(n) => Variable::Number(n),
+            Value::I64(n) => Variable::Number(n as f64),
+            Value::Object(ref values) => convert_map(values.iter()),
+            Value::Array(mut values) => {
+                Variable::Array(values.drain(..).map(|v| v.into_jmespath()).collect())
+            },
+        }
     }
 }
 
@@ -411,7 +314,7 @@ impl Variable {
                 return result.clone();
             }
         }
-        Rc::new(Variable::Null)
+        RcVar::new(Variable::Null)
     }
 
     /// If the value is an array, then gets an array value by index. Otherwise returns Null.
@@ -421,7 +324,7 @@ impl Variable {
                 return result.clone();
             }
         }
-        Rc::new(Variable::Null)
+        RcVar::new(Variable::Null)
     }
 
     /// Retrieves an index from the end of an array.
@@ -436,7 +339,7 @@ impl Variable {
                 return array[array.len() - adjusted_index].clone();
             }
         }
-        Rc::new(Variable::Null)
+        RcVar::new(Variable::Null)
     }
 
     /// Returns true or false based on if the Variable value is considered truthy.
@@ -747,7 +650,7 @@ impl ser::Serializer for Serializer {
                               _variant_index: usize,
                               variant: &str) -> Result<(), Error> {
         let mut values = BTreeMap::new();
-        values.insert(String::from(variant), Rc::new(Variable::Array(vec![])));
+        values.insert(String::from(variant), RcVar::new(Variable::Array(vec![])));
         self.state.push(State::Value(Variable::Object(values)));
         Ok(())
     }
@@ -760,7 +663,7 @@ impl ser::Serializer for Serializer {
                                     value: T) -> Result<(), Error>
                                     where T: ser::Serialize {
         let mut values = BTreeMap::new();
-        values.insert(String::from(variant), Rc::new(Variable::from(&value)));
+        values.insert(String::from(variant), value.into_jmespath());
         self.state.push(State::Value(Variable::Object(values)));
         Ok(())
     }
@@ -794,7 +697,7 @@ impl ser::Serializer for Serializer {
             state => panic!("expected value, found {:?}", state),
         };
         let mut object = BTreeMap::new();
-        object.insert(String::from(variant), Rc::new(value));
+        object.insert(String::from(variant), RcVar::new(value));
         self.state.push(State::Value(Variable::Object(object)));
         Ok(())
     }
@@ -809,7 +712,7 @@ impl ser::Serializer for Serializer {
             state => panic!("expected value, found {:?}", state),
         };
         match *self.state.last_mut().unwrap() {
-            State::Array(ref mut values) => { values.push(Rc::new(value)); }
+            State::Array(ref mut values) => { values.push(RcVar::new(value)); }
             ref state => panic!("expected array, found {:?}", state),
         }
         Ok(())
@@ -849,7 +752,7 @@ impl ser::Serializer for Serializer {
         };
 
         let mut object = BTreeMap::new();
-        object.insert(String::from(variant), Rc::new(value));
+        object.insert(String::from(variant), RcVar::new(value));
         self.state.push(State::Value(Variable::Object(object)));
         Ok(())
     }
@@ -873,7 +776,7 @@ impl ser::Serializer for Serializer {
         };
 
         match *self.state.last_mut().unwrap() {
-            State::Object(ref mut values) => { values.insert(key, Rc::new(value)); },
+            State::Object(ref mut values) => { values.insert(key, RcVar::new(value)); },
             ref state => panic!("expected object, found {:?}", state),
         }
         Ok(())
@@ -882,7 +785,7 @@ impl ser::Serializer for Serializer {
 
 #[cfg(test)]
 mod tests {
-    use std::rc::Rc;
+    use super::RcVar;
     use std::collections::BTreeMap;
     use super::serde_json::{self, Value};
     use super::{Variable, JmespathType};
@@ -948,12 +851,12 @@ mod tests {
     #[test]
     fn gets_value_from_object() {
         let var = Variable::from_json("{\"foo\":1}").unwrap();
-        assert_eq!(Rc::new(Variable::Number(1.0)), var.get_field("foo"));
+        assert_eq!(RcVar::new(Variable::Number(1.0)), var.get_field("foo"));
     }
 
     #[test]
     fn getting_value_from_non_object_is_null() {
-        assert_eq!(Rc::new(Variable::Null), Variable::Bool(false).get_field("foo"));
+        assert_eq!(RcVar::new(Variable::Null), Variable::Bool(false).get_field("foo"));
     }
 
     #[test]
@@ -1052,10 +955,10 @@ mod tests {
     fn test_parses_json_array() {
         let var = Variable::from_json("[null, true, [\"a\"]]").unwrap();
         assert_eq!(var, Variable::Array(vec![
-            Rc::new(Variable::Null),
-            Rc::new(Variable::Bool(true)),
-            Rc::new(Variable::Array(vec![
-                Rc::new(Variable::String("a".to_string()))
+            RcVar::new(Variable::Null),
+            RcVar::new(Variable::Bool(true)),
+            RcVar::new(Variable::Array(vec![
+                RcVar::new(Variable::String("a".to_string()))
             ]))
         ]))
     }
@@ -1065,9 +968,9 @@ mod tests {
         let var = Variable::from_json("{\"a\": 1, \"b\": {\"c\": true}}").unwrap();
         let mut expected = BTreeMap::new();
         let mut sub_obj = BTreeMap::new();
-        expected.insert("a".to_string(), Rc::new(Variable::Number(1.0)));
-        sub_obj.insert("c".to_string(), Rc::new(Variable::Bool(true)));
-        expected.insert("b".to_string(), Rc::new(Variable::Object(sub_obj)));
+        expected.insert("a".to_string(), RcVar::new(Variable::Number(1.0)));
+        sub_obj.insert("c".to_string(), RcVar::new(Variable::Bool(true)));
+        expected.insert("b".to_string(), RcVar::new(Variable::Object(sub_obj)));
         assert_eq!(var, Variable::Object(expected));
     }
 
@@ -1083,7 +986,7 @@ mod tests {
         let val = serde_json::to_value(&var);
         assert_eq!(Value::Array(vec![Value::String("a".to_string())]), val);
         let round_trip = serde_json::from_value::<Variable>(val).unwrap();
-        assert_eq!(Variable::Array(vec![Rc::new(Variable::String("a".to_string()))]), round_trip);
+        assert_eq!(Variable::Array(vec![RcVar::new(Variable::String("a".to_string()))]), round_trip);
     }
 
     /// Converting an expression variable to a string is a special case.
@@ -1095,56 +998,15 @@ mod tests {
         assert_eq!("\"__Expref__Identity { offset: 0 }\"", v.to_string());
     }
 
-    /// Tests that the Serde serialization directly to Variable works correctly.
-    #[test]
-    fn test_creates_variable_from_scalar_serialization() {
-        assert_eq!("\"foo\"", Variable::from(&"foo").to_string());
-        assert_eq!("\"foo\"", Variable::from(&"foo".to_string()).to_string());
-        assert_eq!("\"f\"", Variable::from(&'f').to_string());
-        assert_eq!("1", Variable::from(&1).to_string());
-        assert_eq!("1", Variable::from(&(1 as i64)).to_string());
-        assert_eq!("-1", Variable::from(&-1).to_string());
-        assert_eq!("1.5", Variable::from(&1.5).to_string());
-        assert_eq!("true", Variable::from(&true).to_string());
-        assert_eq!("false", Variable::from(&false).to_string());
-        assert_eq!("null", Variable::from(&()).to_string());
-        let null_val: Option<bool> = None;
-        assert_eq!("null", Variable::from(&null_val).to_string());
-    }
-
-    #[test]
-    fn test_creates_variable_from_vec_serialization() {
-        let empty_vec: Vec<String> = Vec::new();
-        assert_eq!("[]", Variable::from(&empty_vec).to_string());
-        assert_eq!("[\"abc\"]", Variable::from(&vec!["abc"]).to_string());
-        let s_vec: Vec<Vec<&'static str>> = vec![vec!["foo", "baz"], vec!["bar"]];
-        assert_eq!("[[\"foo\",\"baz\"],[\"bar\"]]", Variable::from(&s_vec).to_string());
-    }
-
-    #[test]
-    fn test_creates_variable_from_map_serialization() {
-        let empty_map: BTreeMap<String, String> = BTreeMap::new();
-        assert_eq!("{}", Variable::from(&empty_map).to_string());
-        let mut b_map: BTreeMap<&'static str, bool> = BTreeMap::new();
-        b_map.insert("foo", true);
-        assert_eq!("{\"foo\":true}", Variable::from(&b_map).to_string());
-    }
-
-    #[test]
-    fn test_creates_variable_from_tuple_serialization() {
-        let t = (true, false);
-        assert_eq!("[true,false]", Variable::from(&t).to_string());
-    }
-
     #[test]
     fn test_compares_float_equality() {
-        assert!(Variable::from(1) == Variable::from(1.0));
-        assert!(Variable::from(0) == Variable::from(0));
-        assert!(Variable::from(0.00001) != Variable::from(0));
-        assert!(Variable::from(999.999) == Variable::from(999.999));
-        assert!(Variable::from(1.000000000001) == Variable::from(1.000000000001));
-        assert!(Variable::from(0.7100000000000002) == Variable::from(0.71));
-        assert!(Variable::from(0.0000000000000002) == Variable::from(0.0000000000000002));
-        assert!(Variable::from(0.0000000000000002) != Variable::from(0.0000000000000003));
+        assert!(Variable::Number(1.0) == Variable::Number(1.0));
+        assert!(Variable::Number(0.0) == Variable::Number(0.0));
+        assert!(Variable::Number(0.00001) != Variable::Number(0.0));
+        assert!(Variable::Number(999.999) == Variable::Number(999.999));
+        assert!(Variable::Number(1.000000000001) == Variable::Number(1.000000000001));
+        assert!(Variable::Number(0.7100000000000002) == Variable::Number(0.71));
+        assert!(Variable::Number(0.0000000000000002) == Variable::Number(0.0000000000000002));
+        assert!(Variable::Number(0.0000000000000002) != Variable::Number(0.0000000000000003));
     }
 }

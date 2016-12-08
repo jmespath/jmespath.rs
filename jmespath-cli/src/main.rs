@@ -70,7 +70,7 @@ fn main() {
 
     let json = Rc::new(get_json(matches.value_of("filename")));
 
-    match expr.search_variable(&json) {
+    match expr.search(&json) {
         Err(e) => die!(e.to_string()),
         Ok(result) => show_result(result, matches.is_present("unquoted"))
     }
