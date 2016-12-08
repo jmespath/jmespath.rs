@@ -121,14 +121,6 @@ fn {}_parse_lex(b: &mut Bencher) {{
 }}
 
 ", fn_suffix, expr_string).as_bytes()).expect("Error writing parse benchmark");
-
-        f.write_all(format!("\
-#[bench]
-fn {}_lex(b: &mut Bencher) {{
-    b.iter(|| {{ tokenize({:?}).ok() }});
-}}
-
-", fn_suffix, expr_string).as_bytes()).expect("Error writing tokenize benchmark");
     }
 
     // Create the interpreter benchmark if "interpret" or "full"

@@ -56,13 +56,13 @@
 //! # Custom Functions
 //!
 //! You can register custom functions with a JMESPath expression using the
-//! ExpressionBuilder and a CustomFnRegistry.
+//! ExpressionBuilder and a custom FnRegistry.
 //!
 //! ```
 //! use jmespath::{ExpressionBuilder, Context, Rcvar, Variable};
-//! use jmespath::functions::{CustomFunction, Signature, ArgumentType, CustomFnRegistry};
+//! use jmespath::functions::{CustomFunction, Signature, ArgumentType, FnRegistry};
 //!
-//! let mut functions = CustomFnRegistry::new();
+//! let mut functions = FnRegistry::new();
 //!
 //! // Create a function that returns string values as-is.
 //! functions.register_function("str_identity", Box::new(CustomFunction::new(
@@ -90,7 +90,6 @@ extern crate serde_json;
 
 pub use errors::{Error, ErrorReason, RuntimeError};
 pub use parser::{parse, ParseResult};
-pub use lexer::tokenize;
 pub use variable::Variable;
 
 use std::fmt;
@@ -98,21 +97,21 @@ use serde::ser;
 use serde_json::Value;
 
 use ast::Ast;
-use functions::{FnRegistry, BuiltinFnRegistry};
+use functions::FnRegistry;
 use variable::Serializer;
 use interpreter::{interpret, SearchResult};
 
 pub mod ast;
 pub mod functions;
-pub mod interpreter;
 
+mod interpreter;
 mod parser;
 mod lexer;
 mod errors;
 mod variable;
 
 lazy_static! {
-    static ref DEFAULT_FN_REGISTRY: BuiltinFnRegistry = BuiltinFnRegistry::new();
+    static ref DEFAULT_FN_REGISTRY: FnRegistry = FnRegistry::from_defaults();
 }
 
 /// Ref counted JMESPath variable.
@@ -331,7 +330,7 @@ impl<'a> PartialEq for Expression<'a> {
 ///
 /// ExpressionBuilder also allows the injection of a custom AST. This
 /// could be useful for statically parsing and compiling JMESPath
-/// expression. Furthermore, ExpressionBuilder allows you to easily inject
+/// expression. Furthermore, ExpressionBuilder allows you to inject
 /// custom JMESPath functions.
 pub struct ExpressionBuilder<'a, 'b> {
     expression: &'a str,
@@ -444,32 +443,18 @@ mod test {
     #[test]
     fn can_use_custom_fn_registry() {
         use interpreter::SearchResult;
-        use functions::{Signature, Function, CustomFnRegistry, ArgumentType};
+        use functions::Function;
 
-        struct CustomFunction {
-            fn_signature: Signature,
-        }
-
-        impl CustomFunction {
-            fn new() -> CustomFunction {
-                CustomFunction {
-                    fn_signature: Signature::new(vec![], None, ArgumentType::Bool),
-                }
-            }
-        }
+        struct CustomFunction;
 
         impl Function for CustomFunction {
-            fn signature(&self) -> &Signature {
-                &self.fn_signature
-            }
-
             fn evaluate(&self, _args: &[Rcvar], _ctx: &mut Context) -> SearchResult {
                 Ok(Rcvar::new(Variable::Bool(true)))
             }
         }
 
-        let mut custom_functions = CustomFnRegistry::new();
-        custom_functions.register_function("constantly_true", Box::new(CustomFunction::new()));
+        let mut custom_functions = FnRegistry::new();
+        custom_functions.register_function("constantly_true", Box::new(CustomFunction));
         let expr = ExpressionBuilder::new("constantly_true()")
             .with_fn_registry(&custom_functions)
             .build()

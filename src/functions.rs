@@ -92,119 +92,48 @@ macro_rules! arg {
  * ------------------------------------------ */
 
 /// Stores and evaluates JMESPath functions.
-pub trait FnRegistry : Sync {
-    /// Gets a function signature by name from the registry.
-    ///
-    /// Returns the signature if found, or None if not found.
-    fn get_signature(&self, name: &str) -> Option<&Signature>;
-
-    /// Evaluates a function by name in the registry.
-    ///
-    /// The registry is responsible for validating function signatures
-    /// before invoking the function, and functions should assume that
-    /// the arguments provided to them are correct.
-    fn evaluate(&self, name: &str, args: &[Rcvar], ctx: &mut Context) -> Option<SearchResult>;
-}
-
-/// Default JMESPath function registry.
-pub struct BuiltinFnRegistry {
+pub struct FnRegistry {
     functions: HashMap<String, Box<Function>>,
 }
 
-impl BuiltinFnRegistry {
-    /// Creates a new BuiltinFnRegistry.
-    pub fn new() -> BuiltinFnRegistry {
-        let mut funcs: HashMap<String, Box<Function>> = HashMap::with_capacity(26);
-        funcs.insert("abs".to_owned(), Box::new(AbsFn::new()));
-        funcs.insert("avg".to_owned(), Box::new(AvgFn::new()));
-        funcs.insert("ceil".to_owned(), Box::new(CeilFn::new()));
-        funcs.insert("contains".to_owned(), Box::new(ContainsFn::new()));
-        funcs.insert("ends_with".to_owned(), Box::new(EndsWithFn::new()));
-        funcs.insert("floor".to_owned(), Box::new(FloorFn::new()));
-        funcs.insert("join".to_owned(), Box::new(JoinFn::new()));
-        funcs.insert("keys".to_owned(), Box::new(KeysFn::new()));
-        funcs.insert("length".to_owned(), Box::new(LengthFn::new()));
-        funcs.insert("map".to_owned(), Box::new(MapFn::new()));
-        funcs.insert("min".to_owned(), Box::new(MinFn::new()));
-        funcs.insert("max".to_owned(), Box::new(MaxFn::new()));
-        funcs.insert("max_by".to_owned(), Box::new(MaxByFn::new()));
-        funcs.insert("min_by".to_owned(), Box::new(MinByFn::new()));
-        funcs.insert("merge".to_owned(), Box::new(MergeFn::new()));
-        funcs.insert("not_null".to_owned(), Box::new(NotNullFn::new()));
-        funcs.insert("reverse".to_owned(), Box::new(ReverseFn::new()));
-        funcs.insert("sort".to_owned(), Box::new(SortFn::new()));
-        funcs.insert("sort_by".to_owned(), Box::new(SortByFn::new()));
-        funcs.insert("starts_with".to_owned(), Box::new(StartsWithFn::new()));
-        funcs.insert("sum".to_owned(), Box::new(SumFn::new()));
-        funcs.insert("to_array".to_owned(), Box::new(ToArrayFn::new()));
-        funcs.insert("to_number".to_owned(), Box::new(ToNumberFn::new()));
-        funcs.insert("to_string".to_owned(), Box::new(ToStringFn::new()));
-        funcs.insert("type".to_owned(), Box::new(TypeFn::new()));
-        funcs.insert("values".to_owned(), Box::new(ValuesFn::new()));
-        BuiltinFnRegistry {
-            functions: funcs,
+impl FnRegistry {
+    /// Creates a new, empty function registry.
+    pub fn new() -> FnRegistry {
+        FnRegistry {
+            functions: HashMap::with_capacity(26),
         }
     }
-}
 
-impl FnRegistry for BuiltinFnRegistry {
-    fn get_signature(&self, name: &str) -> Option<&Signature> {
-        self.functions.get(name).map(|f| f.signature())
-    }
-
-    fn evaluate(&self, name: &str, args: &[Rcvar], ctx: &mut Context) -> Option<SearchResult> {
-        self.functions.get(name)
-            .map(|f| {
-                try!(f.signature().validate(ctx, args));
-                f.evaluate(args, ctx)
-            })
-    }
-}
-
-/* ------------------------------------------
- * Custom functions.
- * ------------------------------------------ */
-
-/// Custom function that allows the creation of runtime functions.
-pub struct CustomFunction {
-    fn_signature: Signature,
-    f: Box<(Fn(&[Rcvar], &mut Context) -> SearchResult) + Sync>,
-}
-
-impl CustomFunction {
-    /// Creates a new custom function.
-    pub fn new(fn_signature: Signature,
-               f: Box<(Fn(&[Rcvar], &mut Context) -> SearchResult) + Sync>)
-               -> CustomFunction {
-        CustomFunction {
-            fn_signature: fn_signature,
-            f: f,
-        }
-    }
-}
-
-impl Function for CustomFunction {
-    fn signature(&self) -> &Signature {
-        &self.fn_signature
-    }
-
-    fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
-        (self.f)(args, ctx)
-    }
-}
-
-/// Allows the use of custom functions in addition to existing
-/// JMESPath functions.
-pub struct CustomFnRegistry {
-    functions: HashMap<String, Box<Function>>,
-}
-
-impl CustomFnRegistry {
-    /// Creates a new CustomFnRegistry.
-    pub fn new() -> CustomFnRegistry {
-        CustomFnRegistry {
-            functions: HashMap::new(),
-        }
+    /// Creates a new registry that uses the default JMESPath functions.
+    pub fn from_defaults() -> FnRegistry {
+        let mut registry = FnRegistry::new();
+        registry.functions.insert("abs".to_owned(), Box::new(AbsFn::new()));
+        registry.functions.insert("avg".to_owned(), Box::new(AvgFn::new()));
+        registry.functions.insert("ceil".to_owned(), Box::new(CeilFn::new()));
+        registry.functions.insert("contains".to_owned(), Box::new(ContainsFn::new()));
+        registry.functions.insert("ends_with".to_owned(), Box::new(EndsWithFn::new()));
+        registry.functions.insert("floor".to_owned(), Box::new(FloorFn::new()));
+        registry.functions.insert("join".to_owned(), Box::new(JoinFn::new()));
+        registry.functions.insert("keys".to_owned(), Box::new(KeysFn::new()));
+        registry.functions.insert("length".to_owned(), Box::new(LengthFn::new()));
+        registry.functions.insert("map".to_owned(), Box::new(MapFn::new()));
+        registry.functions.insert("min".to_owned(), Box::new(MinFn::new()));
+        registry.functions.insert("max".to_owned(), Box::new(MaxFn::new()));
+        registry.functions.insert("max_by".to_owned(), Box::new(MaxByFn::new()));
+        registry.functions.insert("min_by".to_owned(), Box::new(MinByFn::new()));
+        registry.functions.insert("merge".to_owned(), Box::new(MergeFn::new()));
+        registry.functions.insert("not_null".to_owned(), Box::new(NotNullFn::new()));
+        registry.functions.insert("reverse".to_owned(), Box::new(ReverseFn::new()));
+        registry.functions.insert("sort".to_owned(), Box::new(SortFn::new()));
+        registry.functions.insert("sort_by".to_owned(), Box::new(SortByFn::new()));
+        registry.functions.insert("starts_with".to_owned(), Box::new(StartsWithFn::new()));
+        registry.functions.insert("sum".to_owned(), Box::new(SumFn::new()));
+        registry.functions.insert("to_array".to_owned(), Box::new(ToArrayFn::new()));
+        registry.functions.insert("to_number".to_owned(), Box::new(ToNumberFn::new()));
+        registry.functions.insert("to_string".to_owned(), Box::new(ToStringFn::new()));
+        registry.functions.insert("type".to_owned(), Box::new(TypeFn::new()));
+        registry.functions.insert("values".to_owned(), Box::new(ValuesFn::new()));
+        registry
     }
 
     /// Adds a new custom function to the registry.
@@ -216,19 +145,50 @@ impl CustomFnRegistry {
     pub fn deregister_function(&mut self, name: &str) -> Option<Box<Function>> {
         self.functions.remove(name)
     }
+
+    /// Evaluates a function by name in the registry.
+    ///
+    /// The registry is responsible for validating function signatures
+    /// before invoking the function, and functions should assume that
+    /// the arguments provided to them are correct.
+    pub fn evaluate(&self, name: &str, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
+        match self.functions.get(name) {
+            Some(f) => f.evaluate(args, ctx),
+            None => {
+                Err(Error::from_ctx(ctx, ErrorReason::Runtime(
+                    RuntimeError::UnknownFunction(name.to_owned())
+                )))
+            }
+        }
+    }
 }
 
-impl FnRegistry for CustomFnRegistry {
-    fn get_signature(&self, name: &str) -> Option<&Signature> {
-        self.functions.get(name).map(|f| f.signature())
-    }
+/* ------------------------------------------
+ * Custom functions.
+ * ------------------------------------------ */
 
-    fn evaluate(&self, name: &str, args: &[Rcvar], ctx: &mut Context) -> Option<SearchResult> {
-        self.functions.get(name)
-            .map(|f| {
-                try!(f.signature().validate(ctx, args));
-                f.evaluate(args, ctx)
-            })
+/// Custom function that allows the creation of runtime functions.
+pub struct CustomFunction {
+    signature: Signature,
+    f: Box<(Fn(&[Rcvar], &mut Context) -> SearchResult) + Sync>,
+}
+
+impl CustomFunction {
+    /// Creates a new custom function.
+    pub fn new(fn_signature: Signature,
+               f: Box<(Fn(&[Rcvar], &mut Context) -> SearchResult) + Sync>)
+               -> CustomFunction {
+        CustomFunction {
+            signature: fn_signature,
+            f: f,
+        }
+    }
+}
+
+impl Function for CustomFunction {
+    fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
+        try!(self.signature.validate(args, ctx));
+        (self.f)(args, ctx)
     }
 }
 
@@ -260,7 +220,7 @@ impl Signature {
     /// Validates the arity of a function. If the arity is invalid, a runtime
     /// error is returned with the relative position of the error and the
     /// expression that was being executed.
-    pub fn validate_arity(&self, ctx: &Context, actual: usize) -> Result<(), Error> {
+    pub fn validate_arity(&self, actual: usize, ctx: &Context) -> Result<(), Error> {
         let expected = self.inputs.len();
         if self.variadic.is_some() {
             if actual >= expected {
@@ -287,8 +247,8 @@ impl Signature {
     }
 
     /// Validates the provided function arguments against the signature.
-    pub fn validate(&self, ctx: &Context, args: &[Rcvar]) -> Result<(), Error> {
-        try!(self.validate_arity(ctx, args.len()));
+    pub fn validate(&self, args: &[Rcvar], ctx: &Context) -> Result<(), Error> {
+        try!(self.validate_arity(args.len(), ctx));
         if let Some(ref variadic) = self.variadic {
             for (k, v) in args.iter().enumerate() {
                 let validator = self.inputs.get(k).unwrap_or(variadic);
@@ -322,9 +282,6 @@ impl Signature {
 
 /// Represents a JMESPath function.
 pub trait Function: Sync {
-    /// Gets the signature of the function.
-    fn signature(&self) -> &Signature;
-
     /// Evaluates the function against an in-memory variable.
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult;
 }
@@ -337,13 +294,13 @@ pub trait Function: Sync {
 macro_rules! defn {
     ($name:ident, $args:expr, $variadic:expr, $retval:expr) => {
         struct $name {
-            fn_signature: Signature,
+            signature: Signature,
         }
 
         impl $name {
             pub fn new() -> $name {
                 $name {
-                    fn_signature: Signature::new($args, $variadic, $retval),
+                    signature: Signature::new($args, $variadic, $retval),
                 }
             }
         }
@@ -417,11 +374,8 @@ macro_rules! min_and_max {
 defn!(AbsFn, vec![arg!(number)], None, arg!(number));
 
 impl Function for AbsFn {
-    fn signature(&self) -> &Signature {
-        &self.fn_signature
-    }
-
-    fn evaluate(&self, args: &[Rcvar], _: &mut Context) -> SearchResult {
+    fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
+        try!(self.signature.validate(args, ctx));
         match *args[0] {
             Variable::Number(n) => Ok(Rcvar::new(Variable::Number(n.abs()))),
             _ => Ok(args[0].clone())
@@ -432,11 +386,8 @@ impl Function for AbsFn {
 defn!(AvgFn, vec![arg!(array_number)], None, arg!(number));
 
 impl Function for AvgFn {
-    fn signature(&self) -> &Signature {
-        &self.fn_signature
-    }
-
-    fn evaluate(&self, args: &[Rcvar], _: &mut Context) -> SearchResult {
+    fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
+        try!(self.signature.validate(args, ctx));
         let values = args[0].as_array().unwrap();
         let sum = values.iter()
             .map(|n| n.as_number().unwrap())
@@ -448,11 +399,8 @@ impl Function for AvgFn {
 defn!(CeilFn, vec![arg!(number)], None, arg!(number));
 
 impl Function for CeilFn {
-    fn signature(&self) -> &Signature {
-        &self.fn_signature
-    }
-
-    fn evaluate(&self, args: &[Rcvar], _: &mut Context) -> SearchResult {
+    fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
+        try!(self.signature.validate(args, ctx));
         let n = args[0].as_number().unwrap();
         Ok(Rcvar::new(Variable::Number(n.ceil())))
     }
@@ -461,11 +409,8 @@ impl Function for CeilFn {
 defn!(ContainsFn, vec![arg!(string | array), arg!(any)], None, arg!(bool));
 
 impl Function for ContainsFn {
-    fn signature(&self) -> &Signature {
-        &self.fn_signature
-    }
-
-    fn evaluate(&self, args: &[Rcvar], _: &mut Context) -> SearchResult {
+    fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
+        try!(self.signature.validate(args, ctx));
         let haystack = &args[0];
         let needle = &args[1];
         match **haystack {
@@ -486,11 +431,8 @@ impl Function for ContainsFn {
 defn!(EndsWithFn, vec![arg!(string), arg!(string)], None, arg!(bool));
 
 impl Function for EndsWithFn {
-    fn signature(&self) -> &Signature {
-        &self.fn_signature
-    }
-
-    fn evaluate(&self, args: &[Rcvar], _: &mut Context) -> SearchResult {
+    fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
+        try!(self.signature.validate(args, ctx));
         let subject = args[0].as_string().unwrap();
         let search = args[1].as_string().unwrap();
         Ok(Rcvar::new(Variable::Bool(subject.ends_with(search))))
@@ -500,11 +442,8 @@ impl Function for EndsWithFn {
 defn!(FloorFn, vec![arg!(number)], None, arg!(number));
 
 impl Function for FloorFn {
-    fn signature(&self) -> &Signature {
-        &self.fn_signature
-    }
-
-    fn evaluate(&self, args: &[Rcvar], _: &mut Context) -> SearchResult {
+    fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
+        try!(self.signature.validate(args, ctx));
         let n = args[0].as_number().unwrap();
         Ok(Rcvar::new(Variable::Number(n.floor())))
     }
@@ -513,11 +452,8 @@ impl Function for FloorFn {
 defn!(JoinFn, vec![arg!(string), arg!(array_string)], None, arg!(string));
 
 impl Function for JoinFn {
-    fn signature(&self) -> &Signature {
-        &self.fn_signature
-    }
-
-    fn evaluate(&self, args: &[Rcvar], _: &mut Context) -> SearchResult {
+    fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
+        try!(self.signature.validate(args, ctx));
         let glue = args[0].as_string().unwrap();
         let values = args[1].as_array().unwrap();
         let result = values.iter()
@@ -532,11 +468,8 @@ impl Function for JoinFn {
 defn!(KeysFn, vec![arg!(object)], None, arg!(array));
 
 impl Function for KeysFn {
-    fn signature(&self) -> &Signature {
-        &self.fn_signature
-    }
-
-    fn evaluate(&self, args: &[Rcvar], _: &mut Context) -> SearchResult {
+    fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
+        try!(self.signature.validate(args, ctx));
         let object = args[0].as_object().unwrap();
         let keys = object.keys()
             .map(|k| Rcvar::new(Variable::String((*k).clone())))
@@ -548,11 +481,8 @@ impl Function for KeysFn {
 defn!(LengthFn, vec![arg!(array | object | string)], None, arg!(number));
 
 impl Function for LengthFn {
-    fn signature(&self) -> &Signature {
-        &self.fn_signature
-    }
-
-    fn evaluate(&self, args: &[Rcvar], _: &mut Context) -> SearchResult {
+    fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
+        try!(self.signature.validate(args, ctx));
         match *args[0] {
             Variable::Array(ref a) => Ok(Rcvar::new(Variable::Number(a.len() as f64))),
             Variable::Object(ref m) => Ok(Rcvar::new(Variable::Number(m.len() as f64))),
@@ -566,11 +496,8 @@ impl Function for LengthFn {
 defn!(MapFn, vec![arg!(expref), arg!(array)], None, arg!(array));
 
 impl Function for MapFn {
-    fn signature(&self) -> &Signature {
-        &self.fn_signature
-    }
-
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
+        try!(self.signature.validate(args, ctx));
         let ast = args[0].as_expref().unwrap();
         let values = args[1].as_array().unwrap();
         let mut results = vec![];
@@ -584,11 +511,8 @@ impl Function for MapFn {
 defn!(MaxFn, vec![arg!(array_string | array_number)], None, arg!(string | number));
 
 impl Function for MaxFn {
-    fn signature(&self) -> &Signature {
-        &self.fn_signature
-    }
-
-    fn evaluate(&self, args: &[Rcvar], _: &mut Context) -> SearchResult {
+    fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
+        try!(self.signature.validate(args, ctx));
         min_and_max!(max, args)
     }
 }
@@ -596,11 +520,8 @@ impl Function for MaxFn {
 defn!(MinFn, vec![arg!(array_string | array_number)], None, arg!(string | number));
 
 impl Function for MinFn {
-    fn signature(&self) -> &Signature {
-        &self.fn_signature
-    }
-
-    fn evaluate(&self, args: &[Rcvar], _: &mut Context) -> SearchResult {
+    fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
+        try!(self.signature.validate(args, ctx));
         min_and_max!(min, args)
     }
 }
@@ -608,11 +529,8 @@ impl Function for MinFn {
 defn!(MaxByFn, vec![arg!(array), arg!(expref)], None, arg!(string | number));
 
 impl Function for MaxByFn {
-    fn signature(&self) -> &Signature {
-        &self.fn_signature
-    }
-
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
+        try!(self.signature.validate(args, ctx));
         min_and_max_by!(ctx, gt, args)
     }
 }
@@ -620,11 +538,8 @@ impl Function for MaxByFn {
 defn!(MinByFn, vec![arg!(array), arg!(expref)], None, arg!(string | number));
 
 impl Function for MinByFn {
-    fn signature(&self) -> &Signature {
-        &self.fn_signature
-    }
-
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
+        try!(self.signature.validate(args, ctx));
         min_and_max_by!(ctx, lt, args)
     }
 }
@@ -632,11 +547,8 @@ impl Function for MinByFn {
 defn!(MergeFn, vec![arg!(object)], Some(arg!(object)), arg!(object));
 
 impl Function for MergeFn {
-    fn signature(&self) -> &Signature {
-        &self.fn_signature
-    }
-
-    fn evaluate(&self, args: &[Rcvar], _: &mut Context) -> SearchResult {
+    fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
+        try!(self.signature.validate(args, ctx));
         let mut result = BTreeMap::new();
         for arg in args {
             result.extend(arg.as_object().unwrap().clone());
@@ -648,11 +560,8 @@ impl Function for MergeFn {
 defn!(NotNullFn, vec![arg!(any)], Some(arg!(any)), arg!(any));
 
 impl Function for NotNullFn {
-    fn signature(&self) -> &Signature {
-        &self.fn_signature
-    }
-
-    fn evaluate(&self, args: &[Rcvar], _: &mut Context) -> SearchResult {
+    fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
+        try!(self.signature.validate(args, ctx));
         for arg in args {
             if !arg.is_null() {
                 return Ok(arg.clone());
@@ -665,11 +574,8 @@ impl Function for NotNullFn {
 defn!(ReverseFn, vec![arg!(array | string)], None, arg!(array | string));
 
 impl Function for ReverseFn {
-    fn signature(&self) -> &Signature {
-        &self.fn_signature
-    }
-
-    fn evaluate(&self, args: &[Rcvar], _: &mut Context) -> SearchResult {
+    fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
+        try!(self.signature.validate(args, ctx));
         if args[0].is_array() {
             let mut values = args[0].as_array().unwrap().clone();
             values.reverse();
@@ -684,11 +590,8 @@ impl Function for ReverseFn {
 defn!(SortFn, vec![arg!(array_string | array_number)], None, arg!(array));
 
 impl Function for SortFn {
-    fn signature(&self) -> &Signature {
-        &self.fn_signature
-    }
-
-    fn evaluate(&self, args: &[Rcvar], _: &mut Context) -> SearchResult {
+    fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
+        try!(self.signature.validate(args, ctx));
         let mut values = args[0].as_array().unwrap().clone();
         values.sort();
         Ok(Rcvar::new(Variable::Array(values)))
@@ -698,11 +601,8 @@ impl Function for SortFn {
 defn!(SortByFn, vec![arg!(array), arg!(expref)], None, arg!(array));
 
 impl Function for SortByFn {
-    fn signature(&self) -> &Signature {
-        &self.fn_signature
-    }
-
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
+        try!(self.signature.validate(args, ctx));
         let vals = args[0].as_array().unwrap().clone();
         if vals.is_empty() {
             return Ok(Rcvar::new(Variable::Array(vals)));
@@ -743,11 +643,8 @@ impl Function for SortByFn {
 defn!(StartsWithFn, vec![arg!(string), arg!(string)], None, arg!(bool));
 
 impl Function for StartsWithFn {
-    fn signature(&self) -> &Signature {
-        &self.fn_signature
-    }
-
-    fn evaluate(&self, args: &[Rcvar], _: &mut Context) -> SearchResult {
+    fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
+        try!(self.signature.validate(args, ctx));
         let subject = args[0].as_string().unwrap();
         let search = args[1].as_string().unwrap();
         Ok(Rcvar::new(Variable::Bool(subject.starts_with(search))))
@@ -757,11 +654,8 @@ impl Function for StartsWithFn {
 defn!(SumFn, vec![arg!(array_number)], None, arg!(number));
 
 impl Function for SumFn {
-    fn signature(&self) -> &Signature {
-        &self.fn_signature
-    }
-
-    fn evaluate(&self, args: &[Rcvar], _: &mut Context) -> SearchResult {
+    fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
+        try!(self.signature.validate(args, ctx));
         let result = args[0].as_array().unwrap().iter().fold(
             0.0, |acc, item| acc + item.as_number().unwrap());
         Ok(Rcvar::new(Variable::Number(result)))
@@ -771,11 +665,8 @@ impl Function for SumFn {
 defn!(ToArrayFn, vec![arg!(any)], None, arg!(array));
 
 impl Function for ToArrayFn {
-    fn signature(&self) -> &Signature {
-        &self.fn_signature
-    }
-
-    fn evaluate(&self, args: &[Rcvar], _: &mut Context) -> SearchResult {
+    fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
+        try!(self.signature.validate(args, ctx));
         match *args[0] {
             Variable::Array(_) => Ok(args[0].clone()),
             _ => Ok(Rcvar::new(Variable::Array(vec![args[0].clone()])))
@@ -786,11 +677,8 @@ impl Function for ToArrayFn {
 defn!(ToNumberFn, vec![arg!(any)], None, arg!(number));
 
 impl Function for ToNumberFn {
-    fn signature(&self) -> &Signature {
-        &self.fn_signature
-    }
-
-    fn evaluate(&self, args: &[Rcvar], _: &mut Context) -> SearchResult {
+    fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
+        try!(self.signature.validate(args, ctx));
         match *args[0] {
             Variable::Number(_) => Ok(args[0].clone()),
             Variable::String(ref s) => {
@@ -807,11 +695,8 @@ impl Function for ToNumberFn {
 defn!(ToStringFn, vec![arg!(object | array | bool | number | string | null)], None, arg!(string));
 
 impl Function for ToStringFn {
-    fn signature(&self) -> &Signature {
-        &self.fn_signature
-    }
-
-    fn evaluate(&self, args: &[Rcvar], _: &mut Context) -> SearchResult {
+    fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
+        try!(self.signature.validate(args, ctx));
         match *args[0] {
             Variable::String(_) => Ok(args[0].clone()),
             _ => Ok(Rcvar::new(Variable::String(args[0].to_string())))
@@ -822,11 +707,8 @@ impl Function for ToStringFn {
 defn!(TypeFn, vec![arg!(any)], None, arg!(string));
 
 impl Function for TypeFn {
-    fn signature(&self) -> &Signature {
-        &self.fn_signature
-    }
-
-    fn evaluate(&self, args: &[Rcvar], _: &mut Context) -> SearchResult {
+    fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
+        try!(self.signature.validate(args, ctx));
         Ok(Rcvar::new(Variable::String(args[0].get_type().to_string())))
     }
 }
@@ -834,11 +716,8 @@ impl Function for TypeFn {
 defn!(ValuesFn, vec![arg!(object)], None, arg!(array));
 
 impl Function for ValuesFn {
-    fn signature(&self) -> &Signature {
-        &self.fn_signature
-    }
-
-    fn evaluate(&self, args: &[Rcvar], _: &mut Context) -> SearchResult {
+    fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
+        try!(self.signature.validate(args, ctx));
         let map = args[0].as_object().unwrap();
         Ok(Rcvar::new(Variable::Array(map.values().cloned().collect::<Vec<Rcvar>>())))
     }

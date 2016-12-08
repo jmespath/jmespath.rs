@@ -133,11 +133,7 @@ pub fn interpret(data: &Rcvar, node: &Ast, ctx: &mut Context) -> SearchResult {
             }
             // Reset the offset so that it points to the function being evaluated.
             ctx.offset = *offset;
-            ctx.fn_registry.evaluate(name, &fn_args, ctx).unwrap_or_else(|| {
-                Err(Error::from_ctx(ctx, ErrorReason::Runtime(
-                    RuntimeError::UnknownFunction(name.to_owned())
-                )))
-            })
+            ctx.fn_registry.evaluate(name, &fn_args, ctx)
         },
         Ast::Expref{ ref ast, .. } => {
             Ok(Rcvar::new(Variable::Expref(*ast.clone())))
