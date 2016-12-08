@@ -1,10 +1,8 @@
 //! JMESPath AST
 
-extern crate serde_json;
-
 use std::fmt;
 
-use serde_json::Value;
+use Rcvar;
 use lexer::Token;
 
 /// Abstract syntax tree of a JMESPath expression.
@@ -78,7 +76,7 @@ pub enum Ast {
         /// Approximate absolute position in the parsed expression.
         offset: usize,
         /// Literal value
-        value: Value,
+        value: Rcvar,
     },
     /// Evaluates to a list of evaluated expressions.
     MultiList {

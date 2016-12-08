@@ -2,9 +2,9 @@
 
 use std::collections::VecDeque;
 
-use super::{Error, ErrorReason};
-use super::ast::{Ast, KeyValuePair, Comparator};
-use super::lexer::{tokenize, Token, TokenTuple};
+use {Error, ErrorReason};
+use ast::{Ast, KeyValuePair, Comparator};
+use lexer::{tokenize, Token, TokenTuple};
 
 /// Result of parsing an expression.
 pub type ParseResult = Result<Ast, Error>;
@@ -108,7 +108,7 @@ impl<'a> Parser<'a> {
                 }
             },
             Token::Star => self.parse_wildcard_values(Box::new(Ast::Identity { offset: offset })),
-            Token::Literal(value) => Ok(Ast::Literal { value: *value, offset: offset }),
+            Token::Literal(value) => Ok(Ast::Literal { value: value, offset: offset }),
             Token::Lbracket => {
                 match self.peek(0) {
                     &Token::Number(_) | &Token::Colon => self.parse_index(),

@@ -46,17 +46,16 @@ extern crate jmespath;
 
 use syntax::ast;
 use syntax::codemap;
-use syntax::ext::build::AstBuilder;
 use syntax::ext::base::{ExtCtxt, MacResult, MacEager, DummyResult};
 use syntax::parse::token;
 use syntax::print::pprust;
+use syntax::tokenstream;
 use syntax::fold::Folder;
 use rustc_plugin::Registry;
 use syntax::ptr::P;
-use syntax::ext::quote::rt::ToTokens;
 
-use jmespath::{Variable, RcVar};
-use jmespath::ast::{Ast, Comparator, EqComparator, OrdComparator};
+use jmespath::{Variable, Rcvar};
+use jmespath::ast::{Ast, Comparator};
 
 #[plugin_registrar]
 pub fn plugin_registrar(reg: &mut Registry) {
@@ -65,7 +64,7 @@ pub fn plugin_registrar(reg: &mut Registry) {
 
 fn expand_jp(cx: &mut ExtCtxt,
              sp: codemap::Span,
-             tts: &[ast::TokenTree])
+             tts: &[tokenstream::TokenTree])
              -> Box<MacResult+'static> {
     // Parse the arguments of the macro.
     let expression_str = match parse(cx, tts) {
@@ -94,7 +93,7 @@ fn expand_jp(cx: &mut ExtCtxt,
 /// Looks for a single string literal and returns it.
 ///
 /// Based on rust-regex macro: https://github.com/rust-lang-nursery/regex
-fn parse(cx: &mut ExtCtxt, tts: &[ast::TokenTree]) -> Option<String> {
+fn parse(cx: &mut ExtCtxt, tts: &[tokenstream::TokenTree]) -> Option<String> {
     let mut parser = cx.new_parser_from_tts(tts);
     if let Ok(expr) = parser.parse_expr() {
         let entry = cx.expander().fold_expr(expr);
@@ -149,35 +148,15 @@ fn generate_vec_ast(cx: &mut ExtCtxt, elements: &Vec<Ast>) -> P<ast::Expr> {
 /// Creates the AST nodes for a Comparator.
 fn generate_comparator_ast(cx: &mut ExtCtxt, comparator: &Comparator) -> P<ast::Expr> {
     match *comparator {
-        Comparator::Eq(EqComparator::Equal) => {
-            quote_expr!(cx, {
-                ::jmespath::ast::Comparator::Eq(::jmespath::ast::EqComparator::Equal)
-            })
+        Comparator::Equal => quote_expr!(cx, {::jmespath::ast::Comparator::Equal}),
+        Comparator::NotEqual => quote_expr!(cx, {::jmespath::ast::Comparator::NotEqual}),
+        Comparator::GreaterThan => quote_expr!(cx, {::jmespath::ast::Comparator::GreaterThan}),
+        Comparator::GreaterThanEqual => {
+            quote_expr!(cx, {::jmespath::ast::Comparator::GreaterThanEqual})
         },
-        Comparator::Eq(EqComparator::NotEqual) => {
-            quote_expr!(cx, {
-                ::jmespath::ast::Comparator::Eq(::jmespath::ast::EqComparator::NotEqual)
-            })
-        },
-        Comparator::Ord(OrdComparator::GreaterThan) => {
-            quote_expr!(cx, {
-                ::jmespath::ast::Comparator::Ord(::jmespath::ast::OrdComparator::GreaterThan)
-            })
-        },
-        Comparator::Ord(OrdComparator::GreaterThanEqual) => {
-            quote_expr!(cx, {
-                ::jmespath::ast::Comparator::Ord(::jmespath::ast::OrdComparator::GreaterThanEqual)
-            })
-        },
-        Comparator::Ord(OrdComparator::LessThan) => {
-            quote_expr!(cx, {
-                ::jmespath::ast::Comparator::Ord(::jmespath::ast::OrdComparator::LessThan)
-            })
-        },
-        Comparator::Ord(OrdComparator::LessThanEqual) => {
-            quote_expr!(cx, {
-                ::jmespath::ast::Comparator::Ord(::jmespath::ast::OrdComparator::LessThanEqual)
-            })
+        Comparator::LessThan => quote_expr!(cx, {::jmespath::ast::Comparator::LessThan}),
+        Comparator::LessThanEqual => {
+            quote_expr!(cx, {::jmespath::ast::Comparator::LessThanEqual})
         },
     }
 }
@@ -356,17 +335,15 @@ fn generate_ast(cx: &mut ExtCtxt, ast: &Ast) -> P<ast::Expr> {
 /// Generate the AST expression for creating a JMESPath variable.
 ///
 /// JMESPath variables are used in Literal nodes.
-fn generate_var_ast(cx: &mut ExtCtxt, var: &RcVar) -> P<ast::Expr> {
+fn generate_var_ast(cx: &mut ExtCtxt, var: &Rcvar) -> P<ast::Expr> {
     match **var {
         Variable::Null => quote_expr!(cx, ::jmespath::Variable::Null),
         Variable::Bool(b) => quote_expr!(cx, ::jmespath::Variable::Bool($b)),
         Variable::String(ref s) => quote_expr!(cx, ::jmespath::Variable::String($s.to_owned())),
-        Variable::U64(n) => quote_expr!(cx, ::jmespath::Variable::U64($n)),
-        Variable::I64(n) => quote_expr!(cx, ::jmespath::Variable::I64($n)),
-        Variable::F64(n) => {
+        Variable::Number(n) => {
             // f64 does not implement to_tokens, so we must parse a float from a string.
             let float_str = n.to_string();
-            quote_expr!(cx, ::jmespath::Variable::F64($float_str.parse().unwrap()))
+            quote_expr!(cx, ::jmespath::Variable::Number($float_str.parse().unwrap()))
         },
         Variable::Expref(ref node) => {
             let node_ast = generate_ast(cx, node);

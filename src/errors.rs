@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use super::Context;
+use Context;
 
 /// JMESPath error
 #[derive(Clone,Debug,PartialEq)]

@@ -7,11 +7,9 @@ extern crate serde_json;
 extern crate jmespath;
 
 use std::fmt;
-use std::rc::Rc;
-
 use serde_json::Value;
 
-use jmespath::{Variable, RcVar, RuntimeError, Expression};
+use jmespath::{Variable, Rcvar, RuntimeError, Expression};
 
 /// Avaliable benchmark types.
 pub enum BenchType {
@@ -102,7 +100,7 @@ pub enum Assertion {
     /// Ignores the result and marks the test as a benchmark
     Bench(BenchType),
     /// Ensures that the expression is parsed and returns an expected result.
-    ValidResult(RcVar)
+    ValidResult(Rcvar)
 }
 
 impl Assertion {
@@ -110,7 +108,7 @@ impl Assertion {
     pub fn assert(&self,
                   suite: &str,
                   case: &TestCase,
-                  given: RcVar) -> Result<(), String> {
+                  given: Rcvar) -> Result<(), String> {
         match self {
             &Assertion::Bench(_) => Ok(()),
             &Assertion::ValidResult(ref expected_result) => {
@@ -205,7 +203,7 @@ pub struct TestSuite<'a> {
     /// Filename of the test suite
     filename: &'a str,
     /// Given data of the test suite
-    given: RcVar,
+    given: Rcvar,
     /// Collection of test cases to perform
     cases: Vec<TestCase>,
 }
@@ -231,7 +229,7 @@ impl<'a> TestSuite<'a> {
         let given = try!(serde_json::from_value::<Variable>(value).map_err(|e| format!("{}", e)));
         Ok(TestSuite {
             filename: filename,
-            given: Rc::new(given),
+            given: Rcvar::new(given),
             cases: cases
         })
     }
@@ -309,7 +307,7 @@ impl TestCase {
                 None if case.contains_key("result") => {
                     let value = case.get("result").unwrap();
                     let var = serde_json::from_value::<Variable>(value.clone()).unwrap();
-                    Assertion::ValidResult(Rc::new(var))
+                    Assertion::ValidResult(Rcvar::new(var))
                 },
                 None if case.contains_key("bench") => {
                     Assertion::Bench(try!(BenchType::from_json(case.get("bench").unwrap())))
@@ -320,7 +318,7 @@ impl TestCase {
     }
 
     /// Perform the test case assertion against a given value.
-    pub fn assert(&self, suite_filename: &str, given: RcVar) -> Result<(), String> {
+    pub fn assert(&self, suite_filename: &str, given: Rcvar) -> Result<(), String> {
         self.assertion.assert(suite_filename, self, given)
     }
 }

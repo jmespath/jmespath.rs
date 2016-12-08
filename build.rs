@@ -136,7 +136,7 @@ fn {}_lex(b: &mut Bencher) {{
         f.write_all(format!("\
 #[bench]
 fn {}_interpret(b: &mut Bencher) {{
-    let data = Rc::new(Variable::from_json({:?}).expect(\"Invalid JSON given\"));
+    let data = Rcvar::new(Variable::from_json({:?}).expect(\"Invalid JSON given\"));
     let expr = Expression::new({:?}).unwrap();
     b.iter(|| {{ expr.search(&data).ok(); }});
 }}
@@ -149,7 +149,7 @@ fn {}_interpret(b: &mut Bencher) {{
         f.write_all(format!("\
 #[bench]
 fn {}_full(b: &mut Bencher) {{
-    let data = Rc::new(Variable::from_json({:?}).expect(\"Invalid JSON given\"));
+    let data = Rcvar::new(Variable::from_json({:?}).expect(\"Invalid JSON given\"));
     b.iter(|| {{ Expression::new({:?}).unwrap().search(&data).ok() }});
 }}
 
@@ -171,7 +171,7 @@ fn generate_test(filename: &str,
 #[test]
 fn test_{}() {{
     let case: TestCase = TestCase::from_str({:?}).unwrap();
-    let data = Rc::new(Variable::from_json({:?}).unwrap());
+    let data = Rcvar::new(Variable::from_json({:?}).unwrap());
     case.assert({:?}, data).unwrap();
 }}
 

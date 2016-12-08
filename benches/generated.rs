@@ -6,9 +6,7 @@
 extern crate jmespath;
 extern crate test;
 
-use std::rc::Rc;
-
-use jmespath::{parse, tokenize, Expression, Variable};
+use jmespath::{Rcvar, parse, tokenize, Expression, Variable};
 use test::Bencher;
 
 include!(concat!(env!("OUT_DIR"), "/benches.rs"));

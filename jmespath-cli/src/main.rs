@@ -9,7 +9,7 @@ use std::fs::File;
 use std::process::exit;
 
 use clap::{Arg, App};
-use jmespath::RcVar;
+use jmespath::Rcvar;
 use jmespath::{Variable, Expression};
 
 macro_rules! die(
@@ -76,7 +76,7 @@ fn main() {
     }
 }
 
-fn show_result(result: RcVar, unquoted: bool) {
+fn show_result(result: Rcvar, unquoted: bool) {
     if unquoted && result.is_string() {
         println!("{}", result.as_string().unwrap());
     } else {

@@ -15,7 +15,7 @@ use std::iter::Iterator;
 use std::string::ToString;
 
 use IntoJmespath;
-use RcVar;
+use Rcvar;
 use ast::{Ast, Comparator};
 
 /// JMESPath types.
@@ -51,8 +51,8 @@ pub enum Variable {
     String(String),
     Bool(bool),
     Number(f64),
-    Array(Vec<RcVar>),
-    Object(BTreeMap<String, RcVar>),
+    Array(Vec<Rcvar>),
+    Object(BTreeMap<String, Rcvar>),
     Expref(Ast),
 }
 
@@ -155,7 +155,7 @@ impl fmt::Display for Variable {
 
 /// Generic way of converting a Map in a Value to a Variable.
 fn convert_map<'a, T>(value: T) -> Variable where T: Iterator<Item=(&'a String, &'a Value)> {
-    let mut map: BTreeMap<String, RcVar> = BTreeMap::new();
+    let mut map: BTreeMap<String, Rcvar> = BTreeMap::new();
     for kvp in value {
         map.insert(kvp.0.to_owned(), kvp.1.into_jmespath());
     }
@@ -211,7 +211,7 @@ impl Variable {
 
     /// If the Variable value is an Array, returns the associated vector.
     /// Returns None otherwise.
-    pub fn as_array(&self) -> Option<&Vec<RcVar>> {
+    pub fn as_array(&self) -> Option<&Vec<Rcvar>> {
         match *self {
             Variable::Array(ref array) => Some(array),
             _ => None
@@ -225,7 +225,7 @@ impl Variable {
 
     /// If the value is an Object, returns the associated BTreeMap.
     /// Returns None otherwise.
-    pub fn as_object(&self) -> Option<&BTreeMap<String, RcVar>> {
+    pub fn as_object(&self) -> Option<&BTreeMap<String, Rcvar>> {
         match *self {
             Variable::Object(ref map) => Some(map),
             _ => None
@@ -308,23 +308,25 @@ impl Variable {
 
     /// If the value is an object, returns the value associated with the provided key.
     /// Otherwise, returns Null.
-    pub fn get_field(&self, key: &str) -> RcVar {
+    #[inline]
+    pub fn get_field(&self, key: &str) -> Rcvar {
         if let Variable::Object(ref map) = *self {
             if let Some(result) = map.get(key) {
                 return result.clone();
             }
         }
-        RcVar::new(Variable::Null)
+        Rcvar::new(Variable::Null)
     }
 
     /// If the value is an array, then gets an array value by index. Otherwise returns Null.
-    pub fn get_index(&self, index: usize) -> RcVar {
+    #[inline]
+    pub fn get_index(&self, index: usize) -> Rcvar {
         if let Variable::Array(ref array) = *self {
             if let Some(result) = array.get(index) {
                 return result.clone();
             }
         }
-        RcVar::new(Variable::Null)
+        Rcvar::new(Variable::Null)
     }
 
     /// Retrieves an index from the end of an array.
@@ -332,23 +334,23 @@ impl Variable {
     /// Returns Null if not an array or if the index is not present.
     /// The formula for determining the index position is length - index (i.e., an
     /// index of 0 or 1 is treated as the end of the array).
-    pub fn get_negative_index(&self, index: usize) -> RcVar {
+    pub fn get_negative_index(&self, index: usize) -> Rcvar {
         if let Variable::Array(ref array) = *self {
             let adjusted_index = max(index, 1);
             if array.len() >= adjusted_index {
                 return array[array.len() - adjusted_index].clone();
             }
         }
-        RcVar::new(Variable::Null)
+        Rcvar::new(Variable::Null)
     }
 
     /// Returns true or false based on if the Variable value is considered truthy.
     pub fn is_truthy(&self) -> bool {
         match *self {
-            Variable::Bool(true) => true,
-            Variable::String(ref s) if !s.is_empty() => true,
-            Variable::Array(ref a) if !a.is_empty() => true,
-            Variable::Object(ref o) if !o.is_empty() => true,
+            Variable::Bool(b) => b,
+            Variable::String(ref s) => !s.is_empty(),
+            Variable::Array(ref a) => !a.is_empty(),
+            Variable::Object(ref o) => !o.is_empty(),
             Variable::Number(_) => true,
             _ => false
         }
@@ -387,7 +389,7 @@ impl Variable {
 
     /// Returns a slice of the variable if the variable is an array.
     pub fn slice(&self, start: &Option<i32>, stop: &Option<i32>, step: i32)
-        -> Option<Vec<RcVar>>
+        -> Option<Vec<Rcvar>>
     {
         self.as_array().map(|a| slice(a, start, stop, step))
     }
@@ -397,8 +399,8 @@ impl Variable {
  * Variable slicing implementation
  * ------------------------------------------ */
 
-fn slice(array: &[RcVar], start: &Option<i32>, stop: &Option<i32>, step: i32)
-    -> Vec<RcVar>
+fn slice(array: &[Rcvar], start: &Option<i32>, stop: &Option<i32>, step: i32)
+    -> Vec<Rcvar>
 {
     let mut result = vec![];
     let len = array.len() as i32;
@@ -560,8 +562,8 @@ impl ser::Serialize for Variable {
 #[derive(Debug)]
 enum State {
     Value(Variable),
-    Array(Vec<RcVar>),
-    Object(BTreeMap<String, RcVar>),
+    Array(Vec<Rcvar>),
+    Object(BTreeMap<String, Rcvar>),
 }
 
 /// Create a `serde::Serializer` that serializes a `Serialize`e into a `Variable`.
@@ -650,7 +652,7 @@ impl ser::Serializer for Serializer {
                               _variant_index: usize,
                               variant: &str) -> Result<(), Error> {
         let mut values = BTreeMap::new();
-        values.insert(String::from(variant), RcVar::new(Variable::Array(vec![])));
+        values.insert(String::from(variant), Rcvar::new(Variable::Array(vec![])));
         self.state.push(State::Value(Variable::Object(values)));
         Ok(())
     }
@@ -697,7 +699,7 @@ impl ser::Serializer for Serializer {
             state => panic!("expected value, found {:?}", state),
         };
         let mut object = BTreeMap::new();
-        object.insert(String::from(variant), RcVar::new(value));
+        object.insert(String::from(variant), Rcvar::new(value));
         self.state.push(State::Value(Variable::Object(object)));
         Ok(())
     }
@@ -712,7 +714,7 @@ impl ser::Serializer for Serializer {
             state => panic!("expected value, found {:?}", state),
         };
         match *self.state.last_mut().unwrap() {
-            State::Array(ref mut values) => { values.push(RcVar::new(value)); }
+            State::Array(ref mut values) => { values.push(Rcvar::new(value)); }
             ref state => panic!("expected array, found {:?}", state),
         }
         Ok(())
@@ -752,7 +754,7 @@ impl ser::Serializer for Serializer {
         };
 
         let mut object = BTreeMap::new();
-        object.insert(String::from(variant), RcVar::new(value));
+        object.insert(String::from(variant), Rcvar::new(value));
         self.state.push(State::Value(Variable::Object(object)));
         Ok(())
     }
@@ -776,7 +778,7 @@ impl ser::Serializer for Serializer {
         };
 
         match *self.state.last_mut().unwrap() {
-            State::Object(ref mut values) => { values.insert(key, RcVar::new(value)); },
+            State::Object(ref mut values) => { values.insert(key, Rcvar::new(value)); },
             ref state => panic!("expected object, found {:?}", state),
         }
         Ok(())
@@ -785,7 +787,7 @@ impl ser::Serializer for Serializer {
 
 #[cfg(test)]
 mod tests {
-    use super::RcVar;
+    use super::Rcvar;
     use std::collections::BTreeMap;
     use super::serde_json::{self, Value};
     use super::{Variable, JmespathType};
@@ -851,12 +853,12 @@ mod tests {
     #[test]
     fn gets_value_from_object() {
         let var = Variable::from_json("{\"foo\":1}").unwrap();
-        assert_eq!(RcVar::new(Variable::Number(1.0)), var.get_field("foo"));
+        assert_eq!(Rcvar::new(Variable::Number(1.0)), var.get_field("foo"));
     }
 
     #[test]
     fn getting_value_from_non_object_is_null() {
-        assert_eq!(RcVar::new(Variable::Null), Variable::Bool(false).get_field("foo"));
+        assert_eq!(Rcvar::new(Variable::Null), Variable::Bool(false).get_field("foo"));
     }
 
     #[test]
@@ -955,10 +957,10 @@ mod tests {
     fn test_parses_json_array() {
         let var = Variable::from_json("[null, true, [\"a\"]]").unwrap();
         assert_eq!(var, Variable::Array(vec![
-            RcVar::new(Variable::Null),
-            RcVar::new(Variable::Bool(true)),
-            RcVar::new(Variable::Array(vec![
-                RcVar::new(Variable::String("a".to_string()))
+            Rcvar::new(Variable::Null),
+            Rcvar::new(Variable::Bool(true)),
+            Rcvar::new(Variable::Array(vec![
+                Rcvar::new(Variable::String("a".to_string()))
             ]))
         ]))
     }
@@ -968,9 +970,9 @@ mod tests {
         let var = Variable::from_json("{\"a\": 1, \"b\": {\"c\": true}}").unwrap();
         let mut expected = BTreeMap::new();
         let mut sub_obj = BTreeMap::new();
-        expected.insert("a".to_string(), RcVar::new(Variable::Number(1.0)));
-        sub_obj.insert("c".to_string(), RcVar::new(Variable::Bool(true)));
-        expected.insert("b".to_string(), RcVar::new(Variable::Object(sub_obj)));
+        expected.insert("a".to_string(), Rcvar::new(Variable::Number(1.0)));
+        sub_obj.insert("c".to_string(), Rcvar::new(Variable::Bool(true)));
+        expected.insert("b".to_string(), Rcvar::new(Variable::Object(sub_obj)));
         assert_eq!(var, Variable::Object(expected));
     }
 
@@ -986,7 +988,7 @@ mod tests {
         let val = serde_json::to_value(&var);
         assert_eq!(Value::Array(vec![Value::String("a".to_string())]), val);
         let round_trip = serde_json::from_value::<Variable>(val).unwrap();
-        assert_eq!(Variable::Array(vec![RcVar::new(Variable::String("a".to_string()))]), round_trip);
+        assert_eq!(Variable::Array(vec![Rcvar::new(Variable::String("a".to_string()))]), round_trip);
     }
 
     /// Converting an expression variable to a string is a special case.
