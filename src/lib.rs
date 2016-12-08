@@ -62,11 +62,11 @@
 //! use jmespath::{ExpressionBuilder, Context, Rcvar, Variable};
 //! use jmespath::functions::{CustomFunction, Signature, ArgumentType, FnRegistry};
 //!
-//! let mut functions = FnRegistry::new();
+//! let mut functions = FnRegistry::from_defaults();
 //!
 //! // Create a function that returns string values as-is.
-//! functions.register_function("str_identity", Box::new(CustomFunction::new(
-//!     Signature::new(vec![ArgumentType::String], None, ArgumentType::Number),
+//! functions.register("str_identity", Box::new(CustomFunction::new(
+//!     Signature::new(vec![ArgumentType::String], None),
 //!     Box::new(|args: &[Rcvar], _: &mut Context| Ok(args[0].clone()))
 //! )));
 //!
@@ -454,7 +454,7 @@ mod test {
         }
 
         let mut custom_functions = FnRegistry::new();
-        custom_functions.register_function("constantly_true", Box::new(CustomFunction));
+        custom_functions.register("constantly_true", Box::new(CustomFunction));
         let expr = ExpressionBuilder::new("constantly_true()")
             .with_fn_registry(&custom_functions)
             .build()

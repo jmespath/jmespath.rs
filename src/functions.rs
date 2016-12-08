@@ -137,12 +137,12 @@ impl FnRegistry {
     }
 
     /// Adds a new custom function to the registry.
-    pub fn register_function(&mut self, name: &str, f: Box<Function>) {
+    pub fn register(&mut self, name: &str, f: Box<Function>) {
         self.functions.insert(name.to_owned(), f);
     }
 
     /// Deregisters a function by name and returns it if found.
-    pub fn deregister_function(&mut self, name: &str) -> Option<Box<Function>> {
+    pub fn deregister(&mut self, name: &str) -> Option<Box<Function>> {
         self.functions.remove(name)
     }
 
@@ -201,19 +201,14 @@ impl Function for CustomFunction {
 pub struct Signature {
     pub inputs: Vec<ArgumentType>,
     pub variadic: Option<ArgumentType>,
-    pub output: ArgumentType,
 }
 
 impl Signature {
     /// Creates a new Signature struct.
-    pub fn new(inputs: Vec<ArgumentType>,
-               variadic: Option<ArgumentType>,
-               output: ArgumentType)
-               -> Signature {
+    pub fn new(inputs: Vec<ArgumentType>, variadic: Option<ArgumentType>) -> Signature {
         Signature {
             inputs: inputs,
             variadic: variadic,
-            output: output,
         }
     }
 
@@ -292,7 +287,7 @@ pub trait Function: Sync {
 
 /// Macro to more easily and quickly define a function and signature.
 macro_rules! defn {
-    ($name:ident, $args:expr, $variadic:expr, $retval:expr) => {
+    ($name:ident, $args:expr, $variadic:expr) => {
         struct $name {
             signature: Signature,
         }
@@ -300,7 +295,7 @@ macro_rules! defn {
         impl $name {
             pub fn new() -> $name {
                 $name {
-                    signature: Signature::new($args, $variadic, $retval),
+                    signature: Signature::new($args, $variadic),
                 }
             }
         }
@@ -371,7 +366,7 @@ macro_rules! min_and_max {
     )
 }
 
-defn!(AbsFn, vec![arg!(number)], None, arg!(number));
+defn!(AbsFn, vec![arg!(number)], None);
 
 impl Function for AbsFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
@@ -383,7 +378,7 @@ impl Function for AbsFn {
     }
 }
 
-defn!(AvgFn, vec![arg!(array_number)], None, arg!(number));
+defn!(AvgFn, vec![arg!(array_number)], None);
 
 impl Function for AvgFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
@@ -396,7 +391,7 @@ impl Function for AvgFn {
     }
 }
 
-defn!(CeilFn, vec![arg!(number)], None, arg!(number));
+defn!(CeilFn, vec![arg!(number)], None);
 
 impl Function for CeilFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
@@ -406,7 +401,7 @@ impl Function for CeilFn {
     }
 }
 
-defn!(ContainsFn, vec![arg!(string | array), arg!(any)], None, arg!(bool));
+defn!(ContainsFn, vec![arg!(string | array), arg!(any)], None);
 
 impl Function for ContainsFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
@@ -428,7 +423,7 @@ impl Function for ContainsFn {
     }
 }
 
-defn!(EndsWithFn, vec![arg!(string), arg!(string)], None, arg!(bool));
+defn!(EndsWithFn, vec![arg!(string), arg!(string)], None);
 
 impl Function for EndsWithFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
@@ -439,7 +434,7 @@ impl Function for EndsWithFn {
     }
 }
 
-defn!(FloorFn, vec![arg!(number)], None, arg!(number));
+defn!(FloorFn, vec![arg!(number)], None);
 
 impl Function for FloorFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
@@ -449,7 +444,7 @@ impl Function for FloorFn {
     }
 }
 
-defn!(JoinFn, vec![arg!(string), arg!(array_string)], None, arg!(string));
+defn!(JoinFn, vec![arg!(string), arg!(array_string)], None);
 
 impl Function for JoinFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
@@ -465,7 +460,7 @@ impl Function for JoinFn {
     }
 }
 
-defn!(KeysFn, vec![arg!(object)], None, arg!(array));
+defn!(KeysFn, vec![arg!(object)], None);
 
 impl Function for KeysFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
@@ -478,7 +473,7 @@ impl Function for KeysFn {
     }
 }
 
-defn!(LengthFn, vec![arg!(array | object | string)], None, arg!(number));
+defn!(LengthFn, vec![arg!(array | object | string)], None);
 
 impl Function for LengthFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
@@ -493,7 +488,7 @@ impl Function for LengthFn {
     }
 }
 
-defn!(MapFn, vec![arg!(expref), arg!(array)], None, arg!(array));
+defn!(MapFn, vec![arg!(expref), arg!(array)], None);
 
 impl Function for MapFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
@@ -508,7 +503,7 @@ impl Function for MapFn {
     }
 }
 
-defn!(MaxFn, vec![arg!(array_string | array_number)], None, arg!(string | number));
+defn!(MaxFn, vec![arg!(array_string | array_number)], None);
 
 impl Function for MaxFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
@@ -517,7 +512,7 @@ impl Function for MaxFn {
     }
 }
 
-defn!(MinFn, vec![arg!(array_string | array_number)], None, arg!(string | number));
+defn!(MinFn, vec![arg!(array_string | array_number)], None);
 
 impl Function for MinFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
@@ -526,7 +521,7 @@ impl Function for MinFn {
     }
 }
 
-defn!(MaxByFn, vec![arg!(array), arg!(expref)], None, arg!(string | number));
+defn!(MaxByFn, vec![arg!(array), arg!(expref)], None);
 
 impl Function for MaxByFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
@@ -535,7 +530,7 @@ impl Function for MaxByFn {
     }
 }
 
-defn!(MinByFn, vec![arg!(array), arg!(expref)], None, arg!(string | number));
+defn!(MinByFn, vec![arg!(array), arg!(expref)], None);
 
 impl Function for MinByFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
@@ -544,7 +539,7 @@ impl Function for MinByFn {
     }
 }
 
-defn!(MergeFn, vec![arg!(object)], Some(arg!(object)), arg!(object));
+defn!(MergeFn, vec![arg!(object)], Some(arg!(object)));
 
 impl Function for MergeFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
@@ -557,7 +552,7 @@ impl Function for MergeFn {
     }
 }
 
-defn!(NotNullFn, vec![arg!(any)], Some(arg!(any)), arg!(any));
+defn!(NotNullFn, vec![arg!(any)], Some(arg!(any)));
 
 impl Function for NotNullFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
@@ -571,7 +566,7 @@ impl Function for NotNullFn {
     }
 }
 
-defn!(ReverseFn, vec![arg!(array | string)], None, arg!(array | string));
+defn!(ReverseFn, vec![arg!(array | string)], None);
 
 impl Function for ReverseFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
@@ -587,7 +582,7 @@ impl Function for ReverseFn {
     }
 }
 
-defn!(SortFn, vec![arg!(array_string | array_number)], None, arg!(array));
+defn!(SortFn, vec![arg!(array_string | array_number)], None);
 
 impl Function for SortFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
@@ -598,7 +593,7 @@ impl Function for SortFn {
     }
 }
 
-defn!(SortByFn, vec![arg!(array), arg!(expref)], None, arg!(array));
+defn!(SortByFn, vec![arg!(array), arg!(expref)], None);
 
 impl Function for SortByFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
@@ -640,7 +635,7 @@ impl Function for SortByFn {
     }
 }
 
-defn!(StartsWithFn, vec![arg!(string), arg!(string)], None, arg!(bool));
+defn!(StartsWithFn, vec![arg!(string), arg!(string)], None);
 
 impl Function for StartsWithFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
@@ -651,7 +646,7 @@ impl Function for StartsWithFn {
     }
 }
 
-defn!(SumFn, vec![arg!(array_number)], None, arg!(number));
+defn!(SumFn, vec![arg!(array_number)], None);
 
 impl Function for SumFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
@@ -662,7 +657,7 @@ impl Function for SumFn {
     }
 }
 
-defn!(ToArrayFn, vec![arg!(any)], None, arg!(array));
+defn!(ToArrayFn, vec![arg!(any)], None);
 
 impl Function for ToArrayFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
@@ -674,7 +669,7 @@ impl Function for ToArrayFn {
     }
 }
 
-defn!(ToNumberFn, vec![arg!(any)], None, arg!(number));
+defn!(ToNumberFn, vec![arg!(any)], None);
 
 impl Function for ToNumberFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
@@ -692,7 +687,7 @@ impl Function for ToNumberFn {
     }
 }
 
-defn!(ToStringFn, vec![arg!(object | array | bool | number | string | null)], None, arg!(string));
+defn!(ToStringFn, vec![arg!(object | array | bool | number | string | null)], None);
 
 impl Function for ToStringFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
@@ -704,7 +699,7 @@ impl Function for ToStringFn {
     }
 }
 
-defn!(TypeFn, vec![arg!(any)], None, arg!(string));
+defn!(TypeFn, vec![arg!(any)], None);
 
 impl Function for TypeFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
@@ -713,7 +708,7 @@ impl Function for TypeFn {
     }
 }
 
-defn!(ValuesFn, vec![arg!(object)], None, arg!(array));
+defn!(ValuesFn, vec![arg!(object)], None);
 
 impl Function for ValuesFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
