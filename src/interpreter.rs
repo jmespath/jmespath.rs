@@ -7,6 +7,7 @@ use super::Context;
 use super::ast::Ast;
 use super::variable::Variable;
 
+/// Result of searching data using a JMESPath Expression.
 pub type SearchResult = Result<Rcvar, Error>;
 
 /// Interprets the given data using an AST node.

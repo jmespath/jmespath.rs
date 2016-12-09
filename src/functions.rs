@@ -9,10 +9,6 @@ use {Context, Error, ErrorReason, Rcvar, RuntimeError};
 use interpreter::{interpret, SearchResult};
 use variable::{Variable, JmespathType};
 
-/* ------------------------------------------
- * Argument types
- * ------------------------------------------ */
-
 /// Function argument types used when validating.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum ArgumentType {
@@ -87,10 +83,6 @@ macro_rules! arg {
     ($($x:ident) | *) => (ArgumentType::Union(vec![$(arg!($x)), *]));
 }
 
-/* ------------------------------------------
- * Function registry and default registry
- * ------------------------------------------ */
-
 /// Stores and evaluates JMESPath functions.
 pub struct FnRegistry {
     functions: HashMap<String, Box<Function>>,
@@ -163,10 +155,6 @@ impl FnRegistry {
     }
 }
 
-/* ------------------------------------------
- * Custom functions.
- * ------------------------------------------ */
-
 /// Normal closures can be used as functions.
 ///
 /// It is up to the function to validate the provided arguments.
@@ -204,10 +192,6 @@ impl Function for CustomFunction {
         (self.f)(args, ctx)
     }
 }
-
-/* ------------------------------------------
- * Function and signature types
- * ------------------------------------------ */
 
 /// Represents a function's signature.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -293,10 +277,6 @@ pub trait Function: Sync {
     /// Evaluates the function against an in-memory variable.
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult;
 }
-
-/* ------------------------------------------
- * Function definitions
- * ------------------------------------------ */
 
 /// Macro to more easily and quickly define a function and signature.
 macro_rules! defn {

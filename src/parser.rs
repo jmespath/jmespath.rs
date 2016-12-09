@@ -1,4 +1,8 @@
 //! Module for parsing JMESPath expressions into an AST.
+//!
+//! This JMESPath parser is implemented using a Pratt parser,
+//! or top down operator precedence parser:
+//! http://hall.org.ua/halls/wizzard/pdf/Vaughan.Pratt.TDOP.pdf
 
 use std::collections::VecDeque;
 
@@ -9,7 +13,7 @@ use lexer::{tokenize, Token, TokenTuple};
 /// Result of parsing an expression.
 pub type ParseResult = Result<Ast, Error>;
 
-/// Parses a JMESPath expression into an AST
+/// Parses a JMESPath expression into an AST.
 pub fn parse(expr: &str) -> ParseResult {
     let tokens = try!(tokenize(expr));
     Parser::new(tokens, expr).parse()

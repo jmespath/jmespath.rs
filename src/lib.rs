@@ -1,5 +1,7 @@
 //! Rust implementation of JMESPath, a query language for JSON.
 //!
+//! Note: currently requires the nightly compiler for specialization.
+//!
 //! # Compiling JMESPath expressions
 //!
 //! Use the `jmespath::Expression` struct to compile and execute JMESPath
@@ -92,6 +94,9 @@ pub use errors::{Error, ErrorReason, RuntimeError};
 pub use parser::{parse, ParseResult};
 pub use variable::Variable;
 
+pub mod ast;
+pub mod functions;
+
 use std::fmt;
 use serde::ser;
 use serde_json::Value;
@@ -100,9 +105,6 @@ use ast::Ast;
 use functions::FnRegistry;
 use variable::Serializer;
 use interpreter::{interpret, SearchResult};
-
-pub mod ast;
-pub mod functions;
 
 mod interpreter;
 mod parser;
@@ -114,15 +116,18 @@ lazy_static! {
     static ref DEFAULT_FN_REGISTRY: FnRegistry = FnRegistry::from_defaults();
 }
 
-/// Ref counted JMESPath variable.
+/// Reference counted JMESPath variable.
 #[cfg(not(feature = "sync"))]
 pub type Rcvar = std::rc::Rc<Variable>;
-/// Ref counted JMESPath variable.
+/// Reference counted JMESPath variable.
 #[cfg(feature = "sync")]
 pub type Rcvar = std::sync::Arc<Variable>;
 
-/// Converts a value into a reference-counted JMESPath Variable that
-/// can be used by the JMESPath runtime.
+/// Converts a value into a reference-counted JMESPath Variable.
+///
+/// There are a number of implemenations for ToJmespath built into
+/// the library that should work for most cases, including a generic
+/// serde Serialize implemenation.
 pub trait ToJmespath {
     fn to_jmespath(self) -> Rcvar;
 }
@@ -270,6 +275,18 @@ impl ToJmespath for bool {
 }
 
 /// A compiled JMESPath expression.
+///
+/// The compiled expression can be used multiple times without incurring
+/// the cost of re-parsing the expression each time. The expression may
+/// be shared between threads if JMESPath is compiled with the `sync`
+/// feature, which forces the use of an `Arc` instead of an `Rc` for
+/// runtime variables.
+///
+/// ```
+/// use jmespath;
+///
+/// let expr = jmespath::Expression::new("foo.bar || baz").unwrap();
+/// ```
 pub struct Expression<'a> {
     ast: Ast,
     expression: String,
@@ -278,6 +295,9 @@ pub struct Expression<'a> {
 
 impl<'a> Expression<'a> {
     /// Creates a new JMESPath expression from an expression string.
+    ///
+    /// The provided expression is expected to adhere to the JMESPath
+    /// grammar: http://jmespath.org/specification.html
     #[inline]
     pub fn new(expression: &str) -> Result<Expression<'a>, Error> {
         Ok(Expression {
@@ -287,18 +307,28 @@ impl<'a> Expression<'a> {
         })
     }
 
-    /// Returns the result of searching Serde data with the compiled expression.
+    /// Returns the result of searching data with the compiled expression.
+    ///
+    /// The SearchResult contains a JMESPath Rcvar, or a reference counted
+    /// Variable. This value can be used directly like a JSON object.
+    /// Alternatively, Variable does implement Serde serialzation and
+    /// deserialization, so it can easily be marshalled to another type.
     pub fn search<T: ToJmespath>(&self, data: T) -> SearchResult {
         let mut ctx = Context::new(&self.expression, &*self.fn_registry);
         interpret(&data.to_jmespath(), &self.ast, &mut ctx)
     }
 
     /// Returns the JMESPath expression from which the Expression was compiled.
+    ///
+    /// Note that this is the same value that is returned by calling
+    /// `to_string`.
     pub fn as_str(&self) -> &str {
         &self.expression
     }
 
     /// Returns the AST of the parsed JMESPath expression.
+    ///
+    /// This can be useful for debugging purposes, caching, etc.
     pub fn as_ast(&self) -> &Ast {
         &self.ast
     }
@@ -312,26 +342,23 @@ impl<'a> fmt::Display for Expression<'a> {
 }
 
 impl<'a> fmt::Debug for Expression<'a> {
-    /// Shows the jmespath expression as a string.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Display::fmt(self, f)
     }
 }
 
-/// Equality comparison is based on the original string.
 impl<'a> PartialEq for Expression<'a> {
     fn eq(&self, other: &Expression) -> bool {
         self.as_str() == other.as_str()
     }
 }
 
-
-/// ExpressionBuilder is used to build more complex expressions.
+/// An `ExpressionBuilder` is used to build more complex `Expression` structs.
 ///
-/// ExpressionBuilder also allows the injection of a custom AST. This
-/// could be useful for statically parsing and compiling JMESPath
-/// expression. Furthermore, ExpressionBuilder allows you to inject
-/// custom JMESPath functions.
+/// `ExpressionBuilder` allows for the use of a custom `FnRegistry`, allowing
+/// for custom functions, and it allows you to inject a previously parsed
+/// AST. This could be useful for statically parsing and compiling JMESPath
+/// expression (as done in the `jmespath-macros` crate).
 pub struct ExpressionBuilder<'a, 'b> {
     expression: &'a str,
     ast: Option<Ast>,
@@ -354,7 +381,7 @@ impl<'a, 'b> ExpressionBuilder<'a, 'b> {
         self
     }
 
-    /// Uses a custom function registry when building the Expression.
+    /// Use a custom function registry when building the Expression.
     pub fn with_fn_registry(mut self, fn_registry: &'b FnRegistry)
         -> ExpressionBuilder<'a, 'b>
     {
@@ -363,6 +390,10 @@ impl<'a, 'b> ExpressionBuilder<'a, 'b> {
     }
 
     /// Finalize and creates the Expression.
+    ///
+    /// This will consume the builder and return a constructed JMESPath expression.
+    /// If an AST was provided, the expression will simply use that AST and not
+    /// parse the provided expression string.
     pub fn build(self) -> Result<Expression<'b>, Error> {
         Ok(Expression {
             ast: match self.ast {
@@ -375,8 +406,12 @@ impl<'a, 'b> ExpressionBuilder<'a, 'b> {
     }
 }
 
-
 /// Context object used for error reporting.
+///
+/// The Context struct is mostly used when interacting between the
+/// interpreter and function implemenations. Unless you're writing
+/// custom JMESPath functions, this struct is an implementation
+/// detail.
 pub struct Context<'a> {
     /// Expression that is being interpreted.
     pub expression: &'a str,
@@ -397,7 +432,6 @@ impl<'a> Context<'a> {
         }
     }
 }
-
 
 #[cfg(test)]
 mod test {

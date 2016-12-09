@@ -1,4 +1,11 @@
-//! Module for tokenizing JMESPath expression.
+//! Module for tokenizing JMESPath expressions.
+//!
+//! The lexer returns a VecDeque of tuples where each
+//! tuple contains the character position in the original
+//! string from which the lexeme originates followed by the
+//! token itself. The VecDeque is then consumed by the parser.
+//! A VecDeque is utilized in order to pop owned tokens
+//! and provide arbitrary token lookahead in the parser.
 
 use std::iter::Peekable;
 use std::str::CharIndices;
@@ -45,6 +52,10 @@ pub enum Token {
 
 impl Token {
     /// Provides the left binding power of the token.
+    ///
+    /// This is used in the parser to determine whether or not
+    /// the currently parsing expression should continue parsing
+    /// by consuming a token.
     #[inline]
     pub fn lbp(&self) -> usize {
         match *self {

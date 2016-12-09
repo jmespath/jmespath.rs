@@ -4,8 +4,8 @@ use std::fmt;
 
 use Context;
 
-/// JMESPath error
-#[derive(Clone,Debug,PartialEq)]
+/// JMESPath error.
+#[derive(Clone, Debug, PartialEq)]
 pub struct Error {
     /// Absolute character position.
     pub offset: usize,
@@ -20,7 +20,7 @@ pub struct Error {
 }
 
 impl Error {
-    /// Create a new JMESPath Error
+    /// Create a new JMESPath Error.
     pub fn new(expr: &str, offset: usize, error_reason: ErrorReason) -> Error {
         // Find each new line so we can create a formatted error message.
         let mut line: usize = 0;
@@ -76,8 +76,8 @@ impl fmt::Display for Error {
     }
 }
 
-/// Error context provides specific details about an error.
-#[derive(Clone,Debug,PartialEq)]
+/// Error context to provide specific details about an error.
+#[derive(Clone, Debug, PartialEq)]
 pub enum ErrorReason {
     /// An error occurred while parsing an expression.
     Parse(String),
@@ -95,33 +95,44 @@ impl fmt::Display for ErrorReason {
 }
 
 /// Runtime JMESPath error
-#[derive(Clone,Debug,PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum RuntimeError {
     /// Encountered when a slice expression uses a step of 0
     InvalidSlice,
     /// Encountered when too many arguments are provided to a function.
     TooManyArguments {
+        /// Expeced number of arguments.
         expected: usize,
+        /// Provided number of arguments.
         actual: usize,
     },
     /// Encountered when too few arguments are provided to a function.
     NotEnoughArguments {
+        /// Expeced number of arguments.
         expected: usize,
+        /// Provided number of arguments.
         actual: usize,
     },
     /// Encountered when an unknown function is called.
     UnknownFunction(String),
     /// Encountered when a type of variable given to a function is invalid.
     InvalidType {
+        /// Expected type.
         expected: String,
+        /// Provided type.
         actual: String,
+        /// Argument position when calling the function.
         position: usize,
     },
     /// Encountered when an expression reference returns an invalid type.
     InvalidReturnType {
+        /// Expected return type.
         expected: String,
+        /// Actual return type.
         actual: String,
+        /// Argument position from which the expression reference was invoked.
         position: usize,
+        /// Which invocation iteration of the expression reference failed.
         invocation: usize,
     },
 }
@@ -151,7 +162,6 @@ impl fmt::Display for RuntimeError {
         }
     }
 }
-
 
 #[cfg(test)]
 mod test {

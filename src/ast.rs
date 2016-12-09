@@ -170,7 +170,7 @@ pub struct KeyValuePair {
     pub value: Ast
 }
 
-/// Comparators used in Comparison nodes
+/// Comparators used in Comparison nodes.
 #[derive(Clone, PartialEq, Debug)]
 pub enum Comparator {
     Equal,
@@ -182,7 +182,8 @@ pub enum Comparator {
 }
 
 /// Creates a Comparator from a Token.
-/// Panics if the Token is invalid.
+///
+/// Note: panics if the Token is invalid.
 impl From<Token> for Comparator {
     fn from(token: Token) -> Self {
         match token {
@@ -196,7 +197,6 @@ impl From<Token> for Comparator {
         }
     }
 }
-
 
 #[cfg(test)]
 mod test {

@@ -1,6 +1,4 @@
-//! Module for JMESPath runtime variables
-//!
-//! Note: currently requires the nightly compiler for specialization.
+//! Module for JMESPath runtime variables.
 
 extern crate serde;
 extern crate serde_json;
