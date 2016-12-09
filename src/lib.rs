@@ -123,148 +123,148 @@ pub type Rcvar = std::sync::Arc<Variable>;
 
 /// Converts a value into a reference-counted JMESPath Variable that
 /// can be used by the JMESPath runtime.
-pub trait IntoJmespath {
-    fn into_jmespath(self) -> Rcvar;
+pub trait ToJmespath {
+    fn to_jmespath(self) -> Rcvar;
 }
 
 /// Create searchable values from Serde serializable values.
-impl<'a, T: ser::Serialize> IntoJmespath for T {
-    default fn into_jmespath(self) -> Rcvar {
+impl<'a, T: ser::Serialize> ToJmespath for T {
+    default fn to_jmespath(self) -> Rcvar {
         let mut ser = Serializer::new();
         self.serialize(&mut ser).ok().unwrap();
         Rcvar::new(ser.unwrap())
     }
 }
 
-impl IntoJmespath for Value {
-    fn into_jmespath(self) -> Rcvar {
+impl ToJmespath for Value {
+    fn to_jmespath(self) -> Rcvar {
         Rcvar::new(Variable::from(self))
     }
 }
 
-impl<'a> IntoJmespath for &'a Value {
-    fn into_jmespath(self) -> Rcvar {
+impl<'a> ToJmespath for &'a Value {
+    fn to_jmespath(self) -> Rcvar {
         Rcvar::new(Variable::from(self))
     }
 }
 
 /// Identity coercion.
-impl IntoJmespath for Rcvar {
-    fn into_jmespath(self) -> Rcvar {
+impl ToJmespath for Rcvar {
+    fn to_jmespath(self) -> Rcvar {
         self
     }
 }
 
-impl<'a> IntoJmespath for &'a Rcvar {
-    fn into_jmespath(self) -> Rcvar {
+impl<'a> ToJmespath for &'a Rcvar {
+    fn to_jmespath(self) -> Rcvar {
         self.clone()
     }
 }
 
-impl IntoJmespath for Variable {
-    fn into_jmespath(self) -> Rcvar {
+impl ToJmespath for Variable {
+    fn to_jmespath(self) -> Rcvar {
         Rcvar::new(self)
     }
 }
 
-impl<'a> IntoJmespath for &'a Variable {
-    fn into_jmespath(self) -> Rcvar {
+impl<'a> ToJmespath for &'a Variable {
+    fn to_jmespath(self) -> Rcvar {
         Rcvar::new(self.clone())
     }
 }
 
-impl IntoJmespath for String {
-    fn into_jmespath(self) -> Rcvar {
+impl ToJmespath for String {
+    fn to_jmespath(self) -> Rcvar {
         Rcvar::new(Variable::String(self))
     }
 }
 
-impl<'a> IntoJmespath for &'a str {
-    fn into_jmespath(self) -> Rcvar {
+impl<'a> ToJmespath for &'a str {
+    fn to_jmespath(self) -> Rcvar {
         Rcvar::new(Variable::String(self.to_owned()))
     }
 }
 
-impl IntoJmespath for i8 {
-    fn into_jmespath(self) -> Rcvar {
+impl ToJmespath for i8 {
+    fn to_jmespath(self) -> Rcvar {
         Rcvar::new(Variable::Number(self as f64))
     }
 }
 
-impl IntoJmespath for i16 {
-    fn into_jmespath(self) -> Rcvar {
+impl ToJmespath for i16 {
+    fn to_jmespath(self) -> Rcvar {
         Rcvar::new(Variable::Number(self as f64))
     }
 }
 
-impl IntoJmespath for i32 {
-    fn into_jmespath(self) -> Rcvar {
+impl ToJmespath for i32 {
+    fn to_jmespath(self) -> Rcvar {
         Rcvar::new(Variable::Number(self as f64))
     }
 }
 
-impl IntoJmespath for i64 {
-    fn into_jmespath(self) -> Rcvar {
+impl ToJmespath for i64 {
+    fn to_jmespath(self) -> Rcvar {
         Rcvar::new(Variable::Number(self as f64))
     }
 }
 
-impl IntoJmespath for u8 {
-    fn into_jmespath(self) -> Rcvar {
+impl ToJmespath for u8 {
+    fn to_jmespath(self) -> Rcvar {
         Rcvar::new(Variable::Number(self as f64))
     }
 }
 
-impl IntoJmespath for u16 {
-    fn into_jmespath(self) -> Rcvar {
+impl ToJmespath for u16 {
+    fn to_jmespath(self) -> Rcvar {
         Rcvar::new(Variable::Number(self as f64))
     }
 }
 
-impl IntoJmespath for u32 {
-    fn into_jmespath(self) -> Rcvar {
+impl ToJmespath for u32 {
+    fn to_jmespath(self) -> Rcvar {
         Rcvar::new(Variable::Number(self as f64))
     }
 }
 
-impl IntoJmespath for u64 {
-    fn into_jmespath(self) -> Rcvar {
+impl ToJmespath for u64 {
+    fn to_jmespath(self) -> Rcvar {
         Rcvar::new(Variable::Number(self as f64))
     }
 }
 
-impl IntoJmespath for isize {
-    fn into_jmespath(self) -> Rcvar {
+impl ToJmespath for isize {
+    fn to_jmespath(self) -> Rcvar {
         Rcvar::new(Variable::Number(self as f64))
     }
 }
 
-impl IntoJmespath for usize {
-    fn into_jmespath(self) -> Rcvar {
+impl ToJmespath for usize {
+    fn to_jmespath(self) -> Rcvar {
         Rcvar::new(Variable::Number(self as f64))
     }
 }
 
-impl IntoJmespath for f32 {
-    fn into_jmespath(self) -> Rcvar {
+impl ToJmespath for f32 {
+    fn to_jmespath(self) -> Rcvar {
         Rcvar::new(Variable::Number(self as f64))
     }
 }
 
-impl IntoJmespath for f64 {
-    fn into_jmespath(self) -> Rcvar {
+impl ToJmespath for f64 {
+    fn to_jmespath(self) -> Rcvar {
         Rcvar::new(Variable::Number(self as f64))
     }
 }
 
-impl IntoJmespath for () {
-    fn into_jmespath(self) -> Rcvar {
+impl ToJmespath for () {
+    fn to_jmespath(self) -> Rcvar {
         Rcvar::new(Variable::Null)
     }
 }
 
-impl IntoJmespath for bool {
-    fn into_jmespath(self) -> Rcvar {
+impl ToJmespath for bool {
+    fn to_jmespath(self) -> Rcvar {
         Rcvar::new(Variable::Bool(self))
     }
 }
@@ -288,9 +288,9 @@ impl<'a> Expression<'a> {
     }
 
     /// Returns the result of searching Serde data with the compiled expression.
-    pub fn search<T: IntoJmespath>(&self, data: T) -> SearchResult {
+    pub fn search<T: ToJmespath>(&self, data: T) -> SearchResult {
         let mut ctx = Context::new(&self.expression, &*self.fn_registry);
-        interpret(&data.into_jmespath(), &self.ast, &mut ctx)
+        interpret(&data.to_jmespath(), &self.ast, &mut ctx)
     }
 
     /// Returns the JMESPath expression from which the Expression was compiled.
@@ -464,8 +464,8 @@ mod test {
 
     #[test]
     fn test_creates_rcvar_from_tuple_serialization() {
-        use super::IntoJmespath;
+        use super::ToJmespath;
         let t = (true, false);
-        assert_eq!("[true,false]", t.into_jmespath().to_string());
+        assert_eq!("[true,false]", t.to_jmespath().to_string());
     }
 }

@@ -14,7 +14,7 @@ use std::fmt;
 use std::iter::Iterator;
 use std::string::ToString;
 
-use IntoJmespath;
+use ToJmespath;
 use Rcvar;
 use ast::{Ast, Comparator};
 
@@ -157,7 +157,7 @@ impl fmt::Display for Variable {
 fn convert_map<'a, T>(value: T) -> Variable where T: Iterator<Item=(&'a String, &'a Value)> {
     let mut map: BTreeMap<String, Rcvar> = BTreeMap::new();
     for kvp in value {
-        map.insert(kvp.0.to_owned(), kvp.1.into_jmespath());
+        map.insert(kvp.0.to_owned(), kvp.1.to_jmespath());
     }
     Variable::Object(map)
 }
@@ -174,7 +174,7 @@ impl<'a> From<&'a Value> for Variable {
             Value::I64(n) => Variable::Number(n as f64),
             Value::Object(ref values) => convert_map(values.iter()),
             Value::Array(ref values) => {
-                Variable::Array(values.iter().map(|v| v.into_jmespath()).collect())
+                Variable::Array(values.iter().map(|v| v.to_jmespath()).collect())
             },
         }
     }
@@ -192,7 +192,7 @@ impl From<Value> for Variable {
             Value::I64(n) => Variable::Number(n as f64),
             Value::Object(ref values) => convert_map(values.iter()),
             Value::Array(mut values) => {
-                Variable::Array(values.drain(..).map(|v| v.into_jmespath()).collect())
+                Variable::Array(values.drain(..).map(|v| v.to_jmespath()).collect())
             },
         }
     }
@@ -665,7 +665,7 @@ impl ser::Serializer for Serializer {
                                     value: T) -> Result<(), Error>
                                     where T: ser::Serialize {
         let mut values = BTreeMap::new();
-        values.insert(String::from(variant), value.into_jmespath());
+        values.insert(String::from(variant), value.to_jmespath());
         self.state.push(State::Value(Variable::Object(values)));
         Ok(())
     }

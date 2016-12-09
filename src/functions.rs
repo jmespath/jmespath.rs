@@ -167,9 +167,22 @@ impl FnRegistry {
  * Custom functions.
  * ------------------------------------------ */
 
-/// Custom function that allows the creation of runtime functions.
+/// Normal closures can be used as functions.
+///
+/// It is up to the function to validate the provided arguments.
+/// If you wish to utilize Signatures or more complex argument
+/// validation, it is recommended to use CustomFunction.
+impl<F> Function for F where F: Sync + Fn(&[Rcvar], &mut Context) -> SearchResult {
+    fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
+        (self)(args, ctx)
+    }
+}
+
+/// Custom function that allows the creation of runtime functions with signature validation.
 pub struct CustomFunction {
+    /// Signature used to validate the function.
     signature: Signature,
+    /// Function to invoke after validating the signature.
     f: Box<(Fn(&[Rcvar], &mut Context) -> SearchResult) + Sync>,
 }
 
