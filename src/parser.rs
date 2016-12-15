@@ -6,12 +6,12 @@
 
 use std::collections::VecDeque;
 
-use {Error, ErrorReason};
+use {JmespathError, ErrorReason};
 use ast::{Ast, KeyValuePair, Comparator};
 use lexer::{tokenize, Token, TokenTuple};
 
 /// Result of parsing an expression.
-pub type ParseResult = Result<Ast, Error>;
+pub type ParseResult = Result<Ast, JmespathError>;
 
 /// Parses a JMESPath expression into an AST.
 pub fn parse(expr: &str) -> ParseResult {
@@ -76,7 +76,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Returns a formatted error with the given message.
-    fn err(&self, current_token: &Token, error_msg: &str, is_peek: bool) -> Error {
+    fn err(&self, current_token: &Token, error_msg: &str, is_peek: bool) -> JmespathError {
         let mut actual_pos = self.offset;
         let mut buff = error_msg.to_string();
         buff.push_str(&format!(" -- found {:?}", current_token));
@@ -85,7 +85,7 @@ impl<'a> Parser<'a> {
                 actual_pos = p;
             }
         }
-        Error::new(&self.expr, actual_pos, ErrorReason::Parse(buff))
+        JmespathError::new(&self.expr, actual_pos, ErrorReason::Parse(buff))
     }
 
     /// Main parse function of the Pratt parser that parses while RBP < LBP
@@ -235,7 +235,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_kvp(&mut self) -> Result<KeyValuePair, Error> {
+    fn parse_kvp(&mut self) -> Result<KeyValuePair, JmespathError> {
         match self.advance() {
             Token::Identifier(value) | Token::QuotedIdentifier(value) => {
                 if self.peek(0) == &Token::Colon {
@@ -423,7 +423,7 @@ impl<'a> Parser<'a> {
     /// multi-list expressions because "[]" is tokenized as Token::Flatten.
     ///
     /// Examples: [foo, bar], foo(bar), foo(), foo(baz, bar)
-    fn parse_list(&mut self, closing: Token) -> Result<Vec<Ast>, Error> {
+    fn parse_list(&mut self, closing: Token) -> Result<Vec<Ast>, JmespathError> {
         let mut nodes = vec![];
         while self.peek(0) != &closing {
             nodes.push(try!(self.expr(0)));

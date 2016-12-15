@@ -9,7 +9,7 @@ extern crate jmespath;
 use std::fmt;
 use serde_json::Value;
 
-use jmespath::{Variable, Rcvar, RuntimeError, Expression};
+use jmespath::{compile, Variable, Rcvar, RuntimeError, Expression};
 
 /// Avaliable benchmark types.
 pub enum BenchType {
@@ -130,7 +130,7 @@ impl Assertion {
                 let result = self.try_parse(suite, case);
                 match error_type {
                     &ErrorType::InvalidArity => {
-                        match try!(result).search(given).map_err(|e| e.error_reason) {
+                        match try!(result).search(given).map_err(|e| e.reason) {
                             Err(Runtime(RuntimeError::NotEnoughArguments{..})) => Ok(()),
                             Err(Runtime(RuntimeError::TooManyArguments{..})) => Ok(()),
                             Err(e) => Err(self.err_message(suite, case, format!("{}", e))),
@@ -138,7 +138,7 @@ impl Assertion {
                         }
                     },
                     &ErrorType::InvalidType => {
-                        match try!(result).search(given).map_err(|e| e.error_reason) {
+                        match try!(result).search(given).map_err(|e| e.reason) {
                             Err(Runtime(RuntimeError::InvalidType{..})) => Ok(()),
                             Err(Runtime(RuntimeError::InvalidReturnType{..})) => Ok(()),
                             Err(e) => Err(self.err_message(suite, case, format!("{}", e))),
@@ -146,14 +146,14 @@ impl Assertion {
                         }
                     },
                     &ErrorType::InvalidSlice => {
-                        match try!(result).search(given).map_err(|e| e.error_reason) {
+                        match try!(result).search(given).map_err(|e| e.reason) {
                             Err(Runtime(RuntimeError::InvalidSlice)) => Ok(()),
                             Err(e) => Err(self.err_message(suite, case, format!("{}", e))),
                             Ok(r) => Err(self.err_message(suite, case, r.to_string())),
                         }
                     },
                     &ErrorType::UnknownFunction => {
-                        match try!(result).search(given).map_err(|e| e.error_reason) {
+                        match try!(result).search(given).map_err(|e| e.reason) {
                             Err(Runtime(RuntimeError::UnknownFunction(_))) => Ok(()),
                             Err(e) => Err(self.err_message(suite, case, format!("{}", e))),
                             Ok(r) => Err(self.err_message(suite, case, r.to_string())),
@@ -174,7 +174,7 @@ impl Assertion {
 
     /// Attempts to parse an expression for a case, returning the expression or an error string.
     fn try_parse(&self, suite: &str, case: &TestCase) -> Result<Expression, String> {
-        match Expression::new(&case.expression) {
+        match compile(&case.expression) {
             Err(e) => Err(self.err_message(suite, case, format!("{}", e))),
             Ok(expr) => Ok(expr)
         }

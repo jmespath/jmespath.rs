@@ -12,7 +12,7 @@ use std::str::CharIndices;
 use std::collections::VecDeque;
 
 use Rcvar;
-use {Error, ErrorReason};
+use {JmespathError, ErrorReason};
 use variable::Variable;
 use self::Token::*;
 
@@ -85,7 +85,7 @@ impl Token {
 pub type TokenTuple = (usize, Token);
 
 /// Tokenizes a JMESPath expression.
-pub fn tokenize(expr: &str) -> Result<VecDeque<TokenTuple>, Error> {
+pub fn tokenize(expr: &str) -> Result<VecDeque<TokenTuple>, JmespathError> {
     Lexer::new(expr).tokenize()
 }
 
@@ -102,7 +102,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn tokenize(&mut self) -> Result<VecDeque<TokenTuple>, Error> {
+    fn tokenize(&mut self) -> Result<VecDeque<TokenTuple>, JmespathError> {
         let mut tokens = VecDeque::new();
         let last_position = self.expr.len();
         loop {
@@ -131,9 +131,10 @@ impl<'a> Lexer<'a> {
                             match self.iter.next() {
                                 Some((_, c)) if c == '=' => tokens.push_back((pos, Eq)),
                                 _ => {
-                                    return Err(Error::new(self.expr, pos, ErrorReason::Parse(
+                                    let reason = ErrorReason::Parse(
                                         "'=' is not valid. Did you mean '=='?".to_owned()
-                                    )))
+                                    );
+                                    return Err(JmespathError::new(self.expr, pos, reason))
                                 }
                             }
                         },
@@ -145,7 +146,7 @@ impl<'a> Lexer<'a> {
                         // Skip whitespace tokens
                         ' ' | '\n' | '\t' | '\r' => {},
                         c => {
-                            return Err(Error::new(self.expr, pos, ErrorReason::Parse(
+                            return Err(JmespathError::new(self.expr, pos, ErrorReason::Parse(
                                 format!("Invalid character: {}", c)
                             )))
                         }
@@ -219,14 +220,14 @@ impl<'a> Lexer<'a> {
 
     // Consumes a negative number
     #[inline]
-    fn consume_negative_number(&mut self, pos: usize) -> Result<Token, Error> {
+    fn consume_negative_number(&mut self, pos: usize) -> Result<Token, JmespathError> {
         // Ensure that the next value is a number > 0
         match self.iter.next() {
             Some((_, c)) if c.is_numeric() && c != '0' => {
                 Ok(self.consume_number(c, true))
             },
             _ => {
-                Err(Error::new(self.expr, pos, ErrorReason::Parse(
+                Err(JmespathError::new(self.expr, pos, ErrorReason::Parse(
                     "'-' must be followed by numbers 1-9".to_owned()
                 )))
             }
@@ -239,14 +240,14 @@ impl<'a> Lexer<'a> {
     fn consume_inside<F>(&mut self,
                          pos: usize,
                          wrapper: char,
-                         invoke: F) -> Result<Token, Error>
+                         invoke: F) -> Result<Token, JmespathError>
         where F: Fn(String) -> Result<Token, String>
     {
         let mut buffer = String::new();
         while let Some((_, c)) = self.iter.next() {
             if c == wrapper {
                 return invoke(buffer).map_err(|e| {
-                    Error::new(self.expr, pos, ErrorReason::Parse(e))
+                    JmespathError::new(self.expr, pos, ErrorReason::Parse(e))
                 })
             } else if c == '\\' {
                 buffer.push(c);
@@ -259,14 +260,14 @@ impl<'a> Lexer<'a> {
         }
         // The token was not closed, so error with the string, including the
         // wrapper (e.g., '"foo').
-        Err(Error::new(self.expr, pos, ErrorReason::Parse(
+        Err(JmespathError::new(self.expr, pos, ErrorReason::Parse(
             format!("Unclosed {} delimiter: {}{}", wrapper, wrapper, buffer)
         )))
     }
 
     // Consume and parse a quoted identifier token.
     #[inline]
-    fn consume_quoted_identifier(&mut self, pos: usize) -> Result<Token, Error> {
+    fn consume_quoted_identifier(&mut self, pos: usize) -> Result<Token, JmespathError> {
         self.consume_inside(pos, '"', |s| {
             // JSON decode the string to expand escapes
             match Variable::from_json(format!(r##""{}""##, s).as_ref()) {
@@ -278,7 +279,7 @@ impl<'a> Lexer<'a> {
     }
 
     #[inline]
-    fn consume_raw_string(&mut self, pos: usize) -> Result<Token, Error> {
+    fn consume_raw_string(&mut self, pos: usize) -> Result<Token, JmespathError> {
         // Note: we need to unescape here because the backslashes are passed through.
         self.consume_inside(pos, '\'',
             |s| Ok(Literal(Rcvar::new(Variable::String(s.replace("\\'", "'"))))))
@@ -286,7 +287,7 @@ impl<'a> Lexer<'a> {
 
     // Consume and parse a literal JSON token.
     #[inline]
-    fn consume_literal(&mut self, pos: usize) -> Result<Token, Error> {
+    fn consume_literal(&mut self, pos: usize) -> Result<Token, JmespathError> {
         self.consume_inside(pos, '`', |s| {
             let unescaped = s.replace("\\`", "`");
             match Variable::from_json(unescaped.as_ref()) {

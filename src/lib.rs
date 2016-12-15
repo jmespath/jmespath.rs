@@ -4,14 +4,15 @@
 //!
 //! # Compiling JMESPath expressions
 //!
-//! Use the `jmespath::Expression` struct to compile and execute JMESPath
-//! expressions. The `Expression` struct can be used multiple times on
-//! different values without having to recompile the expression.
+//! Use the `jmespath::compile` function to compile JMESPath expressions
+//! into reusable `Expression` structs. The `Expression` struct can be
+//! used multiple times on different values without having to recompile
+//! the expression.
 //!
 //! ```
 //! use jmespath;
 //!
-//! let expr = jmespath::Expression::new("foo.bar | baz").unwrap();
+//! let expr = jmespath::compile("foo.bar | baz").unwrap();
 //!
 //! // Parse some JSON data into a JMESPath variable
 //! let json_str = "{\"foo\":{\"bar\":{\"baz\":true}}}";
@@ -29,7 +30,7 @@
 //! use jmespath;
 //! use jmespath::ast::Ast;
 //!
-//! let expr = jmespath::Expression::new("foo").unwrap();
+//! let expr = jmespath::compile("foo").unwrap();
 //! assert_eq!("foo", expr.as_str());
 //! assert_eq!(&Ast::Field {name: "foo".to_string(), offset: 0}, expr.as_ast());
 //! ```
@@ -42,46 +43,59 @@
 //! shared, reference counted data to be used by the JMESPath interpreter at
 //! runtime.
 //!
-//! Because `jmespath::Variable` implements `serde::ser::Serialize`, many
-//! existing types can be searched without needing an explicit coercion,
-//! and any type that needs coercion can be implemented using serde's macros
-//! or code generation capabilities. Any value that implements the
-//! `serde::ser::Serialize` trait can be searched without needing explicit
-//! coercions. This includes a number of common types, including serde's
-//! `serde_json::Value` enum.
+//! By default, `Rcvar` is an `std::rc::Rc<Variable>`. However, by specifying
+//! the `sync` feature, you can utilize an `std::sync::Arc<Variable>` to
+//! share `Expression` structs across threads.
 //!
-//! The return value of searching data with JMESPath is also an `Rcvar` (an
-//! `Rcvar`). `Variable` has a number of helper methods that make
-//! it a data type that can be used directly, or you can convert `Variable`
-//! to any serde value implementing `serde::de::Deserialize`.
+//! Any type that implements `ToJmespath` can be used in a JMESPath
+//! Expression. Various types have default `ToJmespath` implementations,
+//! including `serde::ser::Serialize`. Because `jmespath::Variable` implements
+//! `serde::ser::Serialize`, many existing types can be searched without needing
+//! an explicit coercion, and any type that needs coercion can be implemented
+//! using serde's macros or code generation capabilities. This includes a
+//! number of common types, including serde's `serde_json::Value` enum.
+//!
+//! The return value of searching data with JMESPath is also an `Rcvar`.
+//! `Variable` has a number of helper methods that make it a data type that
+//! can be used directly, or you can convert `Variable` to any serde value
+//! implementing `serde::de::Deserialize`.
 //!
 //! # Custom Functions
 //!
-//! You can register custom functions with a JMESPath expression using the
-//! ExpressionBuilder and a custom FnRegistry.
+//! You can register custom functions with a JMESPath expression by using
+//! a custom `Runtime`. When you call `jmespath::compile`, you are using a
+//! shared `Runtime` instance that is created lazily using `lazy_static`.
+//! This shared `Runtime` utilizes all of the builtin JMESPath functions
+//! by default. However, custom functions may be utilized by creating a custom
+//! `Runtime` and compiling expressions directly from the `Runtime`.
 //!
 //! ```
-//! use jmespath::{ExpressionBuilder, Context, Rcvar, Variable};
-//! use jmespath::functions::{CustomFunction, Signature, ArgumentType, FnRegistry};
+//! use jmespath::{Runtime, Context, Rcvar};
+//! use jmespath::functions::{CustomFunction, Signature, ArgumentType};
 //!
-//! let mut functions = FnRegistry::from_defaults();
+//! // Create a new Runtime.
+//! let mut runtime = Runtime::new();
+//! // Register builtin functions with the runtime.
+//! runtime.register_builtin_functions();
 //!
-//! // Create a function that returns string values as-is.
-//! functions.register("str_identity", Box::new(CustomFunction::new(
+//! // Create an identity string function that returns string values as-is.
+//! runtime.register_function("str_identity", Box::new(CustomFunction::new(
 //!     Signature::new(vec![ArgumentType::String], None),
 //!     Box::new(|args: &[Rcvar], _: &mut Context| Ok(args[0].clone()))
 //! )));
 //!
-//! let expr = ExpressionBuilder::new("str_identity('foo')")
-//!     .with_fn_registry(&functions)
-//!     .build()
-//!     .unwrap();
+//! // You can also use normal closures as functions.
+//! runtime.register_function("identity",
+//!     Box::new(|args: &[Rcvar], _: &mut Context| Ok(args[0].clone())));
 //!
+//! let expr = runtime.compile("str_identity('foo')").unwrap();
 //! assert_eq!("foo", expr.search(()).unwrap().as_string().unwrap());
+//!
+//! let expr = runtime.compile("identity('bar')").unwrap();
+//! assert_eq!("bar", expr.search(()).unwrap().as_string().unwrap());
 //! ```
 
 #![feature(specialization)]
-
 #![cfg_attr(feature="clippy", feature(plugin))]
 #![cfg_attr(feature="clippy", plugin(clippy))]
 
@@ -90,8 +104,9 @@
 extern crate serde;
 extern crate serde_json;
 
-pub use errors::{Error, ErrorReason, RuntimeError};
+pub use errors::{JmespathError, ErrorReason, RuntimeError};
 pub use parser::{parse, ParseResult};
+pub use runtime::Runtime;
 pub use variable::Variable;
 
 pub mod ast;
@@ -102,18 +117,22 @@ use serde::ser;
 use serde_json::Value;
 
 use ast::Ast;
-use functions::FnRegistry;
 use variable::Serializer;
 use interpreter::{interpret, SearchResult};
 
 mod interpreter;
 mod parser;
 mod lexer;
+mod runtime;
 mod errors;
 mod variable;
 
 lazy_static! {
-    static ref DEFAULT_FN_REGISTRY: FnRegistry = FnRegistry::from_defaults();
+    pub static ref DEFAULT_RUNTIME: Runtime = {
+        let mut runtime = Runtime::new();
+        runtime.register_builtin_functions();
+        runtime
+    };
 }
 
 /// Reference counted JMESPath variable.
@@ -122,6 +141,14 @@ pub type Rcvar = std::rc::Rc<Variable>;
 /// Reference counted JMESPath variable.
 #[cfg(feature = "sync")]
 pub type Rcvar = std::sync::Arc<Variable>;
+
+/// Compiles a JMESPath expression using the default Runtime.
+///
+/// The provided expression is expected to adhere to the JMESPath
+/// grammar: http://jmespath.org/specification.html
+pub fn compile(expression: &str) -> Result<Expression<'static>, JmespathError> {
+    DEFAULT_RUNTIME.compile(expression)
+}
 
 /// Converts a value into a reference-counted JMESPath Variable.
 ///
@@ -281,30 +308,23 @@ impl ToJmespath for bool {
 /// be shared between threads if JMESPath is compiled with the `sync`
 /// feature, which forces the use of an `Arc` instead of an `Rc` for
 /// runtime variables.
-///
-/// ```
-/// use jmespath;
-///
-/// let expr = jmespath::Expression::new("foo.bar || baz").unwrap();
-/// ```
 pub struct Expression<'a> {
     ast: Ast,
     expression: String,
-    fn_registry: &'a FnRegistry,
+    runtime: &'a Runtime,
 }
 
 impl<'a> Expression<'a> {
-    /// Creates a new JMESPath expression from an expression string.
-    ///
-    /// The provided expression is expected to adhere to the JMESPath
-    /// grammar: http://jmespath.org/specification.html
+    /// Creates a new JMESPath expression.
     #[inline]
-    pub fn new(expression: &str) -> Result<Expression<'a>, Error> {
-        Ok(Expression {
-            expression: expression.to_owned(),
-            ast: try!(parse(expression)),
-            fn_registry: &*DEFAULT_FN_REGISTRY,
-        })
+    pub fn new<S>(expression: S, ast: Ast, runtime: &'a Runtime) -> Expression<'a>
+        where S: Into<String>
+    {
+        Expression {
+            expression: expression.into(),
+            ast: ast,
+            runtime: runtime,
+        }
     }
 
     /// Returns the result of searching data with the compiled expression.
@@ -314,7 +334,7 @@ impl<'a> Expression<'a> {
     /// Alternatively, Variable does implement Serde serialzation and
     /// deserialization, so it can easily be marshalled to another type.
     pub fn search<T: ToJmespath>(&self, data: T) -> SearchResult {
-        let mut ctx = Context::new(&self.expression, &*self.fn_registry);
+        let mut ctx = Context::new(&self.expression, self.runtime);
         interpret(&data.to_jmespath(), &self.ast, &mut ctx)
     }
 
@@ -353,59 +373,6 @@ impl<'a> PartialEq for Expression<'a> {
     }
 }
 
-/// An `ExpressionBuilder` is used to build more complex `Expression` structs.
-///
-/// `ExpressionBuilder` allows for the use of a custom `FnRegistry`, allowing
-/// for custom functions, and it allows you to inject a previously parsed
-/// AST. This could be useful for statically parsing and compiling JMESPath
-/// expression (as done in the `jmespath-macros` crate).
-pub struct ExpressionBuilder<'a, 'b> {
-    expression: &'a str,
-    ast: Option<Ast>,
-    fn_registry: Option<&'b FnRegistry>,
-}
-
-impl<'a, 'b> ExpressionBuilder<'a, 'b> {
-    /// Creates a new ExpressionBuilder using the given JMESPath expression.
-    pub fn new(expression: &'a str) -> ExpressionBuilder<'a, 'b> {
-        ExpressionBuilder {
-            expression: expression,
-            ast: None,
-            fn_registry: None,
-        }
-    }
-
-    /// Uses a custom AST when building the Expression.
-    pub fn with_ast(mut self, ast: Ast) -> ExpressionBuilder<'a, 'b> {
-        self.ast = Some(ast);
-        self
-    }
-
-    /// Use a custom function registry when building the Expression.
-    pub fn with_fn_registry(mut self, fn_registry: &'b FnRegistry)
-        -> ExpressionBuilder<'a, 'b>
-    {
-        self.fn_registry = Some(fn_registry);
-        self
-    }
-
-    /// Finalize and creates the Expression.
-    ///
-    /// This will consume the builder and return a constructed JMESPath expression.
-    /// If an AST was provided, the expression will simply use that AST and not
-    /// parse the provided expression string.
-    pub fn build(self) -> Result<Expression<'b>, Error> {
-        Ok(Expression {
-            ast: match self.ast {
-                Some(a) => a,
-                None => try!(parse(self.expression)),
-            },
-            expression: self.expression.to_owned(),
-            fn_registry: self.fn_registry.unwrap_or(&*DEFAULT_FN_REGISTRY)
-        })
-    }
-}
-
 /// Context object used for error reporting.
 ///
 /// The Context struct is mostly used when interacting between the
@@ -415,8 +382,8 @@ impl<'a, 'b> ExpressionBuilder<'a, 'b> {
 pub struct Context<'a> {
     /// Expression that is being interpreted.
     pub expression: &'a str,
-    /// Function dispatcher
-    pub fn_registry: &'a FnRegistry,
+    /// JMESPath runtime.
+    pub runtime: &'a Runtime,
     /// Offset being evaluated
     pub offset: usize,
 }
@@ -424,10 +391,10 @@ pub struct Context<'a> {
 impl<'a> Context<'a> {
     /// Create a new context struct.
     #[inline]
-    pub fn new(expression: &'a str, fn_registry: &'a FnRegistry) -> Context<'a> {
+    pub fn new(expression: &'a str, runtime: &'a Runtime) -> Context<'a> {
         Context {
             expression: expression,
-            fn_registry: fn_registry,
+            runtime: runtime,
             offset: 0,
         }
     }
@@ -440,40 +407,31 @@ mod test {
 
     #[test]
     fn formats_expression_as_string_or_debug() {
-        let expr = Expression::new("foo | baz").unwrap();
+        let expr = compile("foo | baz").unwrap();
         assert_eq!("foo | baz/foo | baz", format!("{}/{:?}", expr, expr));
     }
 
     #[test]
     fn implements_partial_eq() {
-        let a = Expression::new("@").unwrap();
-        let b = Expression::new("@").unwrap();
+        let a = compile("@").unwrap();
+        let b = compile("@").unwrap();
         assert!(a == b);
     }
 
     #[test]
     fn can_evaluate_jmespath_expression() {
-        let expr = Expression::new("foo.bar").unwrap();
+        let expr = compile("foo.bar").unwrap();
         let var = Variable::from_json("{\"foo\":{\"bar\":true}}").unwrap();
         assert_eq!(Rcvar::new(Variable::Bool(true)), expr.search(var).unwrap());
     }
 
     #[test]
     fn can_get_expression_ast() {
-        let expr = Expression::new("foo").unwrap();
+        let expr = compile("foo").unwrap();
         assert_eq!(&Ast::Field {offset: 0, name: "foo".to_string()}, expr.as_ast());
     }
 
-    #[test]
-    fn builder_can_create_with_custom_ast() {
-        // Notice that we are parsing foo.bar, but using "@" as the AST.
-        let expr = ExpressionBuilder::new("foo.bar")
-            .with_ast(Ast::Identity { offset: 0 })
-            .build()
-            .unwrap();
-        assert_eq!(Rcvar::new(Variable::Number(99.0)), expr.search(99).unwrap());
-    }
-
+    /*
     #[test]
     fn can_use_custom_fn_registry() {
         use interpreter::SearchResult;
@@ -495,6 +453,7 @@ mod test {
             .unwrap();
         assert_eq!(Rcvar::new(Variable::Bool(true)), expr.search(()).unwrap());
     }
+    */
 
     #[test]
     fn test_creates_rcvar_from_tuple_serialization() {

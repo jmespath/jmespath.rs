@@ -1,13 +1,18 @@
 //! JMESPath functions.
 
-use std::collections::HashMap;
 use std::collections::BTreeMap;
 use std::cmp::{max, min};
 use std::fmt;
 
-use {Context, Error, ErrorReason, Rcvar, RuntimeError};
+use {Context, JmespathError, ErrorReason, Rcvar, RuntimeError};
 use interpreter::{interpret, SearchResult};
 use variable::{Variable, JmespathType};
+
+/// Represents a JMESPath function.
+pub trait Function: Sync {
+    /// Evaluates the function against an in-memory variable.
+    fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult;
+}
 
 /// Function argument types used when validating.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -83,89 +88,6 @@ macro_rules! arg {
     ($($x:ident) | *) => (ArgumentType::Union(vec![$(arg!($x)), *]));
 }
 
-/// Stores and evaluates JMESPath functions.
-pub struct FnRegistry {
-    functions: HashMap<String, Box<Function>>,
-}
-
-impl FnRegistry {
-    /// Creates a new, empty function registry.
-    pub fn new() -> FnRegistry {
-        FnRegistry {
-            functions: HashMap::with_capacity(26),
-        }
-    }
-
-    /// Creates a new registry that uses the default JMESPath functions.
-    pub fn from_defaults() -> FnRegistry {
-        let mut registry = FnRegistry::new();
-        registry.functions.insert("abs".to_owned(), Box::new(AbsFn::new()));
-        registry.functions.insert("avg".to_owned(), Box::new(AvgFn::new()));
-        registry.functions.insert("ceil".to_owned(), Box::new(CeilFn::new()));
-        registry.functions.insert("contains".to_owned(), Box::new(ContainsFn::new()));
-        registry.functions.insert("ends_with".to_owned(), Box::new(EndsWithFn::new()));
-        registry.functions.insert("floor".to_owned(), Box::new(FloorFn::new()));
-        registry.functions.insert("join".to_owned(), Box::new(JoinFn::new()));
-        registry.functions.insert("keys".to_owned(), Box::new(KeysFn::new()));
-        registry.functions.insert("length".to_owned(), Box::new(LengthFn::new()));
-        registry.functions.insert("map".to_owned(), Box::new(MapFn::new()));
-        registry.functions.insert("min".to_owned(), Box::new(MinFn::new()));
-        registry.functions.insert("max".to_owned(), Box::new(MaxFn::new()));
-        registry.functions.insert("max_by".to_owned(), Box::new(MaxByFn::new()));
-        registry.functions.insert("min_by".to_owned(), Box::new(MinByFn::new()));
-        registry.functions.insert("merge".to_owned(), Box::new(MergeFn::new()));
-        registry.functions.insert("not_null".to_owned(), Box::new(NotNullFn::new()));
-        registry.functions.insert("reverse".to_owned(), Box::new(ReverseFn::new()));
-        registry.functions.insert("sort".to_owned(), Box::new(SortFn::new()));
-        registry.functions.insert("sort_by".to_owned(), Box::new(SortByFn::new()));
-        registry.functions.insert("starts_with".to_owned(), Box::new(StartsWithFn::new()));
-        registry.functions.insert("sum".to_owned(), Box::new(SumFn::new()));
-        registry.functions.insert("to_array".to_owned(), Box::new(ToArrayFn::new()));
-        registry.functions.insert("to_number".to_owned(), Box::new(ToNumberFn::new()));
-        registry.functions.insert("to_string".to_owned(), Box::new(ToStringFn::new()));
-        registry.functions.insert("type".to_owned(), Box::new(TypeFn::new()));
-        registry.functions.insert("values".to_owned(), Box::new(ValuesFn::new()));
-        registry
-    }
-
-    /// Adds a new custom function to the registry.
-    pub fn register(&mut self, name: &str, f: Box<Function>) {
-        self.functions.insert(name.to_owned(), f);
-    }
-
-    /// Deregisters a function by name and returns it if found.
-    pub fn deregister(&mut self, name: &str) -> Option<Box<Function>> {
-        self.functions.remove(name)
-    }
-
-    /// Evaluates a function by name in the registry.
-    ///
-    /// The registry is responsible for validating function signatures
-    /// before invoking the function, and functions should assume that
-    /// the arguments provided to them are correct.
-    pub fn evaluate(&self, name: &str, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
-        match self.functions.get(name) {
-            Some(f) => f.evaluate(args, ctx),
-            None => {
-                Err(Error::from_ctx(ctx, ErrorReason::Runtime(
-                    RuntimeError::UnknownFunction(name.to_owned())
-                )))
-            }
-        }
-    }
-}
-
-/// Normal closures can be used as functions.
-///
-/// It is up to the function to validate the provided arguments.
-/// If you wish to utilize Signatures or more complex argument
-/// validation, it is recommended to use CustomFunction.
-impl<F> Function for F where F: Sync + Fn(&[Rcvar], &mut Context) -> SearchResult {
-    fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
-        (self)(args, ctx)
-    }
-}
-
 /// Custom function that allows the creation of runtime functions with signature validation.
 pub struct CustomFunction {
     /// Signature used to validate the function.
@@ -193,6 +115,17 @@ impl Function for CustomFunction {
     }
 }
 
+/// Normal closures can be used as functions.
+///
+/// It is up to the function to validate the provided arguments.
+/// If you wish to utilize Signatures or more complex argument
+/// validation, it is recommended to use CustomFunction.
+impl<F> Function for F where F: Sync + Fn(&[Rcvar], &mut Context) -> SearchResult {
+    fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
+        (self)(args, ctx)
+    }
+}
+
 /// Represents a function's signature.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Signature {
@@ -212,34 +145,37 @@ impl Signature {
     /// Validates the arity of a function. If the arity is invalid, a runtime
     /// error is returned with the relative position of the error and the
     /// expression that was being executed.
-    pub fn validate_arity(&self, actual: usize, ctx: &Context) -> Result<(), Error> {
+    pub fn validate_arity(&self, actual: usize, ctx: &Context) -> Result<(), JmespathError> {
         let expected = self.inputs.len();
         if self.variadic.is_some() {
             if actual >= expected {
                 Ok(())
             } else {
-                Err(Error::from_ctx(ctx, ErrorReason::Runtime(RuntimeError::NotEnoughArguments {
+                let reason = ErrorReason::Runtime(RuntimeError::NotEnoughArguments {
                     expected: expected,
                     actual: actual
-                })))
+                });
+                Err(JmespathError::from_ctx(ctx, reason))
             }
         } else if actual == expected {
             Ok(())
         } else if actual < expected {
-            Err(Error::from_ctx(ctx, ErrorReason::Runtime(RuntimeError::NotEnoughArguments {
+            let reason = ErrorReason::Runtime(RuntimeError::NotEnoughArguments {
                 expected: expected,
                 actual: actual,
-            })))
+            });
+            Err(JmespathError::from_ctx(ctx, reason))
         } else {
-            Err(Error::from_ctx(ctx, ErrorReason::Runtime(RuntimeError::TooManyArguments {
+            let reason = ErrorReason::Runtime(RuntimeError::TooManyArguments {
                 expected: expected,
                 actual: actual,
-            })))
+            });
+            Err(JmespathError::from_ctx(ctx, reason))
         }
     }
 
     /// Validates the provided function arguments against the signature.
-    pub fn validate(&self, args: &[Rcvar], ctx: &Context) -> Result<(), Error> {
+    pub fn validate(&self, args: &[Rcvar], ctx: &Context) -> Result<(), JmespathError> {
         try!(self.validate_arity(args.len(), ctx));
         if let Some(ref variadic) = self.variadic {
             for (k, v) in args.iter().enumerate() {
@@ -259,11 +195,11 @@ impl Signature {
                     position: usize,
                     value: &Rcvar,
                     validator: &ArgumentType)
-                    -> Result<(), Error> {
+                    -> Result<(), JmespathError> {
         if validator.is_valid(value) {
             Ok(())
         } else {
-            Err(Error::from_ctx(ctx, ErrorReason::Runtime(RuntimeError::InvalidType {
+            Err(JmespathError::from_ctx(ctx, ErrorReason::Runtime(RuntimeError::InvalidType {
                 expected: validator.to_string(),
                 actual: value.get_type().to_string(),
                 position: position
@@ -272,16 +208,10 @@ impl Signature {
     }
 }
 
-/// Represents a JMESPath function.
-pub trait Function: Sync {
-    /// Evaluates the function against an in-memory variable.
-    fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult;
-}
-
 /// Macro to more easily and quickly define a function and signature.
 macro_rules! defn {
     ($name:ident, $args:expr, $variadic:expr) => {
-        struct $name {
+        pub struct $name {
             signature: Signature,
         }
 
@@ -309,7 +239,7 @@ macro_rules! min_and_max_by {
             let initial = try!(interpret(&vals[0], &ast, $ctx));
             let entered_type = initial.get_type();
             if entered_type != JmespathType::String && entered_type != JmespathType::Number {
-                return Err(Error::from_ctx($ctx,
+                return Err(JmespathError::from_ctx($ctx,
                     ErrorReason::Runtime(RuntimeError::InvalidReturnType {
                         expected: "expression->number|expression->string".to_owned(),
                         actual: entered_type.to_string(),
@@ -323,7 +253,7 @@ macro_rules! min_and_max_by {
             for (invocation, v) in vals.iter().enumerate().skip(1) {
                 let mapped = try!(interpret(v, &ast, $ctx));
                 if mapped.get_type() != entered_type {
-                    return Err(Error::from_ctx($ctx,
+                    return Err(JmespathError::from_ctx($ctx,
                         ErrorReason::Runtime(RuntimeError::InvalidReturnType {
                             expected: format!("expression->{}", entered_type),
                             actual: mapped.get_type().to_string(),
@@ -600,18 +530,19 @@ impl Function for SortByFn {
         let first_value = try!(interpret(&vals[0], &ast, ctx));
         let first_type = first_value.get_type();
         if first_type != JmespathType::String && first_type != JmespathType::Number {
-            return Err(Error::from_ctx(ctx, ErrorReason::Runtime(RuntimeError::InvalidReturnType {
+            let reason = ErrorReason::Runtime(RuntimeError::InvalidReturnType {
                 expected: "expression->string|expression->number".to_owned(),
                 actual: first_type.to_string(),
                 position: 1,
                 invocation: 1
-            })));
+            });
+            return Err(JmespathError::from_ctx(ctx, reason));
         }
         mapped.push((vals[0].clone(), first_value.clone()));
         for (invocation, v) in vals.iter().enumerate().skip(1) {
             let mapped_value = try!(interpret(v, &ast, ctx));
             if mapped_value.get_type() != first_type {
-                return Err(Error::from_ctx(ctx,
+                return Err(JmespathError::from_ctx(ctx,
                     ErrorReason::Runtime(RuntimeError::InvalidReturnType {
                         expected: format!("expression->{}", first_type),
                         actual: mapped_value.get_type().to_string(),

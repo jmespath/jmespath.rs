@@ -129,7 +129,7 @@ fn {}_parse_lex(b: &mut Bencher) {{
 #[bench]
 fn {}_interpret(b: &mut Bencher) {{
     let data = Rcvar::new(Variable::from_json({:?}).expect(\"Invalid JSON given\"));
-    let expr = Expression::new({:?}).unwrap();
+    let expr = compile({:?}).unwrap();
     b.iter(|| {{ expr.search(&data).ok(); }});
 }}
 
@@ -142,7 +142,7 @@ fn {}_interpret(b: &mut Bencher) {{
 #[bench]
 fn {}_full(b: &mut Bencher) {{
     let data = Rcvar::new(Variable::from_json({:?}).expect(\"Invalid JSON given\"));
-    b.iter(|| {{ Expression::new({:?}).unwrap().search(&data).ok() }});
+    b.iter(|| {{ compile({:?}).unwrap().search(&data).ok() }});
 }}
 
 ", fn_suffix, given_string, expr_string).as_bytes()).expect("Error writing interpret benchmark");

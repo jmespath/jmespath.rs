@@ -6,7 +6,7 @@ use Context;
 
 /// JMESPath error.
 #[derive(Clone, Debug, PartialEq)]
-pub struct Error {
+pub struct JmespathError {
     /// Absolute character position.
     pub offset: usize,
     /// Line number of the coordinate.
@@ -16,12 +16,12 @@ pub struct Error {
     /// Expression being evaluated.
     pub expression: String,
     /// Error reason information.
-    pub error_reason: ErrorReason
+    pub reason: ErrorReason
 }
 
-impl Error {
+impl JmespathError {
     /// Create a new JMESPath Error.
-    pub fn new(expr: &str, offset: usize, error_reason: ErrorReason) -> Error {
+    pub fn new(expr: &str, offset: usize, reason: ErrorReason) -> JmespathError {
         // Find each new line so we can create a formatted error message.
         let mut line: usize = 0;
         let mut column: usize = 0;
@@ -31,18 +31,18 @@ impl Error {
                 _ => column += 1
             }
         }
-        Error {
+        JmespathError {
             expression: expr.to_owned(),
             offset: offset,
             line: line,
             column: column,
-            error_reason: error_reason
+            reason: reason
         }
     }
 
     /// Create a new JMESPath Error from a Context struct.
-    pub fn from_ctx(ctx: &Context, error_reason: ErrorReason) -> Error {
-        Error::new(ctx.expression, ctx.offset, error_reason)
+    pub fn from_ctx(ctx: &Context, reason: ErrorReason) -> JmespathError {
+        JmespathError::new(ctx.expression, ctx.offset, reason)
     }
 }
 
@@ -51,7 +51,7 @@ fn inject_carat(column: usize, buff: &mut String) {
     buff.push_str(&"^\n");
 }
 
-impl fmt::Display for Error {
+impl fmt::Display for JmespathError {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         let mut error_location = String::new();
         let mut matched = false;
@@ -72,7 +72,7 @@ impl fmt::Display for Error {
         }
 
         write!(fmt, "{} (line {}, column {})\n{}",
-                self.error_reason, self.line, self.column, error_location)
+                self.reason, self.line, self.column, error_location)
     }
 }
 
@@ -170,7 +170,7 @@ mod test {
     #[test]
     fn coordinates_can_be_created_from_string_with_new_lines() {
         let expr = "foo\n..bar";
-        let err = Error::new(&expr, 5, ErrorReason::Parse("Test".to_owned()));
+        let err = JmespathError::new(&expr, 5, ErrorReason::Parse("Test".to_owned()));
         assert_eq!(1, err.line);
         assert_eq!(1, err.column);
         assert_eq!(5, err.offset);
@@ -180,7 +180,7 @@ mod test {
     #[test]
     fn coordinates_can_be_created_from_string_with_new_lines_pointing_to_non_last() {
         let expr = "foo\n..bar\nbaz";
-        let err = Error::new(&expr, 5, ErrorReason::Parse("Test".to_owned()));
+        let err = JmespathError::new(&expr, 5, ErrorReason::Parse("Test".to_owned()));
         assert_eq!(1, err.line);
         assert_eq!(1, err.column);
         assert_eq!(5, err.offset);
@@ -190,7 +190,7 @@ mod test {
     #[test]
     fn coordinates_can_be_created_from_string_with_no_new_lines() {
         let expr = "foo..bar";
-        let err = Error::new(&expr, 4, ErrorReason::Parse("Test".to_owned()));
+        let err = JmespathError::new(&expr, 4, ErrorReason::Parse("Test".to_owned()));
         assert_eq!(0, err.line);
         assert_eq!(4, err.column);
         assert_eq!(4, err.offset);
@@ -198,13 +198,13 @@ mod test {
     }
 
     #[test]
-    fn error_reason_displays_parse_errors() {
+    fn reason_displays_parse_errors() {
         let reason = ErrorReason::Parse("bar".to_owned());
         assert_eq!("Parse error: bar", reason.to_string());
     }
 
     #[test]
-    fn error_reason_displays_runtime_errors() {
+    fn reason_displays_runtime_errors() {
         let reason = ErrorReason::Runtime(RuntimeError::UnknownFunction("a".to_owned()));
         assert_eq!("Runtime error: Call to undefined function a", reason.to_string());
     }

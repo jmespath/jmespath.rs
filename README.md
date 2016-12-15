@@ -24,10 +24,10 @@ jmespath = "0.0.1"
 ```rust
 extern crate jmespath;
 
-let expr = jmespath::Expression::new("foo.bar | baz").unwrap();
+let expr = jmespath::compile("foo.bar").unwrap();
 
 // Parse some JSON data into a JMESPath variable
-let json_str = "{\"foo\":{\"bar\":{\"baz\":true}}}";
+let json_str = "{\"foo\":{\"bar\":true}}";
 let data = jmespath::Variable::from_json(json_str).unwrap();
 
 // Search the data with the compiled expression
@@ -54,22 +54,14 @@ if your program compiles.
 extern crate jmespath;
 
 fn main() {
-    use std::collections::BTreeMap;
-
     // Create our statically compiled expression. The build will fail
     // if the expression is invalid.
     let expr = jmespath!("foo.bar");
 
-    // Build up and search over a BTreeMap directly.
-    let mut outer = BTreeMap::new();
-    let mut inner = BTreeMap::new();
-    inner.insert("bar", true);
-    outer.insert("foo", inner);
-
-    // Perform the search.
-    let result = expr.search(&outer).unwrap();
-
-    // Convert to an actual bool and compare with what's expected.
+    // Parse some JSON data into a JMESPath variable
+    let json_str = "{\"foo\":{\"bar\":true}}";
+    let data = jmespath::Variable::from_json(json_str).unwrap();
+    let result = expr.search(data).unwrap();
     assert_eq!(true, result.as_boolean().unwrap());
 }
 ```

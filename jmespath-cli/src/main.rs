@@ -10,7 +10,7 @@ use std::process::exit;
 
 use clap::{Arg, App};
 use jmespath::Rcvar;
-use jmespath::{Variable, Expression};
+use jmespath::{Variable, compile};
 
 macro_rules! die(
     ($msg:expr) => (
@@ -58,9 +58,9 @@ fn main() {
         .map(|f| read_file("expression", f));
 
     let expr = if let Some(ref e) = file_expression {
-        Expression::new(e)
+        compile(e)
     } else {
-        Expression::new(matches.value_of("expression").unwrap())
+        compile(matches.value_of("expression").unwrap())
     }.map_err(|e| die!(e.to_string())).unwrap();
 
     if matches.is_present("ast") {

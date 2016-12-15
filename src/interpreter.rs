@@ -2,13 +2,13 @@
 
 use std::collections::BTreeMap;
 
-use super::{Rcvar, Error, ErrorReason, RuntimeError};
+use super::{Rcvar, JmespathError, ErrorReason, RuntimeError};
 use super::Context;
 use super::ast::Ast;
 use super::variable::Variable;
 
 /// Result of searching data using a JMESPath Expression.
-pub type SearchResult = Result<Rcvar, Error>;
+pub type SearchResult = Result<Rcvar, JmespathError>;
 
 /// Interprets the given data using an AST node.
 pub fn interpret(data: &Rcvar, node: &Ast, ctx: &mut Context) -> SearchResult {
@@ -127,22 +127,31 @@ pub fn interpret(data: &Rcvar, node: &Ast, ctx: &mut Context) -> SearchResult {
                 Ok(Rcvar::new(Variable::Object(collected)))
             }
         },
-        Ast::Function { ref name, ref args, ref offset } => {
+        Ast::Function { ref name, ref args, offset } => {
             let mut fn_args: Vec<Rcvar> = vec![];
             for arg in args {
                 fn_args.push(try!(interpret(data, arg, ctx)));
             }
             // Reset the offset so that it points to the function being evaluated.
-            ctx.offset = *offset;
-            ctx.fn_registry.evaluate(name, &fn_args, ctx)
+            ctx.offset = offset;
+            match ctx.runtime.get_function(name) {
+                Some(f) => f.evaluate(&fn_args, ctx),
+                None => {
+                    let reason = ErrorReason::Runtime(
+                        RuntimeError::UnknownFunction(name.to_owned())
+                    );
+                    Err(JmespathError::from_ctx(ctx, reason))
+                }
+            }
         },
         Ast::Expref{ ref ast, .. } => {
             Ok(Rcvar::new(Variable::Expref(*ast.clone())))
         },
-        Ast::Slice { ref start, ref stop, step, ref offset } => {
+        Ast::Slice { ref start, ref stop, step, offset } => {
             if step == 0 {
-                ctx.offset = *offset;
-                Err(Error::from_ctx(ctx, ErrorReason::Runtime(RuntimeError::InvalidSlice)))
+                ctx.offset = offset;
+                let reason = ErrorReason::Runtime(RuntimeError::InvalidSlice);
+                Err(JmespathError::from_ctx(ctx, reason))
             } else {
                 match data.slice(start, stop, step) {
                     Some(array) => Ok(Rcvar::new(Variable::Array(array))),
