@@ -46,9 +46,9 @@ impl ArgumentType {
             Array if value.is_array() => true,
             TypedArray(ref t) if value.is_array() => {
                 value.as_array().unwrap().iter().all(|v| t.is_valid(v))
-            },
+            }
             Union(ref types) => types.iter().any(|t| t.is_valid(value)),
-            _ => false
+            _ => false,
         }
     }
 }
@@ -69,7 +69,7 @@ impl fmt::Display for ArgumentType {
             Union(ref types) => {
                 let str_value = types.iter().map(|t| t.to_string()).collect::<Vec<_>>().join("|");
                 write!(fmt, "{}", str_value)
-            },
+            }
         }
     }
 }
@@ -120,7 +120,9 @@ impl Function for CustomFunction {
 /// It is up to the function to validate the provided arguments.
 /// If you wish to utilize Signatures or more complex argument
 /// validation, it is recommended to use CustomFunction.
-impl<F> Function for F where F: Sync + Fn(&[Rcvar], &mut Context) -> SearchResult {
+impl<F> Function for F
+    where F: Sync + Fn(&[Rcvar], &mut Context) -> SearchResult
+{
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
         (self)(args, ctx)
     }
@@ -153,7 +155,7 @@ impl Signature {
             } else {
                 let reason = ErrorReason::Runtime(RuntimeError::NotEnoughArguments {
                     expected: expected,
-                    actual: actual
+                    actual: actual,
                 });
                 Err(JmespathError::from_ctx(ctx, reason))
             }
@@ -199,11 +201,12 @@ impl Signature {
         if validator.is_valid(value) {
             Ok(())
         } else {
-            Err(JmespathError::from_ctx(ctx, ErrorReason::Runtime(RuntimeError::InvalidType {
+            let reason = ErrorReason::Runtime(RuntimeError::InvalidType {
                 expected: validator.to_string(),
                 actual: value.get_type().to_string(),
-                position: position
-            })))
+                position: position,
+            });
+            Err(JmespathError::from_ctx(ctx, reason))
         }
     }
 }
@@ -296,7 +299,7 @@ impl Function for AbsFn {
         try!(self.signature.validate(args, ctx));
         match *args[0] {
             Variable::Number(n) => Ok(Rcvar::new(Variable::Number(n.abs()))),
-            _ => Ok(args[0].clone())
+            _ => Ok(args[0].clone()),
         }
     }
 }
@@ -332,16 +335,14 @@ impl Function for ContainsFn {
         let haystack = &args[0];
         let needle = &args[1];
         match **haystack {
-           Variable::Array(ref a) => {
-               Ok(Rcvar::new(Variable::Bool(a.contains(&needle))))
-           },
-           Variable::String(ref subj) => {
-               match needle.as_string() {
-                   None => Ok(Rcvar::new(Variable::Bool(false))),
-                   Some(s) => Ok(Rcvar::new(Variable::Bool(subj.contains(s))))
-               }
-           },
-           _ => unreachable!()
+            Variable::Array(ref a) => Ok(Rcvar::new(Variable::Bool(a.contains(&needle)))),
+            Variable::String(ref subj) => {
+                match needle.as_string() {
+                    None => Ok(Rcvar::new(Variable::Bool(false))),
+                    Some(s) => Ok(Rcvar::new(Variable::Bool(subj.contains(s)))),
+                }
+            }
+            _ => unreachable!(),
         }
     }
 }
@@ -406,7 +407,7 @@ impl Function for LengthFn {
             Variable::Object(ref m) => Ok(Rcvar::new(Variable::Number(m.len() as f64))),
             // Note that we need to count the code points not the number of unicode characters
             Variable::String(ref s) => Ok(Rcvar::new(Variable::Number(s.chars().count() as f64))),
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 }
@@ -534,7 +535,7 @@ impl Function for SortByFn {
                 expected: "expression->string|expression->number".to_owned(),
                 actual: first_type.to_string(),
                 position: 1,
-                invocation: 1
+                invocation: 1,
             });
             return Err(JmespathError::from_ctx(ctx, reason));
         }
@@ -575,8 +576,11 @@ defn!(SumFn, vec![arg!(array_number)], None);
 impl Function for SumFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
         try!(self.signature.validate(args, ctx));
-        let result = args[0].as_array().unwrap().iter().fold(
-            0.0, |acc, item| acc + item.as_number().unwrap());
+        let result = args[0]
+            .as_array()
+            .unwrap()
+            .iter()
+            .fold(0.0, |acc, item| acc + item.as_number().unwrap());
         Ok(Rcvar::new(Variable::Number(result)))
     }
 }
@@ -588,7 +592,7 @@ impl Function for ToArrayFn {
         try!(self.signature.validate(args, ctx));
         match *args[0] {
             Variable::Array(_) => Ok(args[0].clone()),
-            _ => Ok(Rcvar::new(Variable::Array(vec![args[0].clone()])))
+            _ => Ok(Rcvar::new(Variable::Array(vec![args[0].clone()]))),
         }
     }
 }
@@ -602,23 +606,25 @@ impl Function for ToNumberFn {
             Variable::Number(_) => Ok(args[0].clone()),
             Variable::String(ref s) => {
                 match Variable::from_json(s) {
-                    Ok(f)  => Ok(Rcvar::new(f)),
-                    Err(_) => Ok(Rcvar::new(Variable::Null))
+                    Ok(f) => Ok(Rcvar::new(f)),
+                    Err(_) => Ok(Rcvar::new(Variable::Null)),
                 }
-            },
-            _ => Ok(Rcvar::new(Variable::Null))
+            }
+            _ => Ok(Rcvar::new(Variable::Null)),
         }
     }
 }
 
-defn!(ToStringFn, vec![arg!(object | array | bool | number | string | null)], None);
+defn!(ToStringFn,
+      vec![arg!(object | array | bool | number | string | null)],
+      None);
 
 impl Function for ToStringFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
         try!(self.signature.validate(args, ctx));
         match *args[0] {
             Variable::String(_) => Ok(args[0].clone()),
-            _ => Ok(Rcvar::new(Variable::String(args[0].to_string())))
+            _ => Ok(Rcvar::new(Variable::String(args[0].to_string()))),
         }
     }
 }

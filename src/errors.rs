@@ -16,7 +16,7 @@ pub struct JmespathError {
     /// Expression being evaluated.
     pub expression: String,
     /// Error reason information.
-    pub reason: ErrorReason
+    pub reason: ErrorReason,
 }
 
 impl JmespathError {
@@ -27,8 +27,11 @@ impl JmespathError {
         let mut column: usize = 0;
         for c in expr.chars().take(offset) {
             match c {
-                '\n' => { line += 1; column = 0; },
-                _ => column += 1
+                '\n' => {
+                    line += 1;
+                    column = 0;
+                }
+                _ => column += 1,
             }
         }
         JmespathError {
@@ -36,7 +39,7 @@ impl JmespathError {
             offset: offset,
             line: line,
             column: column,
-            reason: reason
+            reason: reason,
         }
     }
 
@@ -71,8 +74,12 @@ impl fmt::Display for JmespathError {
             inject_carat(self.column, &mut error_location);
         }
 
-        write!(fmt, "{} (line {}, column {})\n{}",
-                self.reason, self.line, self.column, error_location)
+        write!(fmt,
+               "{} (line {}, column {})\n{}",
+               self.reason,
+               self.line,
+               self.column,
+               error_location)
     }
 }
 
@@ -141,24 +148,35 @@ impl fmt::Display for RuntimeError {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         use self::RuntimeError::*;
         match *self {
-            UnknownFunction(ref function) => {
-                write!(fmt, "Call to undefined function {}", function)
-            },
+            UnknownFunction(ref function) => write!(fmt, "Call to undefined function {}", function),
             TooManyArguments { ref expected, ref actual } => {
-                write!(fmt, "Too many arguments: expected {}, found {}", expected, actual)
-            },
+                write!(fmt,
+                       "Too many arguments: expected {}, found {}",
+                       expected,
+                       actual)
+            }
             NotEnoughArguments { ref expected, ref actual } => {
-                write!(fmt, "Not enough arguments: expected {}, found {}", expected, actual)
-            },
+                write!(fmt,
+                       "Not enough arguments: expected {}, found {}",
+                       expected,
+                       actual)
+            }
             InvalidType { ref expected, ref actual, ref position } => {
-                write!(fmt, "Argument {} expects type {}, given {}",
-                    position, expected, actual)
-            },
+                write!(fmt,
+                       "Argument {} expects type {}, given {}",
+                       position,
+                       expected,
+                       actual)
+            }
             InvalidSlice => write!(fmt, "Invalid slice"),
             InvalidReturnType { ref expected, ref actual, ref position, ref invocation } => {
-                write!(fmt, "Argument {} must return {} but invocation {} returned {}",
-                    position, expected, invocation, actual)
-            },
+                write!(fmt,
+                       "Argument {} must return {} but invocation {} returned {}",
+                       position,
+                       expected,
+                       invocation,
+                       actual)
+            }
         }
     }
 }
@@ -174,7 +192,8 @@ mod test {
         assert_eq!(1, err.line);
         assert_eq!(1, err.column);
         assert_eq!(5, err.offset);
-        assert_eq!("Parse error: Test (line 1, column 1)\nfoo\n..bar\n ^\n", err.to_string());
+        assert_eq!("Parse error: Test (line 1, column 1)\nfoo\n..bar\n ^\n",
+                   err.to_string());
     }
 
     #[test]
@@ -184,7 +203,8 @@ mod test {
         assert_eq!(1, err.line);
         assert_eq!(1, err.column);
         assert_eq!(5, err.offset);
-        assert_eq!("Parse error: Test (line 1, column 1)\nfoo\n..bar\n ^\nbaz", err.to_string());
+        assert_eq!("Parse error: Test (line 1, column 1)\nfoo\n..bar\n ^\nbaz",
+                   err.to_string());
     }
 
     #[test]
@@ -194,7 +214,8 @@ mod test {
         assert_eq!(0, err.line);
         assert_eq!(4, err.column);
         assert_eq!(4, err.offset);
-        assert_eq!("Parse error: Test (line 0, column 4)\nfoo..bar\n    ^\n", err.to_string());
+        assert_eq!("Parse error: Test (line 0, column 4)\nfoo..bar\n    ^\n",
+                   err.to_string());
     }
 
     #[test]
@@ -206,7 +227,8 @@ mod test {
     #[test]
     fn reason_displays_runtime_errors() {
         let reason = ErrorReason::Runtime(RuntimeError::UnknownFunction("a".to_owned()));
-        assert_eq!("Runtime error: Call to undefined function a", reason.to_string());
+        assert_eq!("Runtime error: Call to undefined function a",
+                   reason.to_string());
     }
 
     #[test]
@@ -216,7 +238,8 @@ mod test {
             actual: "boolean".to_owned(),
             position: 0,
         };
-        assert_eq!("Argument 0 expects type string, given boolean", error.to_string());
+        assert_eq!("Argument 0 expects type string, given boolean",
+                   error.to_string());
     }
 
     #[test]
@@ -229,7 +252,7 @@ mod test {
     fn displays_too_many_arguments_error() {
         let error = RuntimeError::TooManyArguments {
             expected: 1,
-            actual: 2
+            actual: 2,
         };
         assert_eq!("Too many arguments: expected 1, found 2", error.to_string());
     }
@@ -238,9 +261,10 @@ mod test {
     fn displays_not_enough_arguments_error() {
         let error = RuntimeError::NotEnoughArguments {
             expected: 2,
-            actual: 1
+            actual: 1,
         };
-        assert_eq!("Not enough arguments: expected 2, found 1", error.to_string());
+        assert_eq!("Not enough arguments: expected 2, found 1",
+                   error.to_string());
     }
 
     #[test]

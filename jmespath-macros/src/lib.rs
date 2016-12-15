@@ -57,7 +57,7 @@ pub fn plugin_registrar(reg: &mut Registry) {
 fn expand_jp(cx: &mut ExtCtxt,
              sp: codemap::Span,
              tts: &[tokenstream::TokenTree])
-             -> Box<MacResult+'static> {
+             -> Box<MacResult + 'static> {
     // Parse the arguments of the macro.
     let expression_str = match parse(cx, tts) {
         Some(e) => e,
@@ -94,18 +94,18 @@ fn parse(cx: &mut ExtCtxt, tts: &[tokenstream::TokenTree]) -> Option<String> {
                 match lit.node {
                     ast::LitKind::Str(ref s, _) => s.to_string(),
                     _ => {
-                        cx.span_err(entry.span, &format!(
-                            "expected string literal but got `{}`",
-                            pprust::lit_to_string(&**lit)));
-                        return None
+                        let message = &format!("expected string literal but got `{}`",
+                                               pprust::lit_to_string(&**lit));
+                        cx.span_err(entry.span, message);
+                        return None;
                     }
                 }
             }
             _ => {
-                cx.span_err(entry.span, &format!(
-                    "expected string literal but got `{}`",
-                    pprust::expr_to_string(&*entry)));
-                return None
+                let message = &format!("expected string literal but got `{}`",
+                                       pprust::expr_to_string(&*entry));
+                cx.span_err(entry.span, message);
+                return None;
             }
         };
         if !parser.eat(&token::Eof) {
@@ -145,11 +145,9 @@ fn generate_comparator_ast(cx: &mut ExtCtxt, comparator: &Comparator) -> P<ast::
         Comparator::GreaterThan => quote_expr!(cx, {::jmespath::ast::Comparator::GreaterThan}),
         Comparator::GreaterThanEqual => {
             quote_expr!(cx, {::jmespath::ast::Comparator::GreaterThanEqual})
-        },
+        }
         Comparator::LessThan => quote_expr!(cx, {::jmespath::ast::Comparator::LessThan}),
-        Comparator::LessThanEqual => {
-            quote_expr!(cx, {::jmespath::ast::Comparator::LessThanEqual})
-        },
+        Comparator::LessThanEqual => quote_expr!(cx, {::jmespath::ast::Comparator::LessThanEqual}),
     }
 }
 
@@ -162,7 +160,7 @@ fn generate_ast(cx: &mut ExtCtxt, ast: &Ast) -> P<ast::Expr> {
                 offset: $offset,
                 name: $name.to_owned()
             })
-        },
+        }
         Subexpr { offset, ref lhs, ref rhs } => {
             let left = generate_ast(cx, lhs);
             let right = generate_ast(cx, rhs);
@@ -171,13 +169,13 @@ fn generate_ast(cx: &mut ExtCtxt, ast: &Ast) -> P<ast::Expr> {
                 lhs: Box::new($left),
                 rhs: Box::new($right)
             })
-        },
+        }
         Index { offset, idx } => {
             quote_expr!(cx, Ast::Index {
                 offset: $offset,
                 idx: $idx
             })
-        },
+        }
         Condition { offset, ref predicate, ref then } => {
             let predicate = generate_ast(cx, &*predicate);
             let then = generate_ast(cx, then);
@@ -186,33 +184,33 @@ fn generate_ast(cx: &mut ExtCtxt, ast: &Ast) -> P<ast::Expr> {
                 predicate: $predicate,
                 then: $then
             })
-        },
+        }
         Identity { offset } => {
             quote_expr!(cx, Ast::Identity {
                 offset: $offset
             })
-        },
+        }
         Expref { offset, ref ast } => {
             let inner = generate_ast(cx, ast);
             quote_expr!(cx, Ast::Expref {
                 offset: $offset,
                 ast: Box::new($inner)
             })
-        },
+        }
         Flatten { offset, ref node } => {
             let inner = generate_ast(cx, node);
             quote_expr!(cx, Ast::Flatten {
                 offset: $offset,
                 node: Box::new($inner)
             })
-        },
+        }
         Not { offset, ref node } => {
             let inner = generate_ast(cx, node);
             quote_expr!(cx, Ast::Not {
                 offset: $offset,
                 node: Box::new($inner)
             })
-        },
+        }
         Projection { offset, ref lhs, ref rhs } => {
             let left = generate_ast(cx, lhs);
             let right = generate_ast(cx, rhs);
@@ -221,14 +219,14 @@ fn generate_ast(cx: &mut ExtCtxt, ast: &Ast) -> P<ast::Expr> {
                 lhs: Box::new($left),
                 rhs: Box::new($right)
             })
-        },
+        }
         ObjectValues { offset, ref node } => {
             let inner = generate_ast(cx, node);
             quote_expr!(cx, Ast::ObjectValues {
                 offset: $offset,
                 node: Box::new($inner)
             })
-        },
+        }
         And { offset, ref lhs, ref rhs } => {
             let left = generate_ast(cx, lhs);
             let right = generate_ast(cx, rhs);
@@ -237,7 +235,7 @@ fn generate_ast(cx: &mut ExtCtxt, ast: &Ast) -> P<ast::Expr> {
                 lhs: Box::new($left),
                 rhs: Box::new($right)
             })
-        },
+        }
         Or { offset, ref lhs, ref rhs } => {
             let left = generate_ast(cx, lhs);
             let right = generate_ast(cx, rhs);
@@ -246,7 +244,7 @@ fn generate_ast(cx: &mut ExtCtxt, ast: &Ast) -> P<ast::Expr> {
                 lhs: Box::new($left),
                 rhs: Box::new($right)
             })
-        },
+        }
         Slice { offset, start, stop, step } => {
             let start = generate_slice_option_ast(cx, start);
             let stop = generate_slice_option_ast(cx, stop);
@@ -256,7 +254,7 @@ fn generate_ast(cx: &mut ExtCtxt, ast: &Ast) -> P<ast::Expr> {
                 stop: $stop,
                 step: $step
             })
-        },
+        }
         Comparison { offset, ref comparator, ref lhs, ref rhs } => {
             let left = generate_ast(cx, lhs);
             let right = generate_ast(cx, rhs);
@@ -267,7 +265,7 @@ fn generate_ast(cx: &mut ExtCtxt, ast: &Ast) -> P<ast::Expr> {
                 lhs: Box::new($left),
                 rhs: Box::new($right)
             })
-        },
+        }
         Function { offset, ref name, ref args } => {
             let elements_ast = generate_vec_ast(cx, args);
             quote_expr!(cx, {
@@ -277,7 +275,7 @@ fn generate_ast(cx: &mut ExtCtxt, ast: &Ast) -> P<ast::Expr> {
                     args: $elements_ast,
                 }
             })
-        },
+        }
         MultiList { offset, ref elements } => {
             let elements_ast = generate_vec_ast(cx, elements);
             quote_expr!(cx, {
@@ -286,7 +284,7 @@ fn generate_ast(cx: &mut ExtCtxt, ast: &Ast) -> P<ast::Expr> {
                     elements: $elements_ast,
                 }
             })
-        },
+        }
         MultiHash { offset, ref elements } => {
             // Create the AST nodes for inserting each key value pair into the MultiHash map.
             let elements_ast = elements.iter()
@@ -311,7 +309,7 @@ fn generate_ast(cx: &mut ExtCtxt, ast: &Ast) -> P<ast::Expr> {
                     },
                 }
             })
-        },
+        }
         Literal { offset, ref value } => {
             let value_ast = generate_var_ast(cx, value);
             quote_expr!(cx, {
@@ -320,7 +318,7 @@ fn generate_ast(cx: &mut ExtCtxt, ast: &Ast) -> P<ast::Expr> {
                     value: ::std::rc::Rc::new($value_ast),
                 }
             })
-        },
+        }
     }
 }
 
@@ -336,11 +334,11 @@ fn generate_var_ast(cx: &mut ExtCtxt, var: &Rcvar) -> P<ast::Expr> {
             // f64 does not implement to_tokens, so we must parse a float from a string.
             let float_str = n.to_string();
             quote_expr!(cx, ::jmespath::Variable::Number($float_str.parse().unwrap()))
-        },
+        }
         Variable::Expref(ref node) => {
             let node_ast = generate_ast(cx, node);
             quote_expr!(cx, ::jmespath::Variable::Expref($node_ast))
-        },
+        }
         Variable::Array(ref array) => {
             // Create the AST nodes for inserting each value into the array.
             let elements_ast = array.iter()
@@ -356,7 +354,7 @@ fn generate_var_ast(cx: &mut ExtCtxt, var: &Rcvar) -> P<ast::Expr> {
                 $elements_ast;
                 nodes
             }))
-        },
+        }
         Variable::Object(ref map) => {
             // Create the AST nodes for inserting each key value pair into the BTreeMap.
             let elements_ast = map.keys()
@@ -372,13 +370,13 @@ fn generate_var_ast(cx: &mut ExtCtxt, var: &Rcvar) -> P<ast::Expr> {
                 $elements_ast;
                 map
             }))
-        },
+        }
     }
 }
 
 fn generate_slice_option_ast(cx: &mut ExtCtxt, value: Option<i32>) -> P<ast::Expr> {
     match value {
         Some(v) => quote_expr!(cx, Some($v)),
-        None => quote_expr!(cx, None)
+        None => quote_expr!(cx, None),
     }
 }

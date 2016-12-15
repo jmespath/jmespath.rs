@@ -99,7 +99,8 @@
 #![cfg_attr(feature="clippy", feature(plugin))]
 #![cfg_attr(feature="clippy", plugin(clippy))]
 
-#[macro_use] extern crate lazy_static;
+#[macro_use]
+extern crate lazy_static;
 
 extern crate serde;
 extern crate serde_json;
@@ -428,32 +429,12 @@ mod test {
     #[test]
     fn can_get_expression_ast() {
         let expr = compile("foo").unwrap();
-        assert_eq!(&Ast::Field {offset: 0, name: "foo".to_string()}, expr.as_ast());
+        assert_eq!(&Ast::Field {
+                       offset: 0,
+                       name: "foo".to_string(),
+                   },
+                   expr.as_ast());
     }
-
-    /*
-    #[test]
-    fn can_use_custom_fn_registry() {
-        use interpreter::SearchResult;
-        use functions::Function;
-
-        struct CustomFunction;
-
-        impl Function for CustomFunction {
-            fn evaluate(&self, _args: &[Rcvar], _ctx: &mut Context) -> SearchResult {
-                Ok(Rcvar::new(Variable::Bool(true)))
-            }
-        }
-
-        let mut custom_functions = FnRegistry::new();
-        custom_functions.register("constantly_true", Box::new(CustomFunction));
-        let expr = ExpressionBuilder::new("constantly_true()")
-            .with_fn_registry(&custom_functions)
-            .build()
-            .unwrap();
-        assert_eq!(Rcvar::new(Variable::Bool(true)), expr.search(()).unwrap());
-    }
-    */
 
     #[test]
     fn test_creates_rcvar_from_tuple_serialization() {

@@ -59,24 +59,24 @@ impl Token {
     #[inline]
     pub fn lbp(&self) -> usize {
         match *self {
-            Pipe     => 1,
-            Or       => 2,
-            And      => 3,
-            Eq       => 5,
-            Gt       => 5,
-            Lt       => 5,
-            Gte      => 5,
-            Lte      => 5,
-            Ne       => 5,
-            Flatten  => 9,
-            Star     => 20,
-            Filter   => 21,
-            Dot      => 40,
-            Not      => 45,
-            Lbrace   => 50,
+            Pipe => 1,
+            Or => 2,
+            And => 3,
+            Eq => 5,
+            Gt => 5,
+            Lt => 5,
+            Gte => 5,
+            Lte => 5,
+            Ne => 5,
+            Flatten => 9,
+            Star => 20,
+            Filter => 21,
+            Dot => 40,
+            Not => 45,
+            Lbrace => 50,
             Lbracket => 55,
-            Lparen   => 60,
-            _        => 0,
+            Lparen => 60,
+            _ => 0,
         }
     }
 }
@@ -91,14 +91,14 @@ pub fn tokenize(expr: &str) -> Result<VecDeque<TokenTuple>, JmespathError> {
 
 struct Lexer<'a> {
     iter: Peekable<CharIndices<'a>>,
-    expr: &'a str
+    expr: &'a str,
 }
 
 impl<'a> Lexer<'a> {
     fn new(expr: &'a str) -> Lexer<'a> {
         Lexer {
             expr: expr,
-            iter: expr.char_indices().peekable()
+            iter: expr.char_indices().peekable(),
         }
     }
 
@@ -109,8 +109,9 @@ impl<'a> Lexer<'a> {
             match self.iter.next() {
                 Some((pos, ch)) => {
                     match ch {
-                        'a' ... 'z' | 'A' ... 'Z' | '_' =>
-                            tokens.push_back((pos, self.consume_identifier(ch))),
+                        'a'...'z' | 'A'...'Z' | '_' => {
+                            tokens.push_back((pos, self.consume_identifier(ch)))
+                        }
                         '.' => tokens.push_back((pos, Dot)),
                         '[' => tokens.push_back((pos, self.consume_lbracket())),
                         '*' => tokens.push_back((pos, Star)),
@@ -131,27 +132,25 @@ impl<'a> Lexer<'a> {
                             match self.iter.next() {
                                 Some((_, c)) if c == '=' => tokens.push_back((pos, Eq)),
                                 _ => {
-                                    let reason = ErrorReason::Parse(
-                                        "'=' is not valid. Did you mean '=='?".to_owned()
-                                    );
-                                    return Err(JmespathError::new(self.expr, pos, reason))
+                                    let message = "'=' is not valid. Did you mean '=='?";
+                                    let reason = ErrorReason::Parse(message.to_owned());
+                                    return Err(JmespathError::new(self.expr, pos, reason));
                                 }
                             }
-                        },
+                        }
                         '>' => tokens.push_back((pos, self.alt(&'=', Gte, Gt))),
                         '<' => tokens.push_back((pos, self.alt(&'=', Lte, Lt))),
                         '!' => tokens.push_back((pos, self.alt(&'=', Ne, Not))),
-                        '0' ... '9' => tokens.push_back((pos, self.consume_number(ch, false))),
+                        '0'...'9' => tokens.push_back((pos, self.consume_number(ch, false))),
                         '-' => tokens.push_back((pos, try!(self.consume_negative_number(pos)))),
                         // Skip whitespace tokens
-                        ' ' | '\n' | '\t' | '\r' => {},
+                        ' ' | '\n' | '\t' | '\r' => {}
                         c => {
-                            return Err(JmespathError::new(self.expr, pos, ErrorReason::Parse(
-                                format!("Invalid character: {}", c)
-                            )))
+                            let reason = ErrorReason::Parse(format!("Invalid character: {}", c));
+                            return Err(JmespathError::new(self.expr, pos, reason));
                         }
                     }
-                },
+                }
                 None => {
                     tokens.push_back((last_position, Eof));
                     return Ok(tokens);
@@ -162,10 +161,9 @@ impl<'a> Lexer<'a> {
 
     // Consumes characters while the predicate function returns true.
     #[inline]
-    fn consume_while<F>(&mut self,
-                        mut buffer: String,
-                        predicate: F) -> String
-                        where F: Fn(char) -> bool {
+    fn consume_while<F>(&mut self, mut buffer: String, predicate: F) -> String
+        where F: Fn(char) -> bool
+    {
         loop {
             match self.iter.peek() {
                 None => break,
@@ -186,11 +184,11 @@ impl<'a> Lexer<'a> {
             Some(&(_, ']')) => {
                 self.iter.next();
                 Flatten
-            },
+            }
             Some(&(_, '?')) => {
                 self.iter.next();
                 Filter
-            },
+            }
             _ => Lbracket,
         }
     }
@@ -200,8 +198,8 @@ impl<'a> Lexer<'a> {
     fn consume_identifier(&mut self, first_char: char) -> Token {
         Identifier(self.consume_while(first_char.to_string(), |c| {
             match c {
-                'a' ... 'z' | '_' | 'A' ... 'Z' | '0' ... '9' => true,
-                _ => false
+                'a'...'z' | '_' | 'A'...'Z' | '0'...'9' => true,
+                _ => false,
             }
         }))
     }
@@ -223,13 +221,10 @@ impl<'a> Lexer<'a> {
     fn consume_negative_number(&mut self, pos: usize) -> Result<Token, JmespathError> {
         // Ensure that the next value is a number > 0
         match self.iter.next() {
-            Some((_, c)) if c.is_numeric() && c != '0' => {
-                Ok(self.consume_number(c, true))
-            },
+            Some((_, c)) if c.is_numeric() && c != '0' => Ok(self.consume_number(c, true)),
             _ => {
-                Err(JmespathError::new(self.expr, pos, ErrorReason::Parse(
-                    "'-' must be followed by numbers 1-9".to_owned()
-                )))
+                let reason = ErrorReason::Parse("'-' must be followed by numbers 1-9".to_owned());
+                Err(JmespathError::new(self.expr, pos, reason))
             }
         }
     }
@@ -240,15 +235,15 @@ impl<'a> Lexer<'a> {
     fn consume_inside<F>(&mut self,
                          pos: usize,
                          wrapper: char,
-                         invoke: F) -> Result<Token, JmespathError>
+                         invoke: F)
+                         -> Result<Token, JmespathError>
         where F: Fn(String) -> Result<Token, String>
     {
         let mut buffer = String::new();
         while let Some((_, c)) = self.iter.next() {
             if c == wrapper {
-                return invoke(buffer).map_err(|e| {
-                    JmespathError::new(self.expr, pos, ErrorReason::Parse(e))
-                })
+                return invoke(buffer)
+                    .map_err(|e| JmespathError::new(self.expr, pos, ErrorReason::Parse(e)));
             } else if c == '\\' {
                 buffer.push(c);
                 if let Some((_, c)) = self.iter.next() {
@@ -260,9 +255,8 @@ impl<'a> Lexer<'a> {
         }
         // The token was not closed, so error with the string, including the
         // wrapper (e.g., '"foo').
-        Err(JmespathError::new(self.expr, pos, ErrorReason::Parse(
-            format!("Unclosed {} delimiter: {}{}", wrapper, wrapper, buffer)
-        )))
+        let message = format!("Unclosed {} delimiter: {}{}", wrapper, wrapper, buffer);
+        Err(JmespathError::new(self.expr, pos, ErrorReason::Parse(message)))
     }
 
     // Consume and parse a quoted identifier token.
@@ -273,7 +267,7 @@ impl<'a> Lexer<'a> {
             match Variable::from_json(format!(r##""{}""##, s).as_ref()) {
                 // Convert the JSON value into a string literal.
                 Ok(j) => Ok(QuotedIdentifier(j.as_string().unwrap().clone())),
-                Err(e) => Err(format!("Unable to parse quoted identifier {}: {}", s, e))
+                Err(e) => Err(format!("Unable to parse quoted identifier {}: {}", s, e)),
             }
         })
     }
@@ -281,8 +275,9 @@ impl<'a> Lexer<'a> {
     #[inline]
     fn consume_raw_string(&mut self, pos: usize) -> Result<Token, JmespathError> {
         // Note: we need to unescape here because the backslashes are passed through.
-        self.consume_inside(pos, '\'',
-            |s| Ok(Literal(Rcvar::new(Variable::String(s.replace("\\'", "'"))))))
+        self.consume_inside(pos, '\'', |s| {
+            Ok(Literal(Rcvar::new(Variable::String(s.replace("\\'", "'")))))
+        })
     }
 
     // Consume and parse a literal JSON token.
@@ -292,7 +287,7 @@ impl<'a> Lexer<'a> {
             let unescaped = s.replace("\\`", "`");
             match Variable::from_json(unescaped.as_ref()) {
                 Ok(j) => Ok(Literal(Rcvar::new(j))),
-                Err(err) => Err(format!("Unable to parse literal JSON {}: {}", s, err))
+                Err(err) => Err(format!("Unable to parse literal JSON {}: {}", s, err)),
             }
         })
     }
@@ -303,8 +298,8 @@ impl<'a> Lexer<'a> {
             Some(&(_, c)) if c == *expected => {
                 self.iter.next();
                 match_type
-            },
-            _ => else_type
+            }
+            _ => else_type,
         }
     }
 }
@@ -388,80 +383,55 @@ mod tests {
 
     #[test]
     fn tokenize_unclosed_errors_test() {
-        assert!(
-            tokenize("\"foo").unwrap_err().to_string().contains("Unclosed \" delimiter: \"foo"));
-        assert!(
-            tokenize("`foo").unwrap_err().to_string().contains("Unclosed ` delimiter: `foo"));
+        assert!(tokenize("\"foo")
+            .unwrap_err()
+            .to_string()
+            .contains("Unclosed \" delimiter: \"foo"));
+        assert!(tokenize("`foo").unwrap_err().to_string().contains("Unclosed ` delimiter: `foo"));
     }
 
     #[test]
     fn tokenize_identifier_test() {
-        assert_eq!(tokenize_queue("foo_bar"), vec![
-            (0, Identifier("foo_bar".to_string())),
-            (7, Eof)
-        ]);
-        assert_eq!(tokenize_queue("a"), vec![
-            (0, Identifier("a".to_string())),
-            (1, Eof)
-        ]);
-        assert_eq!(tokenize_queue("_a"), vec![
-            (0, Identifier("_a".to_string())),
-            (2, Eof)
-        ]);
+        assert_eq!(tokenize_queue("foo_bar"),
+                   vec![(0, Identifier("foo_bar".to_string())), (7, Eof)]);
+        assert_eq!(tokenize_queue("a"),
+                   vec![(0, Identifier("a".to_string())), (1, Eof)]);
+        assert_eq!(tokenize_queue("_a"),
+                   vec![(0, Identifier("_a".to_string())), (2, Eof)]);
     }
 
     #[test]
     fn tokenize_quoted_identifier_test() {
-        assert_eq!(tokenize_queue("\"foo\""), vec![
-            (0, QuotedIdentifier("foo".to_string())),
-            (5, Eof)
-        ]);
-        assert_eq!(tokenize_queue("\"\""), vec![
-            (0, QuotedIdentifier("".to_string())),
-            (2, Eof)
-        ]);
-        assert_eq!(tokenize_queue("\"a_b\""), vec![
-            (0, QuotedIdentifier("a_b".to_string())),
-            (5, Eof)
-        ]);
-        assert_eq!(tokenize_queue("\"a\\nb\""), vec![
-            (0, QuotedIdentifier("a\nb".to_string())),
-            (6, Eof)
-        ]);
-        assert_eq!(tokenize_queue("\"a\\\\nb\""), vec![
-            (0, QuotedIdentifier("a\\nb".to_string())),
-            (7, Eof)
-        ]);
+        assert_eq!(tokenize_queue("\"foo\""),
+                   vec![(0, QuotedIdentifier("foo".to_string())), (5, Eof)]);
+        assert_eq!(tokenize_queue("\"\""),
+                   vec![(0, QuotedIdentifier("".to_string())), (2, Eof)]);
+        assert_eq!(tokenize_queue("\"a_b\""),
+                   vec![(0, QuotedIdentifier("a_b".to_string())), (5, Eof)]);
+        assert_eq!(tokenize_queue("\"a\\nb\""),
+                   vec![(0, QuotedIdentifier("a\nb".to_string())), (6, Eof)]);
+        assert_eq!(tokenize_queue("\"a\\\\nb\""),
+                   vec![(0, QuotedIdentifier("a\\nb".to_string())), (7, Eof)]);
     }
 
     #[test]
     fn tokenize_raw_string_test() {
-        assert_eq!(tokenize_queue("'foo'"), vec![
-            (0, Literal(Rcvar::new(Variable::String("foo".to_string())))),
-            (5, Eof)
-        ]);
-        assert_eq!(tokenize_queue("''"), vec![
-            (0, Literal(Rcvar::new(Variable::String("".to_string())))),
-            (2, Eof)
-        ]);
-        assert_eq!(tokenize_queue("'a\\nb'"), vec![
-            (0, Literal(Rcvar::new(Variable::String("a\\nb".to_string())))),
-            (6, Eof)
-        ]);
+        assert_eq!(tokenize_queue("'foo'"),
+                   vec![(0, Literal(Rcvar::new(Variable::String("foo".to_string())))), (5, Eof)]);
+        assert_eq!(tokenize_queue("''"),
+                   vec![(0, Literal(Rcvar::new(Variable::String("".to_string())))), (2, Eof)]);
+        assert_eq!(tokenize_queue("'a\\nb'"),
+                   vec![(0, Literal(Rcvar::new(Variable::String("a\\nb".to_string())))), (6, Eof)]);
     }
 
     #[test]
     fn tokenize_literal_test() {
         // Must enclose in quotes. See JEP 12.
         assert!(tokenize("`a`").unwrap_err().to_string().contains("Unable to parse"));
-        assert_eq!(tokenize_queue("`\"a\"`"), vec![
-            (0, Literal(Rcvar::new(Variable::String("a".to_string())))),
-            (5, Eof)
-        ]);
-        assert_eq!(tokenize_queue("`\"a b\"`"), vec![
-            (0, Literal(Rcvar::new(Variable::String("a b".to_string())))),
-            (7, Eof)
-        ]);
+        assert_eq!(tokenize_queue("`\"a\"`"),
+                   vec![(0, Literal(Rcvar::new(Variable::String("a".to_string())))), (5, Eof)]);
+        assert_eq!(tokenize_queue("`\"a b\"`"),
+                   vec![(0, Literal(Rcvar::new(Variable::String("a b".to_string())))), (7, Eof)]);
     }
 
     #[test]
@@ -489,7 +459,8 @@ mod tests {
         assert_eq!(tokens[1], (3, Dot));
         assert_eq!(tokens[2], (4, Identifier("bar".to_string())));
         assert_eq!(tokens[3], (8, Or));
-        assert_eq!(tokens[4], (11, Literal(Rcvar::new(Variable::String("a".to_string())))));
+        assert_eq!(tokens[4],
+                   (11, Literal(Rcvar::new(Variable::String("a".to_string())))));
         assert_eq!(tokens[5], (17, Pipe));
         assert_eq!(tokens[6], (19, Number(10)));
         assert_eq!(tokens[7], (21, Eof));

@@ -17,9 +17,7 @@ pub struct Runtime {
 impl Runtime {
     /// Creates a new Runtime.
     pub fn new() -> Runtime {
-        Runtime {
-            functions: HashMap::with_capacity(26),
-        }
+        Runtime { functions: HashMap::with_capacity(26) }
     }
 
     /// Creates a new JMESPath expression from an expression string.

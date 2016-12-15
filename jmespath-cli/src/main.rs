@@ -58,10 +58,12 @@ fn main() {
         .map(|f| read_file("expression", f));
 
     let expr = if let Some(ref e) = file_expression {
-        compile(e)
-    } else {
-        compile(matches.value_of("expression").unwrap())
-    }.map_err(|e| die!(e.to_string())).unwrap();
+            compile(e)
+        } else {
+            compile(matches.value_of("expression").unwrap())
+        }
+        .map_err(|e| die!(e.to_string()))
+        .unwrap();
 
     if matches.is_present("ast") {
         println!("{:#?}", expr.as_ast());
@@ -72,7 +74,7 @@ fn main() {
 
     match expr.search(&json) {
         Err(e) => die!(e.to_string()),
-        Ok(result) => show_result(result, matches.is_present("unquoted"))
+        Ok(result) => show_result(result, matches.is_present("unquoted")),
     }
 }
 
@@ -108,7 +110,7 @@ fn get_json(filename: Option<&str>) -> Variable {
             let mut buffer = String::new();
             match io::stdin().read_to_string(&mut buffer) {
                 Ok(_) => buffer,
-                Err(e) => die!(format!("Error reading JSON from stdin: {}", e))
+                Err(e) => die!(format!("Error reading JSON from stdin: {}", e)),
             }
         }
     };

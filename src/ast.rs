@@ -167,7 +167,7 @@ pub struct KeyValuePair {
     /// Key name.
     pub key: String,
     /// Value expression used to determine the value.
-    pub value: Ast
+    pub value: Ast,
 }
 
 /// Comparators used in Comparison nodes.
@@ -193,7 +193,7 @@ impl From<Token> for Comparator {
             Token::Gte => Comparator::GreaterThanEqual,
             Token::Eq => Comparator::Equal,
             Token::Ne => Comparator::NotEqual,
-            _ => panic!("Invalid token for comparator: {:?}", token)
+            _ => panic!("Invalid token for comparator: {:?}", token),
         }
     }
 }
@@ -204,7 +204,11 @@ mod test {
 
     #[test]
     fn displays_pretty_printed_ast_node() {
-        let node = Ast::Field { name: "abc".to_string(), offset: 4 };
-        assert_eq!("Field {\n    offset: 4,\n    name: \"abc\"\n}", format!("{}", node));
+        let node = Ast::Field {
+            name: "abc".to_string(),
+            offset: 4,
+        };
+        assert_eq!("Field {\n    offset: 4,\n    name: \"abc\"\n}",
+                   format!("{}", node));
     }
 }

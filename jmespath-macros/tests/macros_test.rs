@@ -51,17 +51,20 @@ fn expands_flatten_projection() {
 #[test]
 fn expands_slices() {
     assert_eq!(jmespath!("[1::]"), jmespath::compile("[1::]").unwrap());
-    assert_eq!(jmespath!("[10:1:-1]"), jmespath::compile("[10:1:-1]").unwrap());
+    assert_eq!(jmespath!("[10:1:-1]"),
+               jmespath::compile("[10:1:-1]").unwrap());
 }
 
 #[test]
 fn expands_multi_list() {
-    assert_eq!(jmespath!("[a, b, c]"), jmespath::compile("[a, b, c]").unwrap());
+    assert_eq!(jmespath!("[a, b, c]"),
+               jmespath::compile("[a, b, c]").unwrap());
 }
 
 #[test]
 fn expands_functions() {
-    assert_eq!(jmespath!("foo(a, b, c)"), jmespath::compile("foo(a, b, c)").unwrap());
+    assert_eq!(jmespath!("foo(a, b, c)"),
+               jmespath::compile("foo(a, b, c)").unwrap());
 }
 
 #[test]
@@ -76,15 +79,17 @@ fn expands_comparisons() {
 
 #[test]
 fn expands_multi_hash() {
-    assert_eq!(jmespath!("a.{b: c}"), jmespath::compile("a.{b: c}").unwrap());
+    assert_eq!(jmespath!("a.{b: c}"),
+               jmespath::compile("a.{b: c}").unwrap());
     assert_eq!(jmespath!("{b: c}"), jmespath::compile("{b: c}").unwrap());
     assert_eq!(jmespath!("a.{b: foo.bar, c: d}"),
-            jmespath::compile("a.{b: foo.bar, c: d}").unwrap());
+               jmespath::compile("a.{b: foo.bar, c: d}").unwrap());
 }
 
 #[test]
 fn expands_literal() {
-    assert_eq!(jmespath!("`\"foo\"`"), jmespath::compile("`\"foo\"`").unwrap());
+    assert_eq!(jmespath!("`\"foo\"`"),
+               jmespath::compile("`\"foo\"`").unwrap());
     assert_eq!(jmespath!("`1`"), jmespath::compile("`1`").unwrap());
     assert_eq!(jmespath!("`1.5`"), jmespath::compile("`1.5`").unwrap());
     assert_eq!(jmespath!("`-1.5`"), jmespath::compile("`-1.5`").unwrap());
@@ -92,9 +97,10 @@ fn expands_literal() {
     assert_eq!(jmespath!("`true`"), jmespath::compile("`true`").unwrap());
     assert_eq!(jmespath!("`false`"), jmespath::compile("`false`").unwrap());
     assert_eq!(jmespath!("`null`"), jmespath::compile("`null`").unwrap());
-    assert_eq!(jmespath!("`[1, 2, 3]`"), jmespath::compile("`[1, 2, 3]`").unwrap());
+    assert_eq!(jmespath!("`[1, 2, 3]`"),
+               jmespath::compile("`[1, 2, 3]`").unwrap());
     assert_eq!(jmespath!("`{\"a\":1, \"b\":\"c\"}`"),
-            jmespath::compile("`{\"a\":1, \"b\":\"c\"}`").unwrap());
+               jmespath::compile("`{\"a\":1, \"b\":\"c\"}`").unwrap());
 }
 
 #[test]

@@ -30,15 +30,17 @@ pub enum JmespathType {
 
 impl fmt::Display for JmespathType {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(fmt, "{}", match *self {
-            JmespathType::Null => "null",
-            JmespathType::String => "string",
-            JmespathType::Number => "number",
-            JmespathType::Boolean => "boolean",
-            JmespathType::Array => "array",
-            JmespathType::Object => "object",
-            JmespathType::Expref => "expref",
-        })
+        write!(fmt,
+               "{}",
+               match *self {
+                   JmespathType::Null => "null",
+                   JmespathType::String => "string",
+                   JmespathType::Number => "number",
+                   JmespathType::Boolean => "boolean",
+                   JmespathType::Array => "array",
+                   JmespathType::Object => "object",
+                   JmespathType::Expref => "expref",
+               })
     }
 }
 
@@ -133,11 +135,12 @@ impl Ord for Variable {
             match var_type {
                 JmespathType::String => self.as_string().unwrap().cmp(other.as_string().unwrap()),
                 JmespathType::Number => {
-                    self.as_number().unwrap()
+                    self.as_number()
+                        .unwrap()
                         .partial_cmp(&other.as_number().unwrap())
                         .unwrap_or(Ordering::Less)
-                },
-                _ => Ordering::Equal
+                }
+                _ => Ordering::Equal,
             }
         }
     }
@@ -152,7 +155,9 @@ impl fmt::Display for Variable {
 }
 
 /// Generic way of converting a Map in a Value to a Variable.
-fn convert_map<'a, T>(value: T) -> Variable where T: Iterator<Item=(&'a String, &'a Value)> {
+fn convert_map<'a, T>(value: T) -> Variable
+    where T: Iterator<Item = (&'a String, &'a Value)>
+{
     let mut map: BTreeMap<String, Rcvar> = BTreeMap::new();
     for kvp in value {
         map.insert(kvp.0.to_owned(), kvp.1.to_jmespath());
@@ -173,7 +178,7 @@ impl<'a> From<&'a Value> for Variable {
             Value::Object(ref values) => convert_map(values.iter()),
             Value::Array(ref values) => {
                 Variable::Array(values.iter().map(|v| v.to_jmespath()).collect())
-            },
+            }
         }
     }
 }
@@ -191,7 +196,7 @@ impl From<Value> for Variable {
             Value::Object(ref values) => convert_map(values.iter()),
             Value::Array(mut values) => {
                 Variable::Array(values.drain(..).map(|v| v.to_jmespath()).collect())
-            },
+            }
         }
     }
 }
@@ -212,7 +217,7 @@ impl Variable {
     pub fn as_array(&self) -> Option<&Vec<Rcvar>> {
         match *self {
             Variable::Array(ref array) => Some(array),
-            _ => None
+            _ => None,
         }
     }
 
@@ -226,7 +231,7 @@ impl Variable {
     pub fn as_object(&self) -> Option<&BTreeMap<String, Rcvar>> {
         match *self {
             Variable::Object(ref map) => Some(map),
-            _ => None
+            _ => None,
         }
     }
 
@@ -240,7 +245,7 @@ impl Variable {
     pub fn as_string(&self) -> Option<&String> {
         match *self {
             Variable::String(ref s) => Some(s),
-            _ => None
+            _ => None,
         }
     }
 
@@ -257,7 +262,7 @@ impl Variable {
     pub fn as_number(&self) -> Option<f64> {
         match *self {
             Variable::Number(f) => Some(f),
-            _ => None
+            _ => None,
         }
     }
 
@@ -271,7 +276,7 @@ impl Variable {
     pub fn as_boolean(&self) -> Option<bool> {
         match *self {
             Variable::Bool(b) => Some(b),
-            _ => None
+            _ => None,
         }
     }
 
@@ -285,7 +290,7 @@ impl Variable {
     pub fn as_null(&self) -> Option<()> {
         match *self {
             Variable::Null => Some(()),
-            _ => None
+            _ => None,
         }
     }
 
@@ -300,7 +305,7 @@ impl Variable {
     pub fn as_expref(&self) -> Option<&Ast> {
         match *self {
             Variable::Expref(ref ast) => Some(ast),
-            _ => None
+            _ => None,
         }
     }
 
@@ -350,7 +355,7 @@ impl Variable {
             Variable::Array(ref a) => !a.is_empty(),
             Variable::Object(ref o) => !o.is_empty(),
             Variable::Number(_) => true,
-            _ => false
+            _ => false,
         }
     }
 
@@ -386,20 +391,16 @@ impl Variable {
     }
 
     /// Returns a slice of the variable if the variable is an array.
-    pub fn slice(&self, start: &Option<i32>, stop: &Option<i32>, step: i32)
-        -> Option<Vec<Rcvar>>
-    {
+    pub fn slice(&self, start: &Option<i32>, stop: &Option<i32>, step: i32) -> Option<Vec<Rcvar>> {
         self.as_array().map(|a| slice(a, start, stop, step))
     }
 }
 
-/* ------------------------------------------
- * Variable slicing implementation
- * ------------------------------------------ */
+// ------------------------------------------
+// Variable slicing implementation
+// ------------------------------------------
 
-fn slice(array: &[Rcvar], start: &Option<i32>, stop: &Option<i32>, step: i32)
-    -> Vec<Rcvar>
-{
+fn slice(array: &[Rcvar], start: &Option<i32>, stop: &Option<i32>, step: i32) -> Vec<Rcvar> {
     let mut result = vec![];
     let len = array.len() as i32;
     if len == 0 {
@@ -408,12 +409,12 @@ fn slice(array: &[Rcvar], start: &Option<i32>, stop: &Option<i32>, step: i32)
     let a: i32 = match *start {
         Some(starting_index) => adjust_slice_endpoint(len, starting_index, step),
         _ if step < 0 => len - 1,
-        _ => 0
+        _ => 0,
     };
     let b: i32 = match *stop {
         Some(ending_index) => adjust_slice_endpoint(len, ending_index, step),
         _ if step < 0 => -1,
-        _ => len
+        _ => len,
     };
     let mut i = a;
     if step > 0 {
@@ -450,15 +451,15 @@ fn adjust_slice_endpoint(len: i32, mut endpoint: i32, step: i32) -> i32 {
     }
 }
 
-/* ------------------------------------------
- * Serde Variable deserialization
- * ------------------------------------------ */
+// ------------------------------------------
+// Serde Variable deserialization
+// ------------------------------------------
 
 /// Serde deserialization for Variable
 impl de::Deserialize for Variable {
     #[inline]
     fn deserialize<D>(deserializer: &mut D) -> Result<Variable, D::Error>
-        where D: de::Deserializer,
+        where D: de::Deserializer
     {
         struct VariableVisitor;
 
@@ -487,7 +488,7 @@ impl de::Deserialize for Variable {
 
             #[inline]
             fn visit_str<E>(&mut self, value: &str) -> Result<Variable, E>
-                where E: de::Error,
+                where E: de::Error
             {
                 self.visit_string(String::from(value))
             }
@@ -504,7 +505,7 @@ impl de::Deserialize for Variable {
 
             #[inline]
             fn visit_some<D>(&mut self, deserializer: &mut D) -> Result<Variable, D::Error>
-                where D: de::Deserializer,
+                where D: de::Deserializer
             {
                 de::Deserialize::deserialize(deserializer)
             }
@@ -516,7 +517,7 @@ impl de::Deserialize for Variable {
 
             #[inline]
             fn visit_seq<V>(&mut self, visitor: V) -> Result<Variable, V::Error>
-                where V: de::SeqVisitor,
+                where V: de::SeqVisitor
             {
                 let values = try!(de::impls::VecVisitor::new().visit_seq(visitor));
                 Ok(Variable::Array(values))
@@ -524,7 +525,7 @@ impl de::Deserialize for Variable {
 
             #[inline]
             fn visit_map<V>(&mut self, visitor: V) -> Result<Variable, V::Error>
-                where V: de::MapVisitor,
+                where V: de::MapVisitor
             {
                 let values = try!(de::impls::BTreeMapVisitor::new().visit_map(visitor));
                 Ok(Variable::Object(values))
@@ -535,9 +536,9 @@ impl de::Deserialize for Variable {
     }
 }
 
-/* ------------------------------------------
- * Serde Variable serialization
- * ------------------------------------------ */
+// ------------------------------------------
+// Serde Variable serialization
+// ------------------------------------------
 
 /// Serde serialization for Variable
 impl ser::Serialize for Variable {
@@ -575,9 +576,7 @@ pub struct Serializer {
 impl Serializer {
     /// Construct a new `Serializer`.
     pub fn new() -> Serializer {
-        Serializer {
-            state: Vec::with_capacity(4),
-        }
+        Serializer { state: Vec::with_capacity(4) }
     }
 
     /// Unwrap the `Serializer` and return the `Value`.
@@ -634,7 +633,9 @@ impl ser::Serializer for Serializer {
     }
 
     #[inline]
-    fn serialize_some<V>(&mut self, value: V) -> Result<(), Error> where V: ser::Serialize {
+    fn serialize_some<V>(&mut self, value: V) -> Result<(), Error>
+        where V: ser::Serialize
+    {
         value.serialize(self)
     }
 
@@ -648,7 +649,8 @@ impl ser::Serializer for Serializer {
     fn serialize_unit_variant(&mut self,
                               _name: &str,
                               _variant_index: usize,
-                              variant: &str) -> Result<(), Error> {
+                              variant: &str)
+                              -> Result<(), Error> {
         let mut values = BTreeMap::new();
         values.insert(String::from(variant), Rcvar::new(Variable::Array(vec![])));
         self.state.push(State::Value(Variable::Object(values)));
@@ -660,8 +662,10 @@ impl ser::Serializer for Serializer {
                                     _name: &str,
                                     _variant_index: usize,
                                     variant: &str,
-                                    value: T) -> Result<(), Error>
-                                    where T: ser::Serialize {
+                                    value: T)
+                                    -> Result<(), Error>
+        where T: ser::Serialize
+    {
         let mut values = BTreeMap::new();
         values.insert(String::from(variant), value.to_jmespath());
         self.state.push(State::Value(Variable::Object(values)));
@@ -669,8 +673,8 @@ impl ser::Serializer for Serializer {
     }
 
     #[inline]
-    fn serialize_seq<V>(&mut self, mut visitor: V)
-        -> Result<(), Error> where V: ser::SeqVisitor
+    fn serialize_seq<V>(&mut self, mut visitor: V) -> Result<(), Error>
+        where V: ser::SeqVisitor
     {
         let len = visitor.len().unwrap_or(0);
         let values = Vec::with_capacity(len);
@@ -689,8 +693,10 @@ impl ser::Serializer for Serializer {
                                   _name: &str,
                                   _variant_index: usize,
                                   variant: &str,
-                                  visitor: V) -> Result<(), Error>
-                                  where V: ser::SeqVisitor {
+                                  visitor: V)
+                                  -> Result<(), Error>
+        where V: ser::SeqVisitor
+    {
         try!(self.serialize_seq(visitor));
         let value = match self.state.pop().unwrap() {
             State::Value(value) => value,
@@ -703,8 +709,8 @@ impl ser::Serializer for Serializer {
     }
 
     #[inline]
-    fn serialize_seq_elt<T>(&mut self, value: T)
-        -> Result<(), Error> where T: ser::Serialize
+    fn serialize_seq_elt<T>(&mut self, value: T) -> Result<(), Error>
+        where T: ser::Serialize
     {
         try!(value.serialize(self));
         let value = match self.state.pop().unwrap() {
@@ -712,15 +718,17 @@ impl ser::Serializer for Serializer {
             state => panic!("expected value, found {:?}", state),
         };
         match *self.state.last_mut().unwrap() {
-            State::Array(ref mut values) => { values.push(Rcvar::new(value)); }
+            State::Array(ref mut values) => {
+                values.push(Rcvar::new(value));
+            }
             ref state => panic!("expected array, found {:?}", state),
         }
         Ok(())
     }
 
     #[inline]
-    fn serialize_map<V>(&mut self, mut visitor: V)
-        -> Result<(), Error> where V: ser::MapVisitor
+    fn serialize_map<V>(&mut self, mut visitor: V) -> Result<(), Error>
+        where V: ser::MapVisitor
     {
         let values = BTreeMap::new();
 
@@ -743,8 +751,10 @@ impl ser::Serializer for Serializer {
                                    _name: &str,
                                    _variant_index: usize,
                                    variant: &str,
-                                   visitor: V) -> Result<(), Error>
-                                   where V: ser::MapVisitor {
+                                   visitor: V)
+                                   -> Result<(), Error>
+        where V: ser::MapVisitor
+    {
         try!(self.serialize_map(visitor));
         let value = match self.state.pop().unwrap() {
             State::Value(value) => value,
@@ -758,11 +768,10 @@ impl ser::Serializer for Serializer {
     }
 
     #[inline]
-    fn serialize_map_elt<K, V>(&mut self,
-                               key: K,
-                               value: V) -> Result<(), Error>
-                               where K: ser::Serialize,
-                               V: ser::Serialize {
+    fn serialize_map_elt<K, V>(&mut self, key: K, value: V) -> Result<(), Error>
+        where K: ser::Serialize,
+              V: ser::Serialize
+    {
         try!(key.serialize(self));
         let key = match self.state.pop().unwrap() {
             State::Value(Variable::String(value)) => value,
@@ -776,7 +785,9 @@ impl ser::Serializer for Serializer {
         };
 
         match *self.state.last_mut().unwrap() {
-            State::Object(ref mut values) => { values.insert(key, Rcvar::new(value)); },
+            State::Object(ref mut values) => {
+                values.insert(key, Rcvar::new(value));
+            }
             ref state => panic!("expected object, found {:?}", state),
         }
         Ok(())
@@ -800,18 +811,21 @@ mod tests {
 
     #[test]
     fn test_determines_types() {
-         assert_eq!(JmespathType::Object,
-                Variable::from_json(&"{\"foo\": \"bar\"}").unwrap().get_type());
-         assert_eq!(JmespathType::Array, Variable::from_json(&"[\"foo\"]").unwrap().get_type());
-         assert_eq!(JmespathType::Null, Variable::Null.get_type());
-         assert_eq!(JmespathType::Boolean, Variable::Bool(true).get_type());
-         assert_eq!(JmespathType::String, Variable::String("foo".to_string()).get_type());
-         assert_eq!(JmespathType::Number, Variable::Number(1.0).get_type());
+        assert_eq!(JmespathType::Object,
+                   Variable::from_json(&"{\"foo\": \"bar\"}").unwrap().get_type());
+        assert_eq!(JmespathType::Array,
+                   Variable::from_json(&"[\"foo\"]").unwrap().get_type());
+        assert_eq!(JmespathType::Null, Variable::Null.get_type());
+        assert_eq!(JmespathType::Boolean, Variable::Bool(true).get_type());
+        assert_eq!(JmespathType::String,
+                   Variable::String("foo".to_string()).get_type());
+        assert_eq!(JmespathType::Number, Variable::Number(1.0).get_type());
     }
 
     #[test]
     fn test_is_truthy() {
-        assert_eq!(true, Variable::from_json(&"{\"foo\": \"bar\"}").unwrap().is_truthy());
+        assert_eq!(true,
+                   Variable::from_json(&"{\"foo\": \"bar\"}").unwrap().is_truthy());
         assert_eq!(false, Variable::from_json(&"{}").unwrap().is_truthy());
         assert_eq!(true, Variable::from_json(&"[\"foo\"]").unwrap().is_truthy());
         assert_eq!(false, Variable::from_json(&"[]").unwrap().is_truthy());
@@ -856,7 +870,8 @@ mod tests {
 
     #[test]
     fn getting_value_from_non_object_is_null() {
-        assert_eq!(Rcvar::new(Variable::Null), Variable::Bool(false).get_field("foo"));
+        assert_eq!(Rcvar::new(Variable::Null),
+                   Variable::Bool(false).get_field("foo"));
     }
 
     #[test]
@@ -891,7 +906,8 @@ mod tests {
 
     #[test]
     fn option_of_string() {
-        assert_eq!(Some(&"foo".to_string()), Variable::String("foo".to_string()).as_string());
+        assert_eq!(Some(&"foo".to_string()),
+                   Variable::String("foo".to_string()).as_string());
         assert_eq!(None, Variable::Null.as_string());
     }
 
@@ -935,9 +951,10 @@ mod tests {
 
     #[test]
     fn test_is_expref() {
-        assert_eq!(true, Variable::Expref(Ast::Identity {offset: 0}).is_expref());
-        assert_eq!(&Ast::Identity {offset: 0},
-            Variable::Expref(Ast::Identity {offset: 0}).as_expref().unwrap());
+        assert_eq!(true,
+                   Variable::Expref(Ast::Identity { offset: 0 }).is_expref());
+        assert_eq!(&Ast::Identity { offset: 0 },
+                   Variable::Expref(Ast::Identity { offset: 0 }).as_expref().unwrap());
     }
 
     #[test]
@@ -948,19 +965,19 @@ mod tests {
         assert_eq!(Variable::Number(1.0), Variable::from_json("1").unwrap());
         assert_eq!(Variable::Number(-1.0), Variable::from_json("-1").unwrap());
         assert_eq!(Variable::Number(1.5), Variable::from_json("1.5").unwrap());
-        assert_eq!(Variable::String("abc".to_string()), Variable::from_json("\"abc\"").unwrap());
+        assert_eq!(Variable::String("abc".to_string()),
+                   Variable::from_json("\"abc\"").unwrap());
     }
 
     #[test]
     fn test_parses_json_array() {
         let var = Variable::from_json("[null, true, [\"a\"]]").unwrap();
-        assert_eq!(var, Variable::Array(vec![
-            Rcvar::new(Variable::Null),
-            Rcvar::new(Variable::Bool(true)),
-            Rcvar::new(Variable::Array(vec![
+        assert_eq!(var,
+                   Variable::Array(vec![Rcvar::new(Variable::Null),
+                                        Rcvar::new(Variable::Bool(true)),
+                                        Rcvar::new(Variable::Array(vec![
                 Rcvar::new(Variable::String("a".to_string()))
-            ]))
-        ]))
+            ]))]))
     }
 
     #[test]
@@ -986,7 +1003,8 @@ mod tests {
         let val = serde_json::to_value(&var);
         assert_eq!(Value::Array(vec![Value::String("a".to_string())]), val);
         let round_trip = serde_json::from_value::<Variable>(val).unwrap();
-        assert_eq!(Variable::Array(vec![Rcvar::new(Variable::String("a".to_string()))]), round_trip);
+        assert_eq!(Variable::Array(vec![Rcvar::new(Variable::String("a".to_string()))]),
+                   round_trip);
     }
 
     /// Converting an expression variable to a string is a special case.
