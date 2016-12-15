@@ -25,7 +25,7 @@ pub enum BenchType {
 impl BenchType {
     /// Try to create a benchmark assertion from a JSON value.
     fn from_json(bench_type: &Value) -> Result<Self, TestCaseError> {
-        bench_type.as_string()
+        bench_type.as_str()
             .ok_or(TestCaseError::BenchIsNotString)
             .and_then(|b| {
                 match b {
@@ -65,7 +65,7 @@ pub enum ErrorType {
 impl ErrorType {
     /// Try to create an error assertion from a JSON value.
     fn from_json(error_type: &Value) -> Result<Self, TestCaseError> {
-        error_type.as_string()
+        error_type.as_str()
             .ok_or(TestCaseError::ErrorIsNotString)
             .and_then(|b| {
                 match b {
@@ -302,7 +302,7 @@ impl TestCase {
             expression: try!(case.get("expression")
                 .ok_or(NoExpression)
                 .and_then(|expression| {
-                    expression.as_string()
+                    expression.as_str()
                         .ok_or(ExpressionIsNotString)
                         .map(|expression_str| expression_str.to_string())
                 })),

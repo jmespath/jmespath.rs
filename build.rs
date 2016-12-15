@@ -62,7 +62,7 @@ pub fn load_test_suites() -> Vec<(String, Value)> {
 fn get_expr(case: &BTreeMap<String, Value>) -> &str {
     case.get("expression")
         .expect("No expression in case")
-        .as_string()
+        .as_str()
         .expect("Could not convert case to string")
 }
 
@@ -86,7 +86,7 @@ fn generate_fn_name(filename: &str,
     let expr = get_expr(case);
     // Use the comment as the fn description if it is present.
     let description = match case.get("comment") {
-        Some(ref c) => c.as_string().expect("comment is not a string"),
+        Some(ref c) => c.as_str().expect("comment is not a string"),
         None => expr
     };
     format!("{}_{}_{}_{}", slugify(filename), suite_num, case_num, slugify(description))
@@ -105,7 +105,7 @@ fn generate_bench(filename: &str,
     let expr = get_expr(case);
     let expr_string = expr.replace("\"", "\\\"");
     let fn_suffix = generate_fn_name(filename, suite_num, case_num, case);
-    let bench_type = case.get("bench").unwrap().as_string().expect("bench is not a string");
+    let bench_type = case.get("bench").unwrap().as_str().expect("bench is not a string");
 
     // Validate that the bench attribute is an expected type.
     if bench_type != "parse" && bench_type != "full" && bench_type != "interpret" {
