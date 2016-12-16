@@ -16,7 +16,7 @@ by adding `jmespath` to the dependencies in your project's `Cargo.toml`.
 
 ```toml
 [dependencies]
-jmespath = "0.0.1"
+jmespath = "0.1"
 ```
 
 ## Examples
