@@ -27,7 +27,7 @@ extern crate jmespath;
 let expr = jmespath::compile("foo.bar").unwrap();
 
 // Parse some JSON data into a JMESPath variable
-let json_str = "{\"foo\":{\"bar\":true}}";
+let json_str = r#"{"foo": {"bar": true}}"#;
 let data = jmespath::Variable::from_json(json_str).unwrap();
 
 // Search the data with the compiled expression
@@ -59,7 +59,7 @@ fn main() {
     let expr = jmespath!("foo.bar");
 
     // Parse some JSON data into a JMESPath variable
-    let json_str = "{\"foo\":{\"bar\":true}}";
+    let json_str = r#"{"foo": {"bar": true}}"#;
     let data = jmespath::Variable::from_json(json_str).unwrap();
     let result = expr.search(data).unwrap();
     assert_eq!(true, result.as_boolean().unwrap());
