@@ -1,4 +1,4 @@
-//! Interprets JMESPath expressions
+//! Interprets JMESPath expressions.
 
 use std::collections::BTreeMap;
 

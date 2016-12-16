@@ -19,6 +19,9 @@ pub fn parse(expr: &str) -> ParseResult {
     Parser::new(tokens, expr).parse()
 }
 
+/// The maximum binding power for a token that can stop a projection.
+const PROJECTION_STOP: usize = 10;
+
 struct Parser<'a> {
     /// Parsed tokens
     token_queue: VecDeque<TokenTuple>,
@@ -40,13 +43,14 @@ impl<'a> Parser<'a> {
         }
     }
 
+    #[inline]
     fn parse(&mut self) -> ParseResult {
         self.expr(0)
             .and_then(|result| {
                 // After parsing the expr, we should reach the end of the stream.
                 match self.peek(0) {
                     &Token::Eof => Ok(result),
-                    t @ _ => Err(self.err(t, &"Did not parse the complete expression", true)),
+                    t @ _ => Err(self.err(t, "Did not parse the complete expression", true)),
                 }
             })
     }
@@ -179,7 +183,7 @@ impl<'a> Parser<'a> {
                     ref t @ _ => Err(self.err(t, "Expected ')' to close '('", false)),
                 }
             }
-            ref t @ _ => Err(self.err(t, &"Unexpected nud token", false)),
+            ref t @ _ => Err(self.err(t, "Unexpected nud token", false)),
         }
     }
 
@@ -283,10 +287,10 @@ impl<'a> Parser<'a> {
                         value: try!(self.expr(0)),
                     })
                 } else {
-                    Err(self.err(self.peek(0), &"Expected ':' to follow key", true))
+                    Err(self.err(self.peek(0), "Expected ':' to follow key", true))
                 }
             }
-            ref t @ _ => Err(self.err(t, &"Expected Field to start key value pair", false)),
+            ref t @ _ => Err(self.err(t, "Expected Field to start key value pair", false)),
         }
     }
 
@@ -310,7 +314,7 @@ impl<'a> Parser<'a> {
                     }),
                 })
             }
-            ref t @ _ => Err(self.err(t, &"Expected ']'", false)),
+            ref t @ _ => Err(self.err(t, "Expected ']'", false)),
         }
     }
 
@@ -347,7 +351,7 @@ impl<'a> Parser<'a> {
             &Token::Lbrace |
             &Token::Ampersand => false,
             t @ _ => {
-                return Err(self.err(t, &"Expected identifier, '*', '{', '[', '&', or '[?'", true))
+                return Err(self.err(t, "Expected identifier, '*', '{', '[', '&', or '[?'", true))
             }
         } {
             true => {
@@ -364,8 +368,12 @@ impl<'a> Parser<'a> {
         match match self.peek(0) {
             &Token::Dot => true,
             &Token::Lbracket | &Token::Filter => false,
-            ref t @ _ if t.lbp() < 10 => return Ok(Ast::Identity { offset: self.offset }),
-            ref t @ _ => return Err(self.err(t, &"Expected '.', '[', or '[?'", true)),
+            ref t @ _ if t.lbp() < PROJECTION_STOP => {
+                return Ok(Ast::Identity { offset: self.offset });
+            },
+            ref t @ _ => {
+                return Err(self.err(t, "Expected '.', '[', or '[?'", true));
+            },
         } {
             true => {
                 self.advance();
@@ -386,7 +394,7 @@ impl<'a> Parser<'a> {
                     rhs: rhs,
                 })
             }
-            ref t @ _ => Err(self.err(t, &"Expected ']' for wildcard index", false)),
+            ref t @ _ => Err(self.err(t, "Expected ']' for wildcard index", false)),
         }
     }
 

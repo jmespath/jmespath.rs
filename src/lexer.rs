@@ -1,18 +1,16 @@
 //! Module for tokenizing JMESPath expressions.
 //!
-//! The lexer returns a VecDeque of tuples where each
-//! tuple contains the character position in the original
-//! string from which the lexeme originates followed by the
-//! token itself. The VecDeque is then consumed by the parser.
-//! A VecDeque is utilized in order to pop owned tokens
-//! and provide arbitrary token lookahead in the parser.
+//! The lexer returns a VecDeque of tuples where each tuple contains the
+//! character position in the original string from which the lexeme originates
+//! followed by the token itself. The VecDeque is then consumed by the parser.
+//! A VecDeque is utilized in order to pop owned tokens and provide arbitrary
+//! token lookahead in the parser.
 
 use std::iter::Peekable;
 use std::str::CharIndices;
 use std::collections::VecDeque;
 
-use Rcvar;
-use {JmespathError, ErrorReason};
+use {Rcvar, JmespathError, ErrorReason};
 use variable::Variable;
 use self::Token::*;
 
@@ -303,7 +301,6 @@ impl<'a> Lexer<'a> {
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {

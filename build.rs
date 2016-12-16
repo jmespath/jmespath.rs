@@ -130,7 +130,7 @@ fn {}_parse_lex(b: &mut Bencher) {{
 fn {}_interpret(b: &mut Bencher) {{
     let data = Rcvar::new(Variable::from_json({:?}).expect(\"Invalid JSON given\"));
     let expr = compile({:?}).unwrap();
-    b.iter(|| {{ expr.search(&data).ok(); }});
+    b.iter(|| {{ expr.search(&data).ok() }});
 }}
 
 ", fn_suffix, given_string, expr_string).as_bytes()).expect("Error writing interpret benchmark");

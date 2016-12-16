@@ -1,6 +1,6 @@
 //! Rust implementation of JMESPath, a query language for JSON.
 //!
-//! Note: currently requires the nightly compiler for specialization.
+//! **Note**: Currently requires the nightly compiler for specialization.
 //!
 //! # Compiling JMESPath expressions
 //!
@@ -47,7 +47,7 @@
 //! the `sync` feature, you can utilize an `std::sync::Arc<Variable>` to
 //! share `Expression` structs across threads.
 //!
-//! Any type that implements `ToJmespath` can be used in a JMESPath
+//! Any type that implements `jmespath::ToJmespath` can be used in a JMESPath
 //! Expression. Various types have default `ToJmespath` implementations,
 //! including `serde::ser::Serialize`. Because `jmespath::Variable` implements
 //! `serde::ser::Serialize`, many existing types can be searched without needing
@@ -73,9 +73,8 @@
 //! use jmespath::{Runtime, Context, Rcvar};
 //! use jmespath::functions::{CustomFunction, Signature, ArgumentType};
 //!
-//! // Create a new Runtime.
+//! // Create a new Runtime and register the builtin JMESPath functions.
 //! let mut runtime = Runtime::new();
-//! // Register builtin functions with the runtime.
 //! runtime.register_builtin_functions();
 //!
 //! // Create an identity string function that returns string values as-is.
@@ -135,26 +134,30 @@ lazy_static! {
     };
 }
 
-/// Reference counted JMESPath variable.
+/// `Rc` reference counted JMESPath `Variable`.
 #[cfg(not(feature = "sync"))]
 pub type Rcvar = std::rc::Rc<Variable>;
-/// Reference counted JMESPath variable.
+/// `Arc` reference counted JMESPath `Variable`.
 #[cfg(feature = "sync")]
 pub type Rcvar = std::sync::Arc<Variable>;
 
 /// Compiles a JMESPath expression using the default Runtime.
 ///
+/// The default Runtime is created lazily the first time it is dereferenced
+/// by using the `lazy_static` macro.
+///
 /// The provided expression is expected to adhere to the JMESPath
 /// grammar: http://jmespath.org/specification.html
+#[inline]
 pub fn compile(expression: &str) -> Result<Expression<'static>, JmespathError> {
     DEFAULT_RUNTIME.compile(expression)
 }
 
 /// Converts a value into a reference-counted JMESPath Variable.
 ///
-/// There are a number of implemenations for ToJmespath built into
-/// the library that should work for most cases, including a generic
-/// serde Serialize implemenation.
+/// There are a number of implemenations for ToJmespath built into the
+/// library that should work for most cases, including a generic serde
+/// Serialize implemenation.
 pub trait ToJmespath {
     fn to_jmespath(self) -> Rcvar;
 }
@@ -169,12 +172,14 @@ impl<'a, T: ser::Serialize> ToJmespath for T {
 }
 
 impl ToJmespath for Value {
+    #[inline]
     fn to_jmespath(self) -> Rcvar {
         Rcvar::new(Variable::from(self))
     }
 }
 
 impl<'a> ToJmespath for &'a Value {
+    #[inline]
     fn to_jmespath(self) -> Rcvar {
         Rcvar::new(Variable::from(self))
     }
@@ -182,24 +187,28 @@ impl<'a> ToJmespath for &'a Value {
 
 /// Identity coercion.
 impl ToJmespath for Rcvar {
+    #[inline]
     fn to_jmespath(self) -> Rcvar {
         self
     }
 }
 
 impl<'a> ToJmespath for &'a Rcvar {
+    #[inline]
     fn to_jmespath(self) -> Rcvar {
         self.clone()
     }
 }
 
 impl ToJmespath for Variable {
+    #[inline]
     fn to_jmespath(self) -> Rcvar {
         Rcvar::new(self)
     }
 }
 
 impl<'a> ToJmespath for &'a Variable {
+    #[inline]
     fn to_jmespath(self) -> Rcvar {
         Rcvar::new(self.clone())
     }
@@ -316,6 +325,9 @@ pub struct Expression<'a> {
 
 impl<'a> Expression<'a> {
     /// Creates a new JMESPath expression.
+    ///
+    /// Normally you will create expressions using either `jmespath::compile()`
+    /// or using a jmespath::Runtime.
     #[inline]
     pub fn new<S>(expression: S, ast: Ast, runtime: &'a Runtime) -> Expression<'a>
         where S: Into<String>
@@ -376,15 +388,14 @@ impl<'a> PartialEq for Expression<'a> {
 /// Context object used for error reporting.
 ///
 /// The Context struct is mostly used when interacting between the
-/// interpreter and function implemenations. Unless you're writing
-/// custom JMESPath functions, this struct is an implementation
-/// detail.
+/// interpreter and function implemenations. Unless you're writing custom
+/// JMESPath functions, this struct is an implementation detail.
 pub struct Context<'a> {
-    /// Expression that is being interpreted.
+    /// Expression string that is being interpreted.
     pub expression: &'a str,
-    /// JMESPath runtime.
+    /// JMESPath runtime used to compile the expression and call functions.
     pub runtime: &'a Runtime,
-    /// Offset being evaluated
+    /// Ast offset that is currently being evaluated.
     pub offset: usize,
 }
 
