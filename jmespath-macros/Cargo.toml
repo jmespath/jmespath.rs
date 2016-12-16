@@ -1,6 +1,6 @@
 [package]
 name = "jmespath-macros"
-version = "0.0.1"
+version = "0.1.0"
 authors = ["Michael Dowling <mtdowling@gmail.com>"]
 readme = "README.md"
 keywords = ["json", "jmespath", "query"]
@@ -12,7 +12,7 @@ description = "Statically compiles JMESPath expressions."
 
 [dependencies.jmespath]
 path = ".."
-version = "0.*"
+version = "0.1.0"
 
 [lib]
 name = "jmespath_macros"
