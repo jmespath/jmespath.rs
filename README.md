@@ -19,6 +19,15 @@ by adding `jmespath` to the dependencies in your project's `Cargo.toml`.
 jmespath = "0.1"
 ```
 
+If you are using a nightly compiler, or reading this when specialization in Rust
+is stable (see [rust#31844](https://github.com/rust-lang/rust/issues/31844)), then
+enable the `specialized` feature to switch on usage of specialization to get more
+efficient code:
+
+[dependencies.jmespath]
+version = "0.1"
+features = ["specialized"]
+
 ## Examples
 
 ```rust

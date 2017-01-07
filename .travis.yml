@@ -24,6 +24,7 @@ script:
   - |
       travis-cargo build &&
       travis-cargo test &&
+      travis-cargo test --features specialized &&
       travis-cargo bench
 
 after_success:
