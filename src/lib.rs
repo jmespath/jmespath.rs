@@ -94,7 +94,7 @@
 //! assert_eq!("bar", expr.search(()).unwrap().as_string().unwrap());
 //! ```
 
-#![feature(specialization)]
+#![cfg_attr(feature = "specialized", feature(specialization))]
 
 #[macro_use]
 extern crate lazy_static;
@@ -113,6 +113,7 @@ pub mod functions;
 
 use std::fmt;
 use serde::ser;
+#[cfg(feature = "specialized")]
 use serde_json::Value;
 
 use ast::Ast;
@@ -155,15 +156,34 @@ pub fn compile(expression: &str) -> Result<Expression<'static>, JmespathError> {
 
 /// Converts a value into a reference-counted JMESPath Variable.
 ///
-/// There are a number of implemenations for ToJmespath built into the
-/// library that should work for most cases, including a generic serde
-/// Serialize implemenation.
+#[cfg_attr(feature = "specialized", doc = "\
+There is a generic serde Serialize implementation, and since this
+documentation was compiled with the `specialized` feature turned
+**on**, there are also a number of specialized implementations for
+`ToJmespath` built into the library that should work for most
+cases.")]
+#[cfg_attr(not(feature = "specialized"), doc = "\
+There is a generic serde Serialize implementation. Since this
+documentation was compiled with the `specialized` feature turned
+**off**, this is the only implementation available.
+
+(If the `specialized` feature were turned on, there there would be
+a number of additional specialized implementations for `ToJmespath`
+built into the library that should work for most cases.)")]
 pub trait ToJmespath {
     fn to_jmespath(self) -> Rcvar;
 }
 
 /// Create searchable values from Serde serializable values.
 impl<'a, T: ser::Serialize> ToJmespath for T {
+    #[cfg(not(feature = "specialized"))]
+    fn to_jmespath(self) -> Rcvar {
+        let mut ser = Serializer::new();
+        self.serialize(&mut ser).ok().unwrap();
+        Rcvar::new(ser.unwrap())
+    }
+
+    #[cfg(feature = "specialized")]
     default fn to_jmespath(self) -> Rcvar {
         let mut ser = Serializer::new();
         self.serialize(&mut ser).ok().unwrap();
@@ -171,6 +191,7 @@ impl<'a, T: ser::Serialize> ToJmespath for T {
     }
 }
 
+#[cfg(feature = "specialized")]
 impl ToJmespath for Value {
     #[inline]
     fn to_jmespath(self) -> Rcvar {
@@ -178,6 +199,7 @@ impl ToJmespath for Value {
     }
 }
 
+#[cfg(feature = "specialized")]
 impl<'a> ToJmespath for &'a Value {
     #[inline]
     fn to_jmespath(self) -> Rcvar {
@@ -185,6 +207,7 @@ impl<'a> ToJmespath for &'a Value {
     }
 }
 
+#[cfg(feature = "specialized")]
 /// Identity coercion.
 impl ToJmespath for Rcvar {
     #[inline]
@@ -193,6 +216,7 @@ impl ToJmespath for Rcvar {
     }
 }
 
+#[cfg(feature = "specialized")]
 impl<'a> ToJmespath for &'a Rcvar {
     #[inline]
     fn to_jmespath(self) -> Rcvar {
@@ -200,6 +224,7 @@ impl<'a> ToJmespath for &'a Rcvar {
     }
 }
 
+#[cfg(feature = "specialized")]
 impl ToJmespath for Variable {
     #[inline]
     fn to_jmespath(self) -> Rcvar {
@@ -207,6 +232,7 @@ impl ToJmespath for Variable {
     }
 }
 
+#[cfg(feature = "specialized")]
 impl<'a> ToJmespath for &'a Variable {
     #[inline]
     fn to_jmespath(self) -> Rcvar {
@@ -214,96 +240,112 @@ impl<'a> ToJmespath for &'a Variable {
     }
 }
 
+#[cfg(feature = "specialized")]
 impl ToJmespath for String {
     fn to_jmespath(self) -> Rcvar {
         Rcvar::new(Variable::String(self))
     }
 }
 
+#[cfg(feature = "specialized")]
 impl<'a> ToJmespath for &'a str {
     fn to_jmespath(self) -> Rcvar {
         Rcvar::new(Variable::String(self.to_owned()))
     }
 }
 
+#[cfg(feature = "specialized")]
 impl ToJmespath for i8 {
     fn to_jmespath(self) -> Rcvar {
         Rcvar::new(Variable::Number(self as f64))
     }
 }
 
+#[cfg(feature = "specialized")]
 impl ToJmespath for i16 {
     fn to_jmespath(self) -> Rcvar {
         Rcvar::new(Variable::Number(self as f64))
     }
 }
 
+#[cfg(feature = "specialized")]
 impl ToJmespath for i32 {
     fn to_jmespath(self) -> Rcvar {
         Rcvar::new(Variable::Number(self as f64))
     }
 }
 
+#[cfg(feature = "specialized")]
 impl ToJmespath for i64 {
     fn to_jmespath(self) -> Rcvar {
         Rcvar::new(Variable::Number(self as f64))
     }
 }
 
+#[cfg(feature = "specialized")]
 impl ToJmespath for u8 {
     fn to_jmespath(self) -> Rcvar {
         Rcvar::new(Variable::Number(self as f64))
     }
 }
 
+#[cfg(feature = "specialized")]
 impl ToJmespath for u16 {
     fn to_jmespath(self) -> Rcvar {
         Rcvar::new(Variable::Number(self as f64))
     }
 }
 
+#[cfg(feature = "specialized")]
 impl ToJmespath for u32 {
     fn to_jmespath(self) -> Rcvar {
         Rcvar::new(Variable::Number(self as f64))
     }
 }
 
+#[cfg(feature = "specialized")]
 impl ToJmespath for u64 {
     fn to_jmespath(self) -> Rcvar {
         Rcvar::new(Variable::Number(self as f64))
     }
 }
 
+#[cfg(feature = "specialized")]
 impl ToJmespath for isize {
     fn to_jmespath(self) -> Rcvar {
         Rcvar::new(Variable::Number(self as f64))
     }
 }
 
+#[cfg(feature = "specialized")]
 impl ToJmespath for usize {
     fn to_jmespath(self) -> Rcvar {
         Rcvar::new(Variable::Number(self as f64))
     }
 }
 
+#[cfg(feature = "specialized")]
 impl ToJmespath for f32 {
     fn to_jmespath(self) -> Rcvar {
         Rcvar::new(Variable::Number(self as f64))
     }
 }
 
+#[cfg(feature = "specialized")]
 impl ToJmespath for f64 {
     fn to_jmespath(self) -> Rcvar {
         Rcvar::new(Variable::Number(self as f64))
     }
 }
 
+#[cfg(feature = "specialized")]
 impl ToJmespath for () {
     fn to_jmespath(self) -> Rcvar {
         Rcvar::new(Variable::Null)
     }
 }
 
+#[cfg(feature = "specialized")]
 impl ToJmespath for bool {
     fn to_jmespath(self) -> Rcvar {
         Rcvar::new(Variable::Bool(self))

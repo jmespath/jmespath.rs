@@ -1332,7 +1332,7 @@ impl ser::Serializer for Serializer {
 
 #[cfg(test)]
 mod tests {
-    use super::Rcvar;
+    use ::Rcvar;
     use std::collections::BTreeMap;
     use super::serde_json::{self, Value};
     use super::{Variable, JmespathType};

@@ -22,3 +22,7 @@ slug = "0.1.2"
 
 [features]
 sync = []
+# `specialized` enables the use of specialization for more efficient code
+# however at time of writing it is unstable & so requires a nightly compiler.
+# See https://github.com/rust-lang/rust/issues/31844 for the latest status.
+specialized = []

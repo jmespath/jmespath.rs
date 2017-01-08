@@ -4,8 +4,8 @@ sudo: false
 
 # run builds for all the trains (and more)
 rust:
-  #- stable
-  #- beta
+  - stable
+  - beta
   - nightly
 
 matrix:
@@ -24,6 +24,7 @@ script:
   - |
       travis-cargo build &&
       travis-cargo test &&
+      travis-cargo --only nightly test -- --features specialized &&
       travis-cargo bench
 
 after_success:
