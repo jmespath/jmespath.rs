@@ -7,7 +7,7 @@
 
 Rust implementation of [JMESPath](http://jmespath.org), a query language for JSON.
 
-[Documentation](http://mtdowling.com/jmespath.rs/jmespath/)
+[Documentation](https://docs.rs/jmespath/)
 
 ## Installing
 
@@ -24,9 +24,11 @@ is stable (see [rust#31844](https://github.com/rust-lang/rust/issues/31844)), th
 enable the `specialized` feature to switch on usage of specialization to get more
 efficient code:
 
+```toml
 [dependencies.jmespath]
 version = "0.1"
 features = ["specialized"]
+```
 
 ## Examples
 

@@ -307,7 +307,6 @@ mod tests {
     use ::Rcvar;
     use ::variable::Variable;
     use super::*;
-    use super::Token::*;
 
     fn tokenize_queue(expr: &str) -> Vec<TokenTuple> {
         let mut result = tokenize(expr).unwrap();

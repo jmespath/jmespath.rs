@@ -1,7 +1,5 @@
 //! Rust implementation of JMESPath, a query language for JSON.
 //!
-//! **Note**: Currently requires the nightly compiler for specialization.
-//!
 //! # Compiling JMESPath expressions
 //!
 //! Use the `jmespath::compile` function to compile JMESPath expressions

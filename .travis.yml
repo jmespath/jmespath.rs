@@ -28,8 +28,6 @@ script:
       travis-cargo bench
 
 after_success:
-  # upload documentation
-  - ./deploy_gh_pages.sh
   # measure code coverage and upload to coveralls.io
   - travis-cargo coveralls --no-sudo --verify
 
