@@ -1,5 +1,6 @@
 //! JMESPath errors.
 
+use std::error::Error;
 use std::fmt;
 
 use Context;
@@ -46,6 +47,12 @@ impl JmespathError {
     /// Create a new JMESPath Error from a Context struct.
     pub fn from_ctx(ctx: &Context, reason: ErrorReason) -> JmespathError {
         JmespathError::new(ctx.expression, ctx.offset, reason)
+    }
+}
+
+impl Error for JmespathError {
+    fn description(&self) -> &str {
+        "error evaluating JMESPath expression"
     }
 }
 
