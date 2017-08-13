@@ -97,7 +97,6 @@
 #[macro_use]
 extern crate lazy_static;
 
-#[macro_use]
 extern crate serde;
 extern crate serde_json;
 
@@ -115,7 +114,6 @@ use serde::ser;
 use serde_json::Value;
 
 use ast::Ast;
-use variable::Serializer;
 use interpreter::{interpret, SearchResult};
 
 mod interpreter;
@@ -176,16 +174,12 @@ pub trait ToJmespath {
 impl<'a, T: ser::Serialize> ToJmespath for T {
     #[cfg(not(feature = "specialized"))]
     fn to_jmespath(self) -> Rcvar {
-        let mut ser = Serializer::new();
-        self.serialize(&mut ser).ok().unwrap();
-        Rcvar::new(ser.unwrap())
+        Rcvar::new(variable::to_variable(self))
     }
 
     #[cfg(feature = "specialized")]
     default fn to_jmespath(self) -> Rcvar {
-        let mut ser = Serializer::new();
-        self.serialize(&mut ser).ok().unwrap();
-        Rcvar::new(ser.unwrap())
+        Rcvar::new(variable::to_variable(self))
     }
 }
 
