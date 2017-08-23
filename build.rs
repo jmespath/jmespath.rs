@@ -3,7 +3,6 @@
 extern crate serde_json;
 extern crate slug;
 
-use std::collections::BTreeMap;
 use std::env;
 use std::path::Path;
 use std::fs::{self, File};
@@ -49,7 +48,7 @@ pub fn load_test_suites() -> Vec<(String, Value)> {
         let mut file_data = String::new();
         f.read_to_string(&mut file_data).expect("Could to read JSON to string");
         let mut suite_json: Value = serde_json::from_str(&file_data).expect("invalid JSON");
-        let mut suites = suite_json.as_array_mut().expect("Test suite is not a JSON array");
+        let suites = suite_json.as_array_mut().expect("Test suite is not a JSON array");
         while let Some(suite) = suites.pop() {
             result.push((file_path.clone(), suite));
         }
@@ -59,7 +58,7 @@ pub fn load_test_suites() -> Vec<(String, Value)> {
 
 /// Gets the expression from a test case with helpful error messages.
 #[inline]
-fn get_expr(case: &BTreeMap<String, Value>) -> &str {
+fn get_expr(case: &serde_json::Map<String, Value>) -> &str {
     case.get("expression")
         .expect("No expression in case")
         .as_str()
@@ -82,7 +81,7 @@ fn slugify(s: &str) -> String {
 fn generate_fn_name(filename: &str,
                     suite_num: usize,
                     case_num: usize,
-                    case: &BTreeMap<String, Value>) -> String {
+                    case: &serde_json::Map<String, Value>) -> String {
     let expr = get_expr(case);
     // Use the comment as the fn description if it is present.
     let description = match case.get("comment") {
@@ -99,7 +98,7 @@ fn generate_fn_name(filename: &str,
 fn generate_bench(filename: &str,
                   suite_num: usize,
                   case_num: usize,
-                  case: &BTreeMap<String, Value>,
+                  case: &serde_json::Map<String, Value>,
                   given_string: &str,
                   f: &mut File) {
     let expr = get_expr(case);
@@ -153,7 +152,7 @@ fn {}_full(b: &mut Bencher) {{
 fn generate_test(filename: &str,
                  suite_num: usize,
                  case_num: usize,
-                 case: &BTreeMap<String, Value>,
+                 case: &serde_json::Map<String, Value>,
                  given_string: &str,
                  f: &mut File) {
     let fn_suffix = generate_fn_name(filename, suite_num, case_num, case);
