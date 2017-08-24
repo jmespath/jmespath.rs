@@ -104,7 +104,7 @@ extern crate serde_json;
 pub use errors::{JmespathError, ErrorReason, RuntimeError};
 pub use parser::{parse, ParseResult};
 pub use runtime::Runtime;
-pub use variable::Variable;
+pub use variable::{Variable, to_variable};
 
 pub mod ast;
 pub mod functions;
@@ -176,16 +176,14 @@ pub trait ToJmespath {
 impl<'a, T: ser::Serialize> ToJmespath for T {
     #[cfg(not(feature = "specialized"))]
     fn to_jmespath(self) -> Rcvar {
-        let mut ser = Serializer::new();
-        self.serialize(&mut ser).ok().unwrap();
-        Rcvar::new(ser.unwrap())
+        let variable = self.serialize(Serializer).unwrap();
+        Rcvar::new(variable)
     }
 
     #[cfg(feature = "specialized")]
     default fn to_jmespath(self) -> Rcvar {
-        let mut ser = Serializer::new();
-        self.serialize(&mut ser).ok().unwrap();
-        Rcvar::new(ser.unwrap())
+        let variable = self.serialize(Serializer).unwrap();
+        Rcvar::new(variable)
     }
 }
 
