@@ -16,7 +16,7 @@ by adding `jmespath` to the dependencies in your project's `Cargo.toml`.
 
 ```toml
 [dependencies]
-jmespath = "^0.1.1"
+jmespath = "^0.2.0"
 ```
 
 If you are using a nightly compiler, or reading this when specialization in Rust
@@ -26,7 +26,7 @@ efficient code:
 
 ```toml
 [dependencies.jmespath]
-version = "^0.1.1"
+version = "^0.2.0"
 features = ["specialized"]
 ```
 

@@ -1,6 +1,6 @@
 [package]
 name = "jmespath-cli"
-version = "0.0.1"
+version = "0.0.2"
 authors = ["Michael Dowling <mtdowling@gmail.com>"]
 license = "MIT"
 
