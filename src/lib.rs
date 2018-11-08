@@ -118,7 +118,7 @@ use ast::Ast;
 use variable::Serializer;
 use interpreter::{interpret, SearchResult};
 
-mod interpreter;
+pub mod interpreter;
 mod parser;
 mod lexer;
 mod runtime;
