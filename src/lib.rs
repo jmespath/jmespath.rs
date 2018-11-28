@@ -115,7 +115,7 @@ use serde::ser;
 use serde_json::Value;
 
 use ast::Ast;
-use variable::Serializer;
+pub use variable::Serializer;
 use interpreter::{interpret, SearchResult};
 
 mod interpreter;
