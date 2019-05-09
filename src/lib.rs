@@ -355,6 +355,7 @@ impl ToJmespath for bool {
 /// be shared between threads if JMESPath is compiled with the `sync`
 /// feature, which forces the use of an `Arc` instead of an `Rc` for
 /// runtime variables.
+#[derive(Clone)]
 pub struct Expression<'a> {
     ast: Ast,
     expression: String,
@@ -490,4 +491,11 @@ mod test {
         let t = (true, false);
         assert_eq!("[true,false]", t.to_jmespath().to_string());
     }
+
+    #[test]
+    fn expression_clone() {
+        let expr = compile("foo").unwrap();
+        let _ = expr.clone();
+    }
+
 }
