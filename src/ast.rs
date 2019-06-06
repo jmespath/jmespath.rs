@@ -223,7 +223,7 @@ mod test {
             name: "abc".to_string(),
             offset: 4,
         };
-        assert_eq!("Field {\n    offset: 4,\n    name: \"abc\"\n}",
+        assert_eq!("Field {\n    offset: 4,\n    name: \"abc\",\n}",
                    format!("{}", node));
     }
 }
