@@ -6,7 +6,7 @@ extern crate serde_json;
 use std::vec;
 use serde::{de, ser};
 use serde::de::IntoDeserializer;
-use serde_json::error::{Error, ErrorCode};
+use serde_json::error::Error;
 use serde_json::value::Value;
 use std::collections::BTreeMap;
 use std::cmp::{max, Ordering};
@@ -1202,7 +1202,12 @@ impl ser::SerializeMap for MapState {
     {
         match to_variable(key)? {
             Variable::String(s) => self.next_key = Some(s),
-            _ => return Err(Error::syntax(ErrorCode::KeyMustBeAString, 0, 0)),
+            _ => {
+                // this is an ugly kludge, but error reporting is no longer semi-public in serde_json
+                let mut map = std::collections::HashMap::new();
+                map.insert(true, true);
+                return Err(serde_json::to_vec(&map).unwrap_err())
+            }
         };
         Ok(())
     }
