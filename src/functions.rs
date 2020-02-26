@@ -239,12 +239,12 @@ macro_rules! defn {
 /// Macro used to implement max_by and min_by functions.
 macro_rules! min_and_max_by {
     ($ctx:expr, $operator:ident, $args:expr) => {{
-        let vals = $args[0].as_array().unwrap();
+        let vals = $args[0].as_array().ok_or_else(|| JmespathError::new("",0, ErrorReason::Parse("Expected args[0] to be an array".to_owned())))?;
         // Return null when there are not values in the array
         if vals.is_empty() {
             return Ok(Rcvar::new(Variable::Null));
         }
-        let ast = $args[1].as_expref().unwrap();
+        let ast = $args[1].as_expref().ok_or_else(|| JmespathError::new("",0, ErrorReason::Parse("Expected args[1] to be an expression".to_owned())))?;
         // Map over the first value to get the homogeneous required return type
         let initial = interpret(&vals[0], &ast, $ctx)?;
         let entered_type = initial.get_type();
@@ -285,7 +285,7 @@ macro_rules! min_and_max_by {
 /// Macro used to implement max and min functions.
 macro_rules! min_and_max {
     ($operator:ident, $args:expr) => {{
-        let values = $args[0].as_array().unwrap();
+        let values = $args[0].as_array().ok_or_else(|| JmespathError::new("",0, ErrorReason::Parse("Expected args[0] to be an array".to_owned())))?;
         if values.is_empty() {
             Ok(Rcvar::new(Variable::Null))
         } else {
@@ -315,12 +315,15 @@ defn!(AvgFn, vec![arg!(array_number)], None);
 impl Function for AvgFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context<'_>) -> SearchResult {
         self.signature.validate(args, ctx)?;
-        let values = args[0].as_array().unwrap();
-        let sum = values
-            .iter()
-            .map(|n| n.as_number().unwrap())
-            .fold(0f64, |a, ref b| a + b);
-        Ok(Rcvar::new(Variable::Number(Number::from_f64(sum / (values.len() as f64)).unwrap())))
+        let values = args[0].as_array().ok_or_else(|| JmespathError::new("",0, ErrorReason::Parse("Expected args[0] to be an array".to_owned())))?;
+
+        let mut sum = 0.0;
+
+        for value in values {
+            sum += value.as_number().ok_or_else(|| JmespathError::new("",0, ErrorReason::Parse("Expected to be a valid f64".to_owned())))?;
+        }
+
+        Ok(Rcvar::new(Variable::Number(Number::from_f64(sum / (values.len() as f64)).ok_or_else(|| JmespathError::new("",0, ErrorReason::Parse("Expected to be a valid f64".to_owned())))?)))
     }
 }
 
@@ -329,8 +332,8 @@ defn!(CeilFn, vec![arg!(number)], None);
 impl Function for CeilFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context<'_>) -> SearchResult {
         self.signature.validate(args, ctx)?;
-        let n = args[0].as_number().unwrap();
-        Ok(Rcvar::new(Variable::Number(Number::from_f64(n.ceil()).unwrap())))
+        let n = args[0].as_number().ok_or_else(|| JmespathError::new("",0, ErrorReason::Parse("Expected args[0] to be a number".to_owned())))?;
+        Ok(Rcvar::new(Variable::Number(Number::from_f64(n.ceil()).ok_or_else(|| JmespathError::new("",0, ErrorReason::Parse("Expected n.ceil() to be a valid f64".to_owned())))?)))
     }
 }
 
