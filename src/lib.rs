@@ -105,13 +105,14 @@ pub mod functions;
 use serde::ser;
 #[cfg(feature = "specialized")]
 use serde_json::Value;
+#[cfg(feature = "specialized")]
+use std::convert::TryInto;
 use std::fmt;
 
 use lazy_static::*;
 
 use crate::ast::Ast;
 use crate::interpreter::{interpret, SearchResult};
-use std::convert::TryInto;
 
 mod errors;
 mod interpreter;
