@@ -123,9 +123,9 @@ impl<'a> Lexer<'a> {
                         ')' => tokens.push_back((pos, Rparen)),
                         ',' => tokens.push_back((pos, Comma)),
                         ':' => tokens.push_back((pos, Colon)),
-                        '"' => tokens.push_back((pos, r#try!(self.consume_quoted_identifier(pos)))),
-                        '\'' => tokens.push_back((pos, r#try!(self.consume_raw_string(pos)))),
-                        '`' => tokens.push_back((pos, r#try!(self.consume_literal(pos)))),
+                        '"' => tokens.push_back((pos, self.consume_quoted_identifier(pos))?),
+                        '\'' => tokens.push_back((pos, self.consume_raw_string(pos))?),
+                        '`' => tokens.push_back((pos, self.consume_literal(pos))?),
                         '=' => {
                             match self.iter.next() {
                                 Some((_, c)) if c == '=' => tokens.push_back((pos, Eq)),
@@ -140,7 +140,7 @@ impl<'a> Lexer<'a> {
                         '<' => tokens.push_back((pos, self.alt(&'=', Lte, Lt))),
                         '!' => tokens.push_back((pos, self.alt(&'=', Ne, Not))),
                         '0'..='9' => tokens.push_back((pos, self.consume_number(ch, false))),
-                        '-' => tokens.push_back((pos, r#try!(self.consume_negative_number(pos)))),
+                        '-' => tokens.push_back((pos, self.consume_negative_number(pos)?)),
                         // Skip whitespace tokens
                         ' ' | '\n' | '\t' | '\r' => {}
                         c => {
