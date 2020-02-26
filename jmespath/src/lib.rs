@@ -97,7 +97,7 @@
 pub use crate::errors::{ErrorReason, JmespathError, RuntimeError};
 pub use crate::parser::{parse, ParseResult};
 pub use crate::runtime::Runtime;
-pub use crate::variable::{Variable};
+pub use crate::variable::Variable;
 
 pub mod ast;
 pub mod functions;
@@ -178,14 +178,12 @@ pub trait ToJmespath {
 impl<'a, T: ser::Serialize> ToJmespath for T {
     #[cfg(not(feature = "specialized"))]
     fn to_jmespath(self) -> Result<Rcvar, JmespathError> {
-        Ok(Variable::from_serializable(self)
-            .map(Rcvar::new)?)
+        Ok(Variable::from_serializable(self).map(Rcvar::new)?)
     }
 
     #[cfg(feature = "specialized")]
     default fn to_jmespath(self) -> Result<Rcvar, JmespathError> {
-        Ok(Variable::from_serializable(self)
-            .map(|var| Rcvar::new(var))?)
+        Ok(Variable::from_serializable(self).map(|var| Rcvar::new(var))?)
     }
 }
 
@@ -332,7 +330,15 @@ impl ToJmespath for f32 {
 #[cfg(feature = "specialized")]
 impl ToJmespath for f64 {
     fn to_jmespath(self) -> Result<Rcvar, JmespathError> {
-        Ok(Rcvar::new(Variable::Number(serde_json::Number::from_f64(self).ok_or_else(||  JmespathError::new("",0, ErrorReason::Parse(format!("Cannot parse {} into a Number", self))))?)))
+        Ok(Rcvar::new(Variable::Number(
+            serde_json::Number::from_f64(self).ok_or_else(|| {
+                JmespathError::new(
+                    "",
+                    0,
+                    ErrorReason::Parse(format!("Cannot parse {} into a Number", self)),
+                )
+            })?,
+        )))
     }
 }
 

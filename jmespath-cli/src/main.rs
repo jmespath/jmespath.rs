@@ -93,7 +93,7 @@ fn show_result(result: Rcvar, unquoted: bool) {
     } else {
         let mut out = io::stdout();
         serde_json::to_writer_pretty(&mut out, &result)
-            .map(|_| out.write(&['\n' as u8]))
+            .map(|_| out.write(&[b'\n']))
             .map_err(|e| die!(format!("Error converting result to string: {}", e)))
             .ok();
     }

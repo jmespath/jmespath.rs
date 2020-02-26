@@ -12,10 +12,10 @@ use std::string::ToString;
 use std::vec;
 
 use crate::ast::{Ast, Comparator};
-use crate::{Rcvar, JmespathError};
 use crate::ToJmespath;
-use std::convert::TryFrom;
+use crate::{JmespathError, Rcvar};
 use serde_json::Number;
+use std::convert::TryFrom;
 
 /// JMESPath types.
 #[derive(Debug, PartialEq, PartialOrd, Eq, Ord)]
@@ -97,7 +97,7 @@ impl PartialEq for Variable {
                     } else {
                         false
                     }
-                },
+                }
                 Variable::String(ref s) => Some(s) == other.as_string(),
                 Variable::Bool(b) => Some(*b) == other.as_boolean(),
                 Variable::Array(ref a) => Some(a) == other.as_array(),
@@ -142,18 +142,20 @@ impl Ord for Variable {
             Ordering::Equal
         } else {
             match var_type {
-                JmespathType::String =>
+                JmespathType::String => {
                     if let (Some(a), Some(b)) = (self.as_string(), other.as_string()) {
                         a.cmp(b)
                     } else {
                         Ordering::Equal
                     }
-                JmespathType::Number =>
+                }
+                JmespathType::Number => {
                     if let (Some(a), Some(b)) = (self.as_number(), other.as_number()) {
                         a.partial_cmp(&b).unwrap_or(Ordering::Less)
                     } else {
                         Ordering::Equal
                     }
+                }
                 _ => Ordering::Equal,
             }
         }
@@ -164,7 +166,12 @@ impl Ord for Variable {
 /// string containing the debug dump of the expref variable.
 impl fmt::Display for Variable {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(fmt, "{}", serde_json::to_string(self).unwrap_or_else(|err| format!("unable to stringify Variable. Err: {}", err)))
+        write!(
+            fmt,
+            "{}",
+            serde_json::to_string(self)
+                .unwrap_or_else(|err| format!("unable to stringify Variable. Err: {}", err))
+        )
     }
 }
 
@@ -182,7 +189,6 @@ where
 
 /// Convert a borrowed Value to a Variable.
 impl<'a> TryFrom<&'a Value> for Variable {
-
     type Error = JmespathError;
 
     fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
@@ -192,9 +198,12 @@ impl<'a> TryFrom<&'a Value> for Variable {
             Value::Bool(b) => Variable::Bool(b),
             Value::Number(ref n) => Variable::Number(n.clone()),
             Value::Object(ref values) => convert_map(values.iter())?,
-            Value::Array(ref values) => {
-                Variable::Array(values.iter().map(|v| v.to_jmespath()).collect::<Result<_,JmespathError>>()?)
-            }
+            Value::Array(ref values) => Variable::Array(
+                values
+                    .iter()
+                    .map(|v| v.to_jmespath())
+                    .collect::<Result<_, JmespathError>>()?,
+            ),
         };
         Ok(var)
     }
@@ -202,7 +211,6 @@ impl<'a> TryFrom<&'a Value> for Variable {
 
 /// Slightly optimized method for converting from an owned Value.
 impl TryFrom<Value> for Variable {
-
     type Error = JmespathError;
 
     fn try_from(value: Value) -> Result<Self, Self::Error> {
@@ -212,24 +220,25 @@ impl TryFrom<Value> for Variable {
             Value::Bool(b) => Variable::Bool(b),
             Value::Number(n) => Variable::Number(n),
             Value::Object(ref values) => convert_map(values.iter())?,
-            Value::Array(mut values) => {
-                Variable::Array(values.drain(..).map(|v| v.to_jmespath()).collect::<Result<_,JmespathError>>()?)
-            }
+            Value::Array(mut values) => Variable::Array(
+                values
+                    .drain(..)
+                    .map(|v| v.to_jmespath())
+                    .collect::<Result<_, JmespathError>>()?,
+            ),
         };
         Ok(var)
     }
 }
 
 impl Variable {
-
     /// Shortcut function to encode a `T` into a JMESPath `Variable`
     pub fn from_serializable<T>(value: T) -> Result<Variable, JmespathError>
-        where
-            T: ser::Serialize,
+    where
+        T: ser::Serialize,
     {
         Ok(to_variable(value)?)
     }
-
 
     /// Create a JMESPath Variable from a JSON encoded string.
     pub fn from_json(s: &str) -> Result<Self, String> {
@@ -404,8 +413,11 @@ impl Variable {
     /// Compares two Variable values using a comparator.
     pub fn compare(&self, cmp: &Comparator, value: &Variable) -> Option<bool> {
         // Ordering requires numeric values.
-        if !(self.is_number() && value.is_number() || *cmp == Comparator::NotEqual || *cmp == Comparator::Equal) {
-                return None;
+        if !(self.is_number() && value.is_number()
+            || *cmp == Comparator::NotEqual
+            || *cmp == Comparator::Equal)
+        {
+            return None;
         }
         match *cmp {
             Comparator::Equal => Some(*self == *value),
@@ -423,7 +435,6 @@ impl Variable {
     }
 }
 
-
 impl Variable {
     fn unexpected(&self) -> de::Unexpected<'_> {
         match self {
@@ -437,7 +448,6 @@ impl Variable {
         }
     }
 }
-
 
 // ------------------------------------------
 // Variable slicing implementation
@@ -985,14 +995,17 @@ impl ser::Serializer for Serializer {
 
     #[inline]
     fn serialize_i16(self, value: i16) -> Result<Variable, Error> {
-        Ok(Variable::Number(Number::from(value)))    }
+        Ok(Variable::Number(Number::from(value)))
+    }
 
     #[inline]
     fn serialize_i32(self, value: i32) -> Result<Variable, Error> {
-        Ok(Variable::Number(Number::from(value)))    }
+        Ok(Variable::Number(Number::from(value)))
+    }
 
     fn serialize_i64(self, value: i64) -> Result<Variable, Error> {
-        Ok(Variable::Number(Number::from(value)))    }
+        Ok(Variable::Number(Number::from(value)))
+    }
 
     #[inline]
     fn serialize_u8(self, value: u8) -> Result<Variable, Error> {
@@ -1296,7 +1309,7 @@ mod tests {
     use super::*;
     use crate::ast::{Ast, Comparator};
     use crate::Rcvar;
-    use serde_json::{self, Value, Number};
+    use serde_json::{self, Number, Value};
     use std::collections::BTreeMap;
 
     #[test]
@@ -1326,7 +1339,10 @@ mod tests {
             JmespathType::String,
             Variable::String("foo".to_string()).get_type()
         );
-        assert_eq!(JmespathType::Number, Variable::Number(Number::from_f64(1.0).unwrap()).get_type());
+        assert_eq!(
+            JmespathType::Number,
+            Variable::Number(Number::from_f64(1.0).unwrap()).get_type()
+        );
     }
 
     #[test]
@@ -1345,8 +1361,14 @@ mod tests {
         assert_eq!(false, Variable::Bool(false).is_truthy());
         assert_eq!(true, Variable::String("foo".to_string()).is_truthy());
         assert_eq!(false, Variable::String("".to_string()).is_truthy());
-        assert_eq!(true, Variable::Number(Number::from_f64(10.0).unwrap()).is_truthy());
-        assert_eq!(true, Variable::Number(Number::from_f64(0.0).unwrap()).is_truthy());
+        assert_eq!(
+            true,
+            Variable::Number(Number::from_f64(10.0).unwrap()).is_truthy()
+        );
+        assert_eq!(
+            true,
+            Variable::Number(Number::from_f64(0.0).unwrap()).is_truthy()
+        );
     }
 
     #[test]
@@ -1376,7 +1398,10 @@ mod tests {
     #[test]
     fn gets_value_from_object() {
         let var = Variable::from_json("{\"foo\":1}").unwrap();
-        assert_eq!(Rcvar::new(Variable::Number(Number::from_f64(1.0).unwrap())), var.get_field("foo"));
+        assert_eq!(
+            Rcvar::new(Variable::Number(Number::from_f64(1.0).unwrap())),
+            var.get_field("foo")
+        );
     }
 
     #[test]
@@ -1483,9 +1508,18 @@ mod tests {
         assert_eq!(Variable::Null, Variable::from_json("null").unwrap());
         assert_eq!(Variable::Bool(true), Variable::from_json("true").unwrap());
         assert_eq!(Variable::Bool(false), Variable::from_json("false").unwrap());
-        assert_eq!(Variable::Number(Number::from(1)), Variable::from_json("1").unwrap());
-        assert_eq!(Variable::Number(Number::from_f64(-1.0).unwrap()), Variable::from_json("-1").unwrap());
-        assert_eq!(Variable::Number(Number::from_f64(1.5).unwrap()), Variable::from_json("1.5").unwrap());
+        assert_eq!(
+            Variable::Number(Number::from(1)),
+            Variable::from_json("1").unwrap()
+        );
+        assert_eq!(
+            Variable::Number(Number::from_f64(-1.0).unwrap()),
+            Variable::from_json("-1").unwrap()
+        );
+        assert_eq!(
+            Variable::Number(Number::from_f64(1.5).unwrap()),
+            Variable::from_json("1.5").unwrap()
+        );
         assert_eq!(
             Variable::String("abc".to_string()),
             Variable::from_json("\"abc\"").unwrap()
@@ -1504,7 +1538,10 @@ mod tests {
         let var = Variable::from_json("{\"a\": 1, \"b\": {\"c\": true}}").unwrap();
         let mut expected = BTreeMap::new();
         let mut sub_obj = BTreeMap::new();
-        expected.insert("a".to_string(), Rcvar::new(Variable::Number(Number::from_f64(1.0).unwrap())));
+        expected.insert(
+            "a".to_string(),
+            Rcvar::new(Variable::Number(Number::from_f64(1.0).unwrap())),
+        );
         sub_obj.insert("c".to_string(), Rcvar::new(Variable::Bool(true)));
         expected.insert("b".to_string(), Rcvar::new(Variable::Object(sub_obj)));
         assert_eq!(var, Variable::Object(expected));
@@ -1539,25 +1576,48 @@ mod tests {
 
     #[test]
     fn test_compares_float_equality() {
-        assert_eq!(Variable::Number(Number::from_f64(1.0).unwrap()), Variable::Number(Number::from_f64(1.0).unwrap()));
-        assert_eq!(Variable::Number(Number::from_f64(0.0).unwrap()), Variable::Number(Number::from_f64(0.0).unwrap()));
-        assert_ne!(Variable::Number(Number::from_f64(0.00001).unwrap()), Variable::Number(Number::from_f64(0.0).unwrap()));
-        assert_eq!(Variable::Number(Number::from_f64(999.999).unwrap()), Variable::Number(Number::from_f64(999.999).unwrap()));
-        assert_eq!(Variable::Number(Number::from_f64(1.000000000001).unwrap()), Variable::Number(Number::from_f64(1.000000000001).unwrap()));
-        assert_eq!(Variable::Number(Number::from_f64(0.7100000000000002).unwrap()), Variable::Number(Number::from_f64(0.71).unwrap()));
-        assert_eq!(Variable::Number(Number::from_f64(0.0000000000000002).unwrap()), Variable::Number(Number::from_f64(0.0000000000000002).unwrap()));
-        assert_ne!(Variable::Number(Number::from_f64(0.0000000000000002).unwrap()), Variable::Number(Number::from_f64(0.0000000000000003).unwrap()));
+        assert_eq!(
+            Variable::Number(Number::from_f64(1.0).unwrap()),
+            Variable::Number(Number::from_f64(1.0).unwrap())
+        );
+        assert_eq!(
+            Variable::Number(Number::from_f64(0.0).unwrap()),
+            Variable::Number(Number::from_f64(0.0).unwrap())
+        );
+        assert_ne!(
+            Variable::Number(Number::from_f64(0.00001).unwrap()),
+            Variable::Number(Number::from_f64(0.0).unwrap())
+        );
+        assert_eq!(
+            Variable::Number(Number::from_f64(999.999).unwrap()),
+            Variable::Number(Number::from_f64(999.999).unwrap())
+        );
+        assert_eq!(
+            Variable::Number(Number::from_f64(1.000000000001).unwrap()),
+            Variable::Number(Number::from_f64(1.000000000001).unwrap())
+        );
+        assert_eq!(
+            Variable::Number(Number::from_f64(0.7100000000000002).unwrap()),
+            Variable::Number(Number::from_f64(0.71).unwrap())
+        );
+        assert_eq!(
+            Variable::Number(Number::from_f64(0.0000000000000002).unwrap()),
+            Variable::Number(Number::from_f64(0.0000000000000002).unwrap())
+        );
+        assert_ne!(
+            Variable::Number(Number::from_f64(0.0000000000000002).unwrap()),
+            Variable::Number(Number::from_f64(0.0000000000000003).unwrap())
+        );
     }
 
     #[test]
     fn test_serialize_variable_with_positive_integer_value() {
-
         #[derive(serde_derive::Serialize)]
         struct Map {
-            num: usize
+            num: usize,
         };
 
-        let map = Map{num: 231};
+        let map = Map { num: 231 };
 
         let var = Variable::from_serializable(&map).unwrap();
         let json_string = serde_json::to_string(&var).unwrap();
@@ -1567,13 +1627,12 @@ mod tests {
 
     #[test]
     fn test_serialize_variable_with_negative_integer_value() {
-
         #[derive(serde_derive::Serialize)]
         struct Map {
-            num: isize
+            num: isize,
         };
 
-        let map = Map{num: -2141};
+        let map = Map { num: -2141 };
 
         let var = Variable::from_serializable(&map).unwrap();
         let json_string = serde_json::to_string(&var).unwrap();
@@ -1583,13 +1642,12 @@ mod tests {
 
     #[test]
     fn test_serialize_variable_with_float_value() {
-
         #[derive(serde_derive::Serialize)]
         struct Map {
-            num: f64
+            num: f64,
         };
 
-        let map = Map{num: 41.0};
+        let map = Map { num: 41.0 };
 
         let var = Variable::from_serializable(&map).unwrap();
         let json_string = serde_json::to_string(&var).unwrap();

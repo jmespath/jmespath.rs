@@ -119,10 +119,7 @@ impl<'a> Parser<'a> {
                 }),
             },
             Token::Star => self.parse_wildcard_values(Box::new(Ast::Identity { offset })),
-            Token::Literal(value) => Ok(Ast::Literal {
-                value,
-                offset,
-            }),
+            Token::Literal(value) => Ok(Ast::Literal { value, offset }),
             Token::Lbracket => match self.peek(0) {
                 &Token::Number(_) | &Token::Colon => self.parse_index(),
                 &Token::Star if self.peek(1) == &Token::Rbracket => {
@@ -197,14 +194,15 @@ impl<'a> Parser<'a> {
                     &Token::Star => false,
                     t => return Err(self.err(t, "Expected number, ':', or '*'", true)),
                 } {
-                     Ok(Ast::Subexpr {
+                    Ok(Ast::Subexpr {
                         offset,
                         lhs: left,
                         rhs: Box::new(self.parse_index()?),
-                    }) } else {
-                        self.advance();
-                        self.parse_wildcard_index(left)
-                    }
+                    })
+                } else {
+                    self.advance();
+                    self.parse_wildcard_index(left)
+                }
             }
             t @ Token::Or => {
                 let offset = offset;
@@ -326,13 +324,11 @@ impl<'a> Parser<'a> {
             | &Token::Star
             | &Token::Lbrace
             | &Token::Ampersand => false,
-            t => {
-                return Err(self.err(t, "Expected identifier, '*', '{', '[', '&', or '[?'", true))
-            }
-        }  {
-                self.advance();
-                self.parse_multi_list()
-            } else {
+            t => return Err(self.err(t, "Expected identifier, '*', '{', '[', '&', or '[?'", true)),
+        } {
+            self.advance();
+            self.parse_multi_list()
+        } else {
             self.expr(lbp)
         }
     }
@@ -352,10 +348,10 @@ impl<'a> Parser<'a> {
                 return Err(self.err(t, "Expected '.', '[', or '[?'", true));
             }
         } {
-                self.advance();
-                self.parse_dot(lbp)
-            } else {
-                self.expr(lbp)
+            self.advance();
+            self.parse_dot(lbp)
+        } else {
+            self.expr(lbp)
         }
     }
 
@@ -419,7 +415,15 @@ impl<'a> Parser<'a> {
             // No colons were found, so this is a simple index extraction.
             Ok(Ast::Index {
                 offset: self.offset,
-                idx: parts[0].ok_or_else(|| JmespathError::new(&self.expr, self.offset, ErrorReason::Parse("Expected parts[0] to be Some; but found None".to_owned())))?,
+                idx: parts[0].ok_or_else(|| {
+                    JmespathError::new(
+                        &self.expr,
+                        self.offset,
+                        ErrorReason::Parse(
+                            "Expected parts[0] to be Some; but found None".to_owned(),
+                        ),
+                    )
+                })?,
             })
         } else {
             // Sliced array from start (e.g., [2:])

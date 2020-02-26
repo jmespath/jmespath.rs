@@ -149,10 +149,7 @@ pub struct Signature {
 impl Signature {
     /// Creates a new Signature struct.
     pub fn new(inputs: Vec<ArgumentType>, variadic: Option<ArgumentType>) -> Signature {
-        Signature {
-            inputs,
-            variadic,
-        }
+        Signature { inputs, variadic }
     }
 
     /// Validates the arity of a function. If the arity is invalid, a runtime
@@ -164,25 +161,18 @@ impl Signature {
             if actual >= expected {
                 Ok(())
             } else {
-                let reason = ErrorReason::Runtime(RuntimeError::NotEnoughArguments {
-                    expected,
-                    actual,
-                });
+                let reason =
+                    ErrorReason::Runtime(RuntimeError::NotEnoughArguments { expected, actual });
                 Err(JmespathError::from_ctx(ctx, reason))
             }
         } else if actual == expected {
             Ok(())
         } else if actual < expected {
-            let reason = ErrorReason::Runtime(RuntimeError::NotEnoughArguments {
-                expected,
-                actual,
-            });
+            let reason =
+                ErrorReason::Runtime(RuntimeError::NotEnoughArguments { expected, actual });
             Err(JmespathError::from_ctx(ctx, reason))
         } else {
-            let reason = ErrorReason::Runtime(RuntimeError::TooManyArguments {
-                expected,
-                actual,
-            });
+            let reason = ErrorReason::Runtime(RuntimeError::TooManyArguments { expected, actual });
             Err(JmespathError::from_ctx(ctx, reason))
         }
     }
@@ -231,11 +221,10 @@ macro_rules! defn {
         }
 
         impl Default for $name {
-             fn default() -> Self {
-                 Self::new()
-             }
+            fn default() -> Self {
+                Self::new()
+            }
         }
-
 
         impl $name {
             pub fn new() -> $name {
@@ -250,12 +239,24 @@ macro_rules! defn {
 /// Macro used to implement max_by and min_by functions.
 macro_rules! min_and_max_by {
     ($ctx:expr, $operator:ident, $args:expr) => {{
-        let vals = $args[0].as_array().ok_or_else(|| JmespathError::new("",0, ErrorReason::Parse("Expected args[0] to be an array".to_owned())))?;
+        let vals = $args[0].as_array().ok_or_else(|| {
+            JmespathError::new(
+                "",
+                0,
+                ErrorReason::Parse("Expected args[0] to be an array".to_owned()),
+            )
+        })?;
         // Return null when there are not values in the array
         if vals.is_empty() {
             return Ok(Rcvar::new(Variable::Null));
         }
-        let ast = $args[1].as_expref().ok_or_else(|| JmespathError::new("",0, ErrorReason::Parse("Expected args[1] to be an expression".to_owned())))?;
+        let ast = $args[1].as_expref().ok_or_else(|| {
+            JmespathError::new(
+                "",
+                0,
+                ErrorReason::Parse("Expected args[1] to be an expression".to_owned()),
+            )
+        })?;
         // Map over the first value to get the homogeneous required return type
         let initial = interpret(&vals[0], &ast, $ctx)?;
         let entered_type = initial.get_type();
@@ -296,7 +297,13 @@ macro_rules! min_and_max_by {
 /// Macro used to implement max and min functions.
 macro_rules! min_and_max {
     ($operator:ident, $args:expr) => {{
-        let values = $args[0].as_array().ok_or_else(|| JmespathError::new("",0, ErrorReason::Parse("Expected args[0] to be an array".to_owned())))?;
+        let values = $args[0].as_array().ok_or_else(|| {
+            JmespathError::new(
+                "",
+                0,
+                ErrorReason::Parse("Expected args[0] to be an array".to_owned()),
+            )
+        })?;
         if values.is_empty() {
             Ok(Rcvar::new(Variable::Null))
         } else {
@@ -315,7 +322,26 @@ impl Function for AbsFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context<'_>) -> SearchResult {
         self.signature.validate(args, ctx)?;
         match args[0].as_ref() {
-            Variable::Number(n) => Ok(Rcvar::new(Variable::Number(Number::from_f64(n.as_f64().ok_or_else(|| JmespathError::new("",0, ErrorReason::Parse("Expected to be a valid f64".to_owned())))?.abs()).ok_or_else(|| JmespathError::new("",0, ErrorReason::Parse("Expected to be a valid f64".to_owned())))?))),
+            Variable::Number(n) => Ok(Rcvar::new(Variable::Number(
+                Number::from_f64(
+                    n.as_f64()
+                        .ok_or_else(|| {
+                            JmespathError::new(
+                                "",
+                                0,
+                                ErrorReason::Parse("Expected to be a valid f64".to_owned()),
+                            )
+                        })?
+                        .abs(),
+                )
+                .ok_or_else(|| {
+                    JmespathError::new(
+                        "",
+                        0,
+                        ErrorReason::Parse("Expected to be a valid f64".to_owned()),
+                    )
+                })?,
+            ))),
             _ => Ok(args[0].clone()),
         }
     }
@@ -326,15 +352,35 @@ defn!(AvgFn, vec![arg!(array_number)], None);
 impl Function for AvgFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context<'_>) -> SearchResult {
         self.signature.validate(args, ctx)?;
-        let values = args[0].as_array().ok_or_else(|| JmespathError::new("",0, ErrorReason::Parse("Expected args[0] to be an array".to_owned())))?;
+        let values = args[0].as_array().ok_or_else(|| {
+            JmespathError::new(
+                "",
+                0,
+                ErrorReason::Parse("Expected args[0] to be an array".to_owned()),
+            )
+        })?;
 
         let mut sum = 0.0;
 
         for value in values {
-            sum += value.as_number().ok_or_else(|| JmespathError::new("",0, ErrorReason::Parse("Expected to be a valid f64".to_owned())))?;
+            sum += value.as_number().ok_or_else(|| {
+                JmespathError::new(
+                    "",
+                    0,
+                    ErrorReason::Parse("Expected to be a valid f64".to_owned()),
+                )
+            })?;
         }
 
-        Ok(Rcvar::new(Variable::Number(Number::from_f64(sum / (values.len() as f64)).ok_or_else(|| JmespathError::new("",0, ErrorReason::Parse("Expected to be a valid f64".to_owned())))?)))
+        Ok(Rcvar::new(Variable::Number(
+            Number::from_f64(sum / (values.len() as f64)).ok_or_else(|| {
+                JmespathError::new(
+                    "",
+                    0,
+                    ErrorReason::Parse("Expected to be a valid f64".to_owned()),
+                )
+            })?,
+        )))
     }
 }
 
@@ -343,8 +389,22 @@ defn!(CeilFn, vec![arg!(number)], None);
 impl Function for CeilFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context<'_>) -> SearchResult {
         self.signature.validate(args, ctx)?;
-        let n = args[0].as_number().ok_or_else(|| JmespathError::new("",0, ErrorReason::Parse("Expected args[0] to be a number".to_owned())))?;
-        Ok(Rcvar::new(Variable::Number(Number::from_f64(n.ceil()).ok_or_else(|| JmespathError::new("",0, ErrorReason::Parse("Expected n.ceil() to be a valid f64".to_owned())))?)))
+        let n = args[0].as_number().ok_or_else(|| {
+            JmespathError::new(
+                "",
+                0,
+                ErrorReason::Parse("Expected args[0] to be a number".to_owned()),
+            )
+        })?;
+        Ok(Rcvar::new(Variable::Number(
+            Number::from_f64(n.ceil()).ok_or_else(|| {
+                JmespathError::new(
+                    "",
+                    0,
+                    ErrorReason::Parse("Expected n.ceil() to be a valid f64".to_owned()),
+                )
+            })?,
+        )))
     }
 }
 
@@ -371,8 +431,20 @@ defn!(EndsWithFn, vec![arg!(string), arg!(string)], None);
 impl Function for EndsWithFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context<'_>) -> SearchResult {
         self.signature.validate(args, ctx)?;
-        let subject = args[0].as_string().ok_or_else(|| JmespathError::new("",0, ErrorReason::Parse("Expected args[0] to be a valid string".to_owned())))?;
-        let search = args[1].as_string().ok_or_else(|| JmespathError::new("",0, ErrorReason::Parse("Expected args[1] to be a valid string".to_owned())))?;
+        let subject = args[0].as_string().ok_or_else(|| {
+            JmespathError::new(
+                "",
+                0,
+                ErrorReason::Parse("Expected args[0] to be a valid string".to_owned()),
+            )
+        })?;
+        let search = args[1].as_string().ok_or_else(|| {
+            JmespathError::new(
+                "",
+                0,
+                ErrorReason::Parse("Expected args[1] to be a valid string".to_owned()),
+            )
+        })?;
         Ok(Rcvar::new(Variable::Bool(subject.ends_with(search))))
     }
 }
@@ -382,8 +454,22 @@ defn!(FloorFn, vec![arg!(number)], None);
 impl Function for FloorFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context<'_>) -> SearchResult {
         self.signature.validate(args, ctx)?;
-        let n = args[0].as_number().ok_or_else(|| JmespathError::new("",0, ErrorReason::Parse("Expected args[0] to be a valid number".to_owned())))?;
-        Ok(Rcvar::new(Variable::Number(Number::from_f64(n.floor()).ok_or_else(|| JmespathError::new("",0, ErrorReason::Parse("Expected to be a valid number".to_owned())))?)))
+        let n = args[0].as_number().ok_or_else(|| {
+            JmespathError::new(
+                "",
+                0,
+                ErrorReason::Parse("Expected args[0] to be a valid number".to_owned()),
+            )
+        })?;
+        Ok(Rcvar::new(Variable::Number(
+            Number::from_f64(n.floor()).ok_or_else(|| {
+                JmespathError::new(
+                    "",
+                    0,
+                    ErrorReason::Parse("Expected to be a valid number".to_owned()),
+                )
+            })?,
+        )))
     }
 }
 
@@ -392,11 +478,31 @@ defn!(JoinFn, vec![arg!(string), arg!(array_string)], None);
 impl Function for JoinFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context<'_>) -> SearchResult {
         self.signature.validate(args, ctx)?;
-        let glue = args[0].as_string().ok_or_else(|| JmespathError::new("",0, ErrorReason::Parse("Expected args[0] to be a valid string".to_owned())))?;
-        let values = args[1].as_array().ok_or_else(|| JmespathError::new("",0, ErrorReason::Parse("Expected args[1] to be a valid string".to_owned())))?;
+        let glue = args[0].as_string().ok_or_else(|| {
+            JmespathError::new(
+                "",
+                0,
+                ErrorReason::Parse("Expected args[0] to be a valid string".to_owned()),
+            )
+        })?;
+        let values = args[1].as_array().ok_or_else(|| {
+            JmespathError::new(
+                "",
+                0,
+                ErrorReason::Parse("Expected args[1] to be a valid string".to_owned()),
+            )
+        })?;
         let result = values
             .iter()
-            .map(|v| v.as_string().map(|val| val.to_owned()).ok_or_else(|| JmespathError::new("",0, ErrorReason::Parse("Expected to be a valid string".to_owned()))))
+            .map(|v| {
+                v.as_string().map(|val| val.to_owned()).ok_or_else(|| {
+                    JmespathError::new(
+                        "",
+                        0,
+                        ErrorReason::Parse("Expected to be a valid string".to_owned()),
+                    )
+                })
+            })
             .collect::<Result<Vec<String>, JmespathError>>()?
             .join(&glue);
         Ok(Rcvar::new(Variable::String(result)))
@@ -408,7 +514,13 @@ defn!(KeysFn, vec![arg!(object)], None);
 impl Function for KeysFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context<'_>) -> SearchResult {
         self.signature.validate(args, ctx)?;
-        let object = args[0].as_object().ok_or_else(|| JmespathError::new("",0, ErrorReason::Parse("Expected args[0] to be a valid Object".to_owned())))?;
+        let object = args[0].as_object().ok_or_else(|| {
+            JmespathError::new(
+                "",
+                0,
+                ErrorReason::Parse("Expected args[0] to be a valid Object".to_owned()),
+            )
+        })?;
         let keys = object
             .keys()
             .map(|k| Rcvar::new(Variable::String((*k).clone())))
@@ -426,7 +538,9 @@ impl Function for LengthFn {
             Variable::Array(ref a) => Ok(Rcvar::new(Variable::Number(Number::from(a.len())))),
             Variable::Object(ref m) => Ok(Rcvar::new(Variable::Number(Number::from(m.len())))),
             // Note that we need to count the code points not the number of unicode characters
-            Variable::String(ref s) => Ok(Rcvar::new(Variable::Number(Number::from(s.chars().count())))),
+            Variable::String(ref s) => Ok(Rcvar::new(Variable::Number(Number::from(
+                s.chars().count(),
+            )))),
             _ => unreachable!(),
         }
     }
@@ -437,8 +551,20 @@ defn!(MapFn, vec![arg!(expref), arg!(array)], None);
 impl Function for MapFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context<'_>) -> SearchResult {
         self.signature.validate(args, ctx)?;
-        let ast = args[0].as_expref().ok_or_else(|| JmespathError::new("",0, ErrorReason::Parse("Expected args[0] to be an expref".to_owned())))?;
-        let values = args[1].as_array().ok_or_else(|| JmespathError::new("",0, ErrorReason::Parse("Expected args[1] to be an array".to_owned())))?;
+        let ast = args[0].as_expref().ok_or_else(|| {
+            JmespathError::new(
+                "",
+                0,
+                ErrorReason::Parse("Expected args[0] to be an expref".to_owned()),
+            )
+        })?;
+        let values = args[1].as_array().ok_or_else(|| {
+            JmespathError::new(
+                "",
+                0,
+                ErrorReason::Parse("Expected args[1] to be an array".to_owned()),
+            )
+        })?;
         let mut results = vec![];
         for value in values {
             results.push(interpret(&value, &ast, ctx)?);
@@ -490,7 +616,17 @@ impl Function for MergeFn {
         self.signature.validate(args, ctx)?;
         let mut result = BTreeMap::new();
         for arg in args {
-            result.extend(arg.as_object().ok_or_else(|| JmespathError::new("",0, ErrorReason::Parse("Expected to be a valid Object".to_owned())))?.clone());
+            result.extend(
+                arg.as_object()
+                    .ok_or_else(|| {
+                        JmespathError::new(
+                            "",
+                            0,
+                            ErrorReason::Parse("Expected to be a valid Object".to_owned()),
+                        )
+                    })?
+                    .clone(),
+            );
         }
         Ok(Rcvar::new(Variable::Object(result)))
     }
@@ -516,11 +652,31 @@ impl Function for ReverseFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context<'_>) -> SearchResult {
         self.signature.validate(args, ctx)?;
         if args[0].is_array() {
-            let mut values = args[0].as_array().ok_or_else(|| JmespathError::new("",0, ErrorReason::Parse("Expected args[0] to be an array".to_owned())))?.clone();
+            let mut values = args[0]
+                .as_array()
+                .ok_or_else(|| {
+                    JmespathError::new(
+                        "",
+                        0,
+                        ErrorReason::Parse("Expected args[0] to be an array".to_owned()),
+                    )
+                })?
+                .clone();
             values.reverse();
             Ok(Rcvar::new(Variable::Array(values)))
         } else {
-            let word: String = args[0].as_string().ok_or_else(|| JmespathError::new("",0, ErrorReason::Parse("Expected args[0] to be a string".to_owned())))?.chars().rev().collect();
+            let word: String = args[0]
+                .as_string()
+                .ok_or_else(|| {
+                    JmespathError::new(
+                        "",
+                        0,
+                        ErrorReason::Parse("Expected args[0] to be a string".to_owned()),
+                    )
+                })?
+                .chars()
+                .rev()
+                .collect();
             Ok(Rcvar::new(Variable::String(word)))
         }
     }
@@ -531,7 +687,16 @@ defn!(SortFn, vec![arg!(array_string | array_number)], None);
 impl Function for SortFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context<'_>) -> SearchResult {
         self.signature.validate(args, ctx)?;
-        let mut values = args[0].as_array().ok_or_else(|| JmespathError::new("",0, ErrorReason::Parse("Expected args[0] to be an array".to_owned())))?.clone();
+        let mut values = args[0]
+            .as_array()
+            .ok_or_else(|| {
+                JmespathError::new(
+                    "",
+                    0,
+                    ErrorReason::Parse("Expected args[0] to be an array".to_owned()),
+                )
+            })?
+            .clone();
         values.sort();
         Ok(Rcvar::new(Variable::Array(values)))
     }
@@ -542,11 +707,26 @@ defn!(SortByFn, vec![arg!(array), arg!(expref)], None);
 impl Function for SortByFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context<'_>) -> SearchResult {
         self.signature.validate(args, ctx)?;
-        let vals = args[0].as_array().ok_or_else(|| JmespathError::new("",0, ErrorReason::Parse("Expected args[0] to be an array".to_owned())))?.clone();
+        let vals = args[0]
+            .as_array()
+            .ok_or_else(|| {
+                JmespathError::new(
+                    "",
+                    0,
+                    ErrorReason::Parse("Expected args[0] to be an array".to_owned()),
+                )
+            })?
+            .clone();
         if vals.is_empty() {
             return Ok(Rcvar::new(Variable::Array(vals)));
         }
-        let ast = args[1].as_expref().ok_or_else(|| JmespathError::new("",0, ErrorReason::Parse("Expected args[1] to be an expref".to_owned())))?;
+        let ast = args[1].as_expref().ok_or_else(|| {
+            JmespathError::new(
+                "",
+                0,
+                ErrorReason::Parse("Expected args[1] to be an expref".to_owned()),
+            )
+        })?;
         let mut mapped: Vec<(Rcvar, Rcvar)> = vec![];
         let first_value = interpret(&vals[0], &ast, ctx)?;
         let first_type = first_value.get_type();
@@ -586,8 +766,20 @@ defn!(StartsWithFn, vec![arg!(string), arg!(string)], None);
 impl Function for StartsWithFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context<'_>) -> SearchResult {
         self.signature.validate(args, ctx)?;
-        let subject = args[0].as_string().ok_or_else(|| JmespathError::new("",0, ErrorReason::Parse("Expected args[0] to be a string".to_owned())))?;
-        let search = args[1].as_string().ok_or_else(|| JmespathError::new("",0, ErrorReason::Parse("Expected args[1] to be a string".to_owned())))?;
+        let subject = args[0].as_string().ok_or_else(|| {
+            JmespathError::new(
+                "",
+                0,
+                ErrorReason::Parse("Expected args[0] to be a string".to_owned()),
+            )
+        })?;
+        let search = args[1].as_string().ok_or_else(|| {
+            JmespathError::new(
+                "",
+                0,
+                ErrorReason::Parse("Expected args[1] to be a string".to_owned()),
+            )
+        })?;
         Ok(Rcvar::new(Variable::Bool(subject.starts_with(search))))
     }
 }
@@ -599,10 +791,24 @@ impl Function for SumFn {
         self.signature.validate(args, ctx)?;
         let result = args[0]
             .as_array()
-            .ok_or_else(|| JmespathError::new("",0, ErrorReason::Parse("Expected args[0] to be an array".to_owned())))?
+            .ok_or_else(|| {
+                JmespathError::new(
+                    "",
+                    0,
+                    ErrorReason::Parse("Expected args[0] to be an array".to_owned()),
+                )
+            })?
             .iter()
             .fold(0.0, |acc, item| acc + item.as_number().unwrap_or(0.0));
-        Ok(Rcvar::new(Variable::Number(Number::from_f64(result).ok_or_else(|| JmespathError::new("",0, ErrorReason::Parse("Expected to be a valid number".to_owned())))?)))
+        Ok(Rcvar::new(Variable::Number(
+            Number::from_f64(result).ok_or_else(|| {
+                JmespathError::new(
+                    "",
+                    0,
+                    ErrorReason::Parse("Expected to be a valid number".to_owned()),
+                )
+            })?,
+        )))
     }
 }
 
@@ -664,7 +870,13 @@ defn!(ValuesFn, vec![arg!(object)], None);
 impl Function for ValuesFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context<'_>) -> SearchResult {
         self.signature.validate(args, ctx)?;
-        let map = args[0].as_object().ok_or_else(|| JmespathError::new("",0, ErrorReason::Parse("Expected args[1] to be an Object".to_owned())))?;
+        let map = args[0].as_object().ok_or_else(|| {
+            JmespathError::new(
+                "",
+                0,
+                ErrorReason::Parse("Expected args[1] to be an Object".to_owned()),
+            )
+        })?;
         Ok(Rcvar::new(Variable::Array(
             map.values().cloned().collect::<Vec<Rcvar>>(),
         )))

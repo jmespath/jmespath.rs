@@ -58,7 +58,11 @@ impl Error for JmespathError {
 
 impl From<serde_json::Error> for JmespathError {
     fn from(err: serde_json::Error) -> Self {
-        JmespathError::new("",0, ErrorReason::Parse(format!("Serde parse error: {}", err)))
+        JmespathError::new(
+            "",
+            0,
+            ErrorReason::Parse(format!("Serde parse error: {}", err)),
+        )
     }
 }
 
