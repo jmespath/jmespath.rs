@@ -113,12 +113,12 @@ impl<'a> Lexer<'a> {
                         '.' => tokens.push_back((pos, Dot)),
                         '[' => tokens.push_back((pos, self.consume_lbracket())),
                         '*' => tokens.push_back((pos, Star)),
-                        '|' => tokens.push_back((pos, self.alt(&'|', Or, Pipe))),
+                        '|' => tokens.push_back((pos, self.alt('|', Or, Pipe))),
                         '@' => tokens.push_back((pos, At)),
                         ']' => tokens.push_back((pos, Rbracket)),
                         '{' => tokens.push_back((pos, Lbrace)),
                         '}' => tokens.push_back((pos, Rbrace)),
-                        '&' => tokens.push_back((pos, self.alt(&'&', And, Ampersand))),
+                        '&' => tokens.push_back((pos, self.alt('&', And, Ampersand))),
                         '(' => tokens.push_back((pos, Lparen)),
                         ')' => tokens.push_back((pos, Rparen)),
                         ',' => tokens.push_back((pos, Comma)),
@@ -134,9 +134,9 @@ impl<'a> Lexer<'a> {
                                 return Err(JmespathError::new(self.expr, pos, reason));
                             }
                         },
-                        '>' => tokens.push_back((pos, self.alt(&'=', Gte, Gt))),
-                        '<' => tokens.push_back((pos, self.alt(&'=', Lte, Lt))),
-                        '!' => tokens.push_back((pos, self.alt(&'=', Ne, Not))),
+                        '>' => tokens.push_back((pos, self.alt('=', Gte, Gt))),
+                        '<' => tokens.push_back((pos, self.alt('=', Lte, Lt))),
+                        '!' => tokens.push_back((pos, self.alt('=', Ne, Not))),
                         '0'..='9' => tokens.push_back((pos, self.consume_number(ch, false))),
                         '-' => tokens.push_back((pos, self.consume_negative_number(pos)?)),
                         // Skip whitespace tokens
@@ -269,7 +269,7 @@ impl<'a> Lexer<'a> {
                 // Convert the JSON value into a string literal.
                 Ok(j) => Ok(QuotedIdentifier(j
                         .as_string()
-                        .map(|val| val.clone())
+                        .cloned()
                         .ok_or_else(|| "consume_quoted_identifier expected a string".to_owned())?)),
                 Err(e) => Err(format!("Unable to parse quoted identifier {}: {}", s, e)),
             }
@@ -297,9 +297,9 @@ impl<'a> Lexer<'a> {
     }
 
     #[inline]
-    fn alt(&mut self, expected: &char, match_type: Token, else_type: Token) -> Token {
+    fn alt(&mut self, expected: char, match_type: Token, else_type: Token) -> Token {
         match self.iter.peek() {
-            Some(&(_, c)) if c == *expected => {
+            Some(&(_, c)) if c == expected => {
                 self.iter.next();
                 match_type
             }

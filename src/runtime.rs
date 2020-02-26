@@ -14,12 +14,18 @@ pub struct Runtime {
     functions: HashMap<String, Box<dyn Function>>,
 }
 
-impl Runtime {
-    /// Creates a new Runtime.
-    pub fn new() -> Runtime {
+impl Default for Runtime {
+    fn default() -> Self {
         Runtime {
             functions: HashMap::with_capacity(26),
         }
+    }
+}
+
+impl Runtime {
+    /// Creates a new Runtime.
+    pub fn new() -> Runtime {
+        Default::default()
     }
 
     /// Creates a new JMESPath expression from an expression string.

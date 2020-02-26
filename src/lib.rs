@@ -179,7 +179,7 @@ impl<'a, T: ser::Serialize> ToJmespath for T {
     #[cfg(not(feature = "specialized"))]
     fn to_jmespath(self) -> Result<Rcvar, JmespathError> {
         Ok(to_variable(self)
-            .map(|var| Rcvar::new(var))?)
+            .map(Rcvar::new)?)
     }
 
     #[cfg(feature = "specialized")]

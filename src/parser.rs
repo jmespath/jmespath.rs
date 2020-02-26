@@ -109,7 +109,7 @@ impl<'a> Parser<'a> {
                 offset,
             }),
             Token::QuotedIdentifier(value) => match self.peek(0) {
-                &Token::Lparen => {
+                Token::Lparen => {
                     let message = "Quoted strings can't be a function name";
                     Err(self.err(&Token::Lparen, message, true))
                 }
@@ -192,21 +192,19 @@ impl<'a> Parser<'a> {
                 }
             }
             Token::Lbracket => {
-                match match self.peek(0) {
+                if match self.peek(0) {
                     &Token::Number(_) | &Token::Colon => true,
                     &Token::Star => false,
                     t => return Err(self.err(t, "Expected number, ':', or '*'", true)),
                 } {
-                    true => Ok(Ast::Subexpr {
+                     Ok(Ast::Subexpr {
                         offset,
                         lhs: left,
                         rhs: Box::new(self.parse_index()?),
-                    }),
-                    false => {
+                    }) } else {
                         self.advance();
                         self.parse_wildcard_index(left)
                     }
-                }
             }
             t @ Token::Or => {
                 let offset = offset;
@@ -321,7 +319,7 @@ impl<'a> Parser<'a> {
 
     /// Parses the right hand side of a dot expression.
     fn parse_dot(&mut self, lbp: usize) -> ParseResult {
-        match match self.peek(0) {
+        if match self.peek(0) {
             &Token::Lbracket => true,
             &Token::Identifier(_)
             | &Token::QuotedIdentifier(_)
@@ -331,19 +329,18 @@ impl<'a> Parser<'a> {
             t => {
                 return Err(self.err(t, "Expected identifier, '*', '{', '[', '&', or '[?'", true))
             }
-        } {
-            true => {
+        }  {
                 self.advance();
                 self.parse_multi_list()
-            }
-            false => self.expr(lbp),
+            } else {
+            self.expr(lbp)
         }
     }
 
     /// Parses the right hand side of a projection, using the given LBP to
     /// determine when to stop consuming tokens.
     fn projection_rhs(&mut self, lbp: usize) -> ParseResult {
-        match match self.peek(0) {
+        if match self.peek(0) {
             &Token::Dot => true,
             &Token::Lbracket | &Token::Filter => false,
             ref t if t.lbp() < PROJECTION_STOP => {
@@ -355,11 +352,10 @@ impl<'a> Parser<'a> {
                 return Err(self.err(t, "Expected '.', '[', or '[?'", true));
             }
         } {
-            true => {
                 self.advance();
                 self.parse_dot(lbp)
-            }
-            false => self.expr(lbp),
+            } else {
+                self.expr(lbp)
         }
     }
 
