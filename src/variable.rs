@@ -596,7 +596,7 @@ impl<'de> de::Deserializer<'de> for Variable {
                 let len = v.len();
                 visitor.visit_seq(SeqDeserializer {
                     iter: v.into_iter(),
-                    len: len,
+                    len,
                 })
             }
             Variable::Object(v) => visitor.visit_map(MapDeserializer {
@@ -660,7 +660,7 @@ impl<'de> de::Deserializer<'de> for Variable {
 
         visitor.visit_enum(EnumDeserializer {
             val: value,
-            variant: variant,
+            variant,
         })
     }
 

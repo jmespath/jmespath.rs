@@ -95,8 +95,8 @@ struct Lexer<'a> {
 impl<'a> Lexer<'a> {
     fn new(expr: &'a str) -> Lexer<'a> {
         Lexer {
-            expr: expr,
             iter: expr.char_indices().peekable(),
+            expr,
         }
     }
 

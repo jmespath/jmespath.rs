@@ -108,7 +108,7 @@ impl CustomFunction {
     ) -> CustomFunction {
         CustomFunction {
             signature: fn_signature,
-            f: f,
+            f,
         }
     }
 }
@@ -145,8 +145,8 @@ impl Signature {
     /// Creates a new Signature struct.
     pub fn new(inputs: Vec<ArgumentType>, variadic: Option<ArgumentType>) -> Signature {
         Signature {
-            inputs: inputs,
-            variadic: variadic,
+            inputs,
+            variadic,
         }
     }
 
@@ -160,8 +160,8 @@ impl Signature {
                 Ok(())
             } else {
                 let reason = ErrorReason::Runtime(RuntimeError::NotEnoughArguments {
-                    expected: expected,
-                    actual: actual,
+                    expected,
+                    actual,
                 });
                 Err(JmespathError::from_ctx(ctx, reason))
             }
@@ -169,14 +169,14 @@ impl Signature {
             Ok(())
         } else if actual < expected {
             let reason = ErrorReason::Runtime(RuntimeError::NotEnoughArguments {
-                expected: expected,
-                actual: actual,
+                expected,
+                actual,
             });
             Err(JmespathError::from_ctx(ctx, reason))
         } else {
             let reason = ErrorReason::Runtime(RuntimeError::TooManyArguments {
-                expected: expected,
-                actual: actual,
+                expected,
+                actual,
             });
             Err(JmespathError::from_ctx(ctx, reason))
         }
@@ -211,7 +211,7 @@ impl Signature {
             let reason = ErrorReason::Runtime(RuntimeError::InvalidType {
                 expected: validator.to_string(),
                 actual: value.get_type().to_string(),
-                position: position,
+                position,
             });
             Err(JmespathError::from_ctx(ctx, reason))
         }
@@ -555,7 +555,7 @@ impl Function for SortByFn {
                         expected: format!("expression->{}", first_type),
                         actual: mapped_value.get_type().to_string(),
                         position: 1,
-                        invocation: invocation,
+                        invocation,
                     }),
                 ));
             }

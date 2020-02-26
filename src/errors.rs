@@ -37,10 +37,10 @@ impl JmespathError {
         }
         JmespathError {
             expression: expr.to_owned(),
-            offset: offset,
-            line: line,
-            column: column,
-            reason: reason,
+            offset,
+            line,
+            column,
+            reason,
         }
     }
 

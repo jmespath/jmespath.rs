@@ -375,8 +375,8 @@ impl<'a> Expression<'a> {
     {
         Expression {
             expression: expression.into(),
-            ast: ast,
-            runtime: runtime,
+            ast,
+            runtime,
         }
     }
 
@@ -445,8 +445,8 @@ impl<'a> Context<'a> {
     #[inline]
     pub fn new(expression: &'a str, runtime: &'a Runtime) -> Context<'a> {
         Context {
-            expression: expression,
-            runtime: runtime,
+            expression,
+            runtime,
             offset: 0,
         }
     }
