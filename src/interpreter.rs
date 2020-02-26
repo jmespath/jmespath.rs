@@ -11,7 +11,7 @@ use super::{ErrorReason, JmespathError, Rcvar, RuntimeError};
 pub type SearchResult = Result<Rcvar, JmespathError>;
 
 /// Interprets the given data using an AST node.
-pub fn interpret(data: &Rcvar, node: &Ast, ctx: &mut Context) -> SearchResult {
+pub fn interpret(data: &Rcvar, node: &Ast, ctx: &mut Context<'_>) -> SearchResult {
     match *node {
         Ast::Field { ref name, .. } => Ok(data.get_field(name)),
         Ast::Subexpr {

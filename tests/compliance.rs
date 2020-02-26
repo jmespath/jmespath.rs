@@ -35,7 +35,7 @@ impl BenchType {
 }
 
 impl fmt::Display for BenchType {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
             &BenchType::Parse => write!(fmt, "parse"),
             &BenchType::Interpret => write!(fmt, "interpret"),
@@ -76,7 +76,7 @@ impl ErrorType {
 }
 
 impl fmt::Display for ErrorType {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         use self::ErrorType::*;
         match self {
             &InvalidArity => write!(fmt, "invalid-arity"),
@@ -160,7 +160,7 @@ impl Assertion {
     }
 
     /// Attempts to parse an expression for a case, returning the expression or an error string.
-    fn try_parse(&self, suite: &str, case: &TestCase) -> Result<Expression, String> {
+    fn try_parse(&self, suite: &str, case: &TestCase) -> Result<Expression<'_>, String> {
         match compile(&case.expression) {
             Err(e) => Err(self.err_message(suite, case, format!("{}", e))),
             Ok(expr) => Ok(expr),
@@ -178,7 +178,7 @@ impl Assertion {
 }
 
 impl fmt::Display for Assertion {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
             &Assertion::Error(ref e) => write!(fmt, "expects error({})", e),
             &Assertion::Bench(ref b) => write!(fmt, "expects bench({})", b),
@@ -245,7 +245,7 @@ pub enum TestCaseError {
 }
 
 impl fmt::Display for TestCaseError {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         use self::TestCaseError::*;
         match self {
             &InvalidJSON(ref msg) => write!(fmt, "invalid test case JSON: {}", msg),
@@ -267,7 +267,7 @@ impl fmt::Display for TestCaseError {
 }
 
 impl fmt::Debug for TestCaseError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self)
     }
 }

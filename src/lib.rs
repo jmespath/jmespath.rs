@@ -409,19 +409,19 @@ impl<'a> Expression<'a> {
 
 impl<'a> fmt::Display for Expression<'a> {
     /// Shows the jmespath expression as a string.
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.as_str())
     }
 }
 
 impl<'a> fmt::Debug for Expression<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(self, f)
     }
 }
 
 impl<'a> PartialEq for Expression<'a> {
-    fn eq(&self, other: &Expression) -> bool {
+    fn eq(&self, other: &Expression<'_>) -> bool {
         self.as_str() == other.as_str()
     }
 }

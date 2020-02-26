@@ -28,7 +28,7 @@ pub enum JmespathType {
 }
 
 impl fmt::Display for JmespathType {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(
             fmt,
             "{}",
@@ -149,7 +149,7 @@ impl Ord for Variable {
 /// Write the JSON representation of a value, converting expref to a JSON
 /// string containing the debug dump of the expref variable.
 impl fmt::Display for Variable {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(fmt, "{}", serde_json::to_string(self).unwrap())
     }
 }
@@ -394,7 +394,7 @@ impl Variable {
 }
 
 impl Variable {
-    fn unexpected(&self) -> de::Unexpected {
+    fn unexpected(&self) -> de::Unexpected<'_> {
         match *self {
             Variable::Null => de::Unexpected::Unit,
             Variable::Bool(b) => de::Unexpected::Bool(b),
@@ -491,7 +491,7 @@ impl<'de> de::Deserialize<'de> for Variable {
         impl<'de> de::Visitor<'de> for VariableVisitor {
             type Value = Variable;
 
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
                 formatter.write_str("any valid JMESPath variable")
             }
 
@@ -1276,10 +1276,10 @@ impl ser::SerializeStructVariant for StructVariantState {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::{self, Value};
     use super::{JmespathType, Variable};
     use crate::ast::{Ast, Comparator};
     use crate::Rcvar;
+    use serde_json::{self, Value};
     use std::collections::BTreeMap;
 
     #[test]
