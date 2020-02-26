@@ -205,7 +205,7 @@ impl<'a> Lexer<'a> {
         let lexeme = self.consume_while(first_char.to_string(), |c| c.is_digit(10));
         let numeric_value: i32 = lexeme.parse().expect("Expected valid number");
         if is_negative {
-            Number(numeric_value * -1)
+            Number(-numeric_value)
         } else {
             Number(numeric_value)
         }
