@@ -230,6 +230,13 @@ macro_rules! defn {
             signature: Signature,
         }
 
+        impl Default for $name {
+             fn default() -> Self {
+                 Self::new()
+             }
+        }
+
+
         impl $name {
             pub fn new() -> $name {
                 $name {
@@ -552,7 +559,7 @@ impl Function for SortByFn {
             });
             return Err(JmespathError::from_ctx(ctx, reason));
         }
-        mapped.push((vals[0].clone(), first_value.clone()));
+        mapped.push((vals[0].clone(), first_value));
         for (invocation, v) in vals.iter().enumerate().skip(1) {
             let mapped_value = interpret(v, &ast, ctx)?;
             if mapped_value.get_type() != first_type {

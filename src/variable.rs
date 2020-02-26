@@ -394,10 +394,8 @@ impl Variable {
     /// Compares two Variable values using a comparator.
     pub fn compare(&self, cmp: &Comparator, value: &Variable) -> Option<bool> {
         // Ordering requires numeric values.
-        if !(*cmp == Comparator::Equal || *cmp == Comparator::NotEqual) {
-            if !self.is_number() || !value.is_number() {
+        if !(self.is_number() && value.is_number() || *cmp == Comparator::NotEqual || *cmp == Comparator::Equal) {
                 return None;
-            }
         }
         match *cmp {
             Comparator::Equal => Some(*self == *value),
