@@ -3,7 +3,7 @@
 use std::error::Error;
 use std::fmt;
 
-use Context;
+use crate::Context;
 
 /// JMESPath error.
 #[derive(Clone, Debug, PartialEq)]

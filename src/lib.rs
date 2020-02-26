@@ -101,10 +101,10 @@ extern crate lazy_static;
 extern crate serde;
 extern crate serde_json;
 
-pub use errors::{JmespathError, ErrorReason, RuntimeError};
-pub use parser::{parse, ParseResult};
-pub use runtime::Runtime;
-pub use variable::{Variable, to_variable};
+pub use crate::errors::{JmespathError, ErrorReason, RuntimeError};
+pub use crate::parser::{parse, ParseResult};
+pub use crate::runtime::Runtime;
+pub use crate::variable::{Variable, to_variable};
 
 pub mod ast;
 pub mod functions;
@@ -114,9 +114,9 @@ use serde::ser;
 #[cfg(feature = "specialized")]
 use serde_json::Value;
 
-use ast::Ast;
-use variable::Serializer;
-use interpreter::{interpret, SearchResult};
+use crate::ast::Ast;
+use crate::variable::Serializer;
+use crate::interpreter::{interpret, SearchResult};
 
 mod interpreter;
 mod parser;

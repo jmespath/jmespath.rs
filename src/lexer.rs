@@ -10,8 +10,8 @@ use std::iter::Peekable;
 use std::str::CharIndices;
 use std::collections::VecDeque;
 
-use {Rcvar, JmespathError, ErrorReason};
-use variable::Variable;
+use crate::{Rcvar, JmespathError, ErrorReason};
+use crate::variable::Variable;
 use self::Token::*;
 
 /// Represents a lexical token of a JMESPath expression.
@@ -107,7 +107,7 @@ impl<'a> Lexer<'a> {
             match self.iter.next() {
                 Some((pos, ch)) => {
                     match ch {
-                        'a'...'z' | 'A'...'Z' | '_' => {
+                        'a'..='z' | 'A'..='Z' | '_' => {
                             tokens.push_back((pos, self.consume_identifier(ch)))
                         }
                         '.' => tokens.push_back((pos, Dot)),
@@ -123,9 +123,9 @@ impl<'a> Lexer<'a> {
                         ')' => tokens.push_back((pos, Rparen)),
                         ',' => tokens.push_back((pos, Comma)),
                         ':' => tokens.push_back((pos, Colon)),
-                        '"' => tokens.push_back((pos, try!(self.consume_quoted_identifier(pos)))),
-                        '\'' => tokens.push_back((pos, try!(self.consume_raw_string(pos)))),
-                        '`' => tokens.push_back((pos, try!(self.consume_literal(pos)))),
+                        '"' => tokens.push_back((pos, r#try!(self.consume_quoted_identifier(pos)))),
+                        '\'' => tokens.push_back((pos, r#try!(self.consume_raw_string(pos)))),
+                        '`' => tokens.push_back((pos, r#try!(self.consume_literal(pos)))),
                         '=' => {
                             match self.iter.next() {
                                 Some((_, c)) if c == '=' => tokens.push_back((pos, Eq)),
@@ -139,8 +139,8 @@ impl<'a> Lexer<'a> {
                         '>' => tokens.push_back((pos, self.alt(&'=', Gte, Gt))),
                         '<' => tokens.push_back((pos, self.alt(&'=', Lte, Lt))),
                         '!' => tokens.push_back((pos, self.alt(&'=', Ne, Not))),
-                        '0'...'9' => tokens.push_back((pos, self.consume_number(ch, false))),
-                        '-' => tokens.push_back((pos, try!(self.consume_negative_number(pos)))),
+                        '0'..='9' => tokens.push_back((pos, self.consume_number(ch, false))),
+                        '-' => tokens.push_back((pos, r#try!(self.consume_negative_number(pos)))),
                         // Skip whitespace tokens
                         ' ' | '\n' | '\t' | '\r' => {}
                         c => {
@@ -196,7 +196,7 @@ impl<'a> Lexer<'a> {
     fn consume_identifier(&mut self, first_char: char) -> Token {
         Identifier(self.consume_while(first_char.to_string(), |c| {
             match c {
-                'a'...'z' | '_' | 'A'...'Z' | '0'...'9' => true,
+                'a'..='z' | '_' | 'A'..='Z' | '0'..='9' => true,
                 _ => false,
             }
         }))
@@ -304,8 +304,8 @@ impl<'a> Lexer<'a> {
 
 #[cfg(test)]
 mod tests {
-    use ::Rcvar;
-    use ::variable::Variable;
+    use crate::Rcvar;
+    use crate::variable::Variable;
     use super::*;
 
     fn tokenize_queue(expr: &str) -> Vec<TokenTuple> {

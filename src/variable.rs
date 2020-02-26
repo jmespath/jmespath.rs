@@ -14,9 +14,9 @@ use std::fmt;
 use std::iter::Iterator;
 use std::string::ToString;
 
-use ToJmespath;
-use Rcvar;
-use ast::{Ast, Comparator};
+use crate::ToJmespath;
+use crate::Rcvar;
+use crate::ast::{Ast, Comparator};
 
 /// JMESPath types.
 #[derive(Debug, PartialEq, PartialOrd, Eq, Ord)]
@@ -552,7 +552,7 @@ impl<'de> de::Deserialize<'de> for Variable {
             {
                 let mut values = vec![];
 
-                while let Some(elem) = try!(visitor.next_element()) {
+                while let Some(elem) = r#try!(visitor.next_element()) {
                     values.push(elem);
                 }
 
@@ -565,7 +565,7 @@ impl<'de> de::Deserialize<'de> for Variable {
             {
                 let mut values = BTreeMap::new();
 
-                while let Some((key, value)) = try!(visitor.next_entry()) {
+                while let Some((key, value)) = r#try!(visitor.next_entry()) {
                     values.insert(key, value);
                 }
 
@@ -1259,11 +1259,11 @@ impl ser::SerializeStructVariant for StructVariantState {
 
 #[cfg(test)]
 mod tests {
-    use ::Rcvar;
+    use crate::Rcvar;
     use std::collections::BTreeMap;
     use super::serde_json::{self, Value};
     use super::{Variable, JmespathType};
-    use ast::{Ast, Comparator};
+    use crate::ast::{Ast, Comparator};
 
     #[test]
     fn creates_variable_from_str() {

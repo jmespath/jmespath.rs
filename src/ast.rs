@@ -17,8 +17,8 @@
 
 use std::fmt;
 
-use Rcvar;
-use lexer::Token;
+use crate::Rcvar;
+use crate::lexer::Token;
 
 /// A JMESPath expression abstract syntax tree.
 #[derive(Clone, PartialEq, Debug)]
