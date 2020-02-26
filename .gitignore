@@ -1,5 +1,3 @@
-target
-Cargo.lock
-jmespath-macros/target
-jmespath-macros/Cargo.lock
+**/target
+**/Cargo.lock
 .idea/**
