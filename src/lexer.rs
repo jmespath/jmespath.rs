@@ -267,7 +267,10 @@ impl<'a> Lexer<'a> {
             // JSON decode the string to expand escapes
             match Variable::from_json(format!(r##""{}""##, s).as_ref()) {
                 // Convert the JSON value into a string literal.
-                Ok(j) => Ok(QuotedIdentifier(j.as_string().unwrap().clone())),
+                Ok(j) => Ok(QuotedIdentifier(j
+                        .as_string()
+                        .map(|val| val.clone())
+                        .ok_or_else(|| "consume_quoted_identifier expected a string".to_owned())?)),
                 Err(e) => Err(format!("Unable to parse quoted identifier {}: {}", s, e)),
             }
         })
