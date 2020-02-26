@@ -12,8 +12,9 @@ use std::string::ToString;
 use std::vec;
 
 use crate::ast::{Ast, Comparator};
-use crate::Rcvar;
+use crate::{Rcvar, JmespathError};
 use crate::ToJmespath;
+use std::convert::TryFrom;
 
 /// JMESPath types.
 #[derive(Debug, PartialEq, PartialOrd, Eq, Ord)]
@@ -155,46 +156,54 @@ impl fmt::Display for Variable {
 }
 
 /// Generic way of converting a Map in a Value to a Variable.
-fn convert_map<'a, T>(value: T) -> Variable
+fn convert_map<'a, T>(value: T) -> Result<Variable, JmespathError>
 where
     T: Iterator<Item = (&'a String, &'a Value)>,
 {
     let mut map: BTreeMap<String, Rcvar> = BTreeMap::new();
     for kvp in value {
-        map.insert(kvp.0.to_owned(), kvp.1.to_jmespath());
+        map.insert(kvp.0.to_owned(), kvp.1.to_jmespath()?);
     }
-    Variable::Object(map)
+    Ok(Variable::Object(map))
 }
 
 /// Convert a borrowed Value to a Variable.
-impl<'a> From<&'a Value> for Variable {
-    fn from(value: &'a Value) -> Variable {
-        match *value {
+impl<'a> TryFrom<&'a Value> for Variable {
+
+    type Error = JmespathError;
+
+    fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
+        let var = match *value {
             Value::String(ref s) => Variable::String(s.to_owned()),
             Value::Null => Variable::Null,
             Value::Bool(b) => Variable::Bool(b),
             Value::Number(ref n) => Variable::Number(n.as_f64().unwrap()),
-            Value::Object(ref values) => convert_map(values.iter()),
+            Value::Object(ref values) => convert_map(values.iter())?,
             Value::Array(ref values) => {
-                Variable::Array(values.iter().map(|v| v.to_jmespath()).collect())
+                Variable::Array(values.iter().map(|v| v.to_jmespath()).collect::<Result<_,JmespathError>>()?)
             }
-        }
+        };
+        Ok(var)
     }
 }
 
 /// Slightly optimized method for converting from an owned Value.
-impl From<Value> for Variable {
-    fn from(value: Value) -> Variable {
-        match value {
+impl TryFrom<Value> for Variable {
+
+    type Error = JmespathError;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        let var = match value {
             Value::String(s) => Variable::String(s),
             Value::Null => Variable::Null,
             Value::Bool(b) => Variable::Bool(b),
             Value::Number(n) => Variable::Number(n.as_f64().unwrap()),
-            Value::Object(ref values) => convert_map(values.iter()),
+            Value::Object(ref values) => convert_map(values.iter())?,
             Value::Array(mut values) => {
-                Variable::Array(values.drain(..).map(|v| v.to_jmespath()).collect())
+                Variable::Array(values.drain(..).map(|v| v.to_jmespath()).collect::<Result<_,JmespathError>>()?)
             }
-        }
+        };
+        Ok(var)
     }
 }
 

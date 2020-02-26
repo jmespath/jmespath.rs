@@ -111,7 +111,6 @@ use lazy_static::*;
 
 use crate::ast::Ast;
 use crate::interpreter::{interpret, SearchResult};
-use crate::variable::Serializer;
 
 mod errors;
 mod interpreter;
@@ -170,37 +169,39 @@ a number of additional specialized implementations for `ToJmespath`
 built into the library that should work for most cases.)"
 )]
 pub trait ToJmespath {
-    fn to_jmespath(self) -> Rcvar;
+    fn to_jmespath(self) -> Result<Rcvar, JmespathError>;
 }
 
 /// Create searchable values from Serde serializable values.
 impl<'a, T: ser::Serialize> ToJmespath for T {
     #[cfg(not(feature = "specialized"))]
-    fn to_jmespath(self) -> Rcvar {
-        let variable = self.serialize(Serializer).unwrap();
-        Rcvar::new(variable)
+    fn to_jmespath(self) -> Result<Rcvar, JmespathError> {
+        to_variable(self)
+            .map(|var| Rcvar::new(var))
+            .map_err(|err| JmespathError::new("",0, ErrorReason::Parse(format!("Serde parse error: {}", err))))
     }
 
     #[cfg(feature = "specialized")]
-    default fn to_jmespath(self) -> Rcvar {
-        let variable = self.serialize(Serializer).unwrap();
-        Rcvar::new(variable)
+    default fn to_jmespath(self) -> Result<Rcvar, JmespathError> {
+        to_variable(self)
+            .map(|var| Rcvar::new(var))
+            .map_err(|err| JmespathError::new("",0, ErrorReason::Parse(format!("Serde parse error: {}", err))))
     }
 }
 
 #[cfg(feature = "specialized")]
 impl ToJmespath for Value {
     #[inline]
-    fn to_jmespath(self) -> Rcvar {
-        Rcvar::new(Variable::from(self))
+    fn to_jmespath(self) -> Result<Rcvar, JmespathError> {
+        Ok(Rcvar::new(Variable::from(self)))
     }
 }
 
 #[cfg(feature = "specialized")]
 impl<'a> ToJmespath for &'a Value {
     #[inline]
-    fn to_jmespath(self) -> Rcvar {
-        Rcvar::new(Variable::from(self))
+    fn to_jmespath(self) -> Result<Rcvar, JmespathError> {
+        Ok(Rcvar::new(Variable::from(self)))
     }
 }
 
@@ -208,144 +209,144 @@ impl<'a> ToJmespath for &'a Value {
 /// Identity coercion.
 impl ToJmespath for Rcvar {
     #[inline]
-    fn to_jmespath(self) -> Rcvar {
-        self
+    fn to_jmespath(self) -> Result<Rcvar, JmespathError> {
+        Ok(self)
     }
 }
 
 #[cfg(feature = "specialized")]
 impl<'a> ToJmespath for &'a Rcvar {
     #[inline]
-    fn to_jmespath(self) -> Rcvar {
-        self.clone()
+    fn to_jmespath(self) -> Result<Rcvar, JmespathError> {
+        Ok(self.clone())
     }
 }
 
 #[cfg(feature = "specialized")]
 impl ToJmespath for Variable {
     #[inline]
-    fn to_jmespath(self) -> Rcvar {
-        Rcvar::new(self)
+    fn to_jmespath(self) -> Result<Rcvar, JmespathError> {
+        Ok(Rcvar::new(self))
     }
 }
 
 #[cfg(feature = "specialized")]
 impl<'a> ToJmespath for &'a Variable {
     #[inline]
-    fn to_jmespath(self) -> Rcvar {
-        Rcvar::new(self.clone())
+    fn to_jmespath(self) -> Result<Rcvar, JmespathError> {
+        Ok(Rcvar::new(self.clone()))
     }
 }
 
 #[cfg(feature = "specialized")]
 impl ToJmespath for String {
-    fn to_jmespath(self) -> Rcvar {
-        Rcvar::new(Variable::String(self))
+    fn to_jmespath(self) -> Result<Rcvar, JmespathError> {
+        Ok(Rcvar::new(Variable::String(self)))
     }
 }
 
 #[cfg(feature = "specialized")]
 impl<'a> ToJmespath for &'a str {
-    fn to_jmespath(self) -> Rcvar {
-        Rcvar::new(Variable::String(self.to_owned()))
+    fn to_jmespath(self) -> Result<Rcvar, JmespathError> {
+        Ok(Rcvar::new(Variable::String(self.to_owned())))
     }
 }
 
 #[cfg(feature = "specialized")]
 impl ToJmespath for i8 {
-    fn to_jmespath(self) -> Rcvar {
-        Rcvar::new(Variable::Number(self as f64))
+    fn to_jmespath(self) -> Result<Rcvar, JmespathError> {
+        Ok(Rcvar::new(Variable::Number(self as f64)))
     }
 }
 
 #[cfg(feature = "specialized")]
 impl ToJmespath for i16 {
-    fn to_jmespath(self) -> Rcvar {
-        Rcvar::new(Variable::Number(self as f64))
+    fn to_jmespath(self) -> Result<Rcvar, JmespathError> {
+        Ok(Rcvar::new(Variable::Number(self as f64)))
     }
 }
 
 #[cfg(feature = "specialized")]
 impl ToJmespath for i32 {
-    fn to_jmespath(self) -> Rcvar {
-        Rcvar::new(Variable::Number(self as f64))
+    fn to_jmespath(self) -> Result<Rcvar, JmespathError> {
+        Ok(Rcvar::new(Variable::Number(self as f64)))
     }
 }
 
 #[cfg(feature = "specialized")]
 impl ToJmespath for i64 {
-    fn to_jmespath(self) -> Rcvar {
-        Rcvar::new(Variable::Number(self as f64))
+    fn to_jmespath(self) -> Result<Rcvar, JmespathError> {
+        Ok(Rcvar::new(Variable::Number(self as f64)))
     }
 }
 
 #[cfg(feature = "specialized")]
 impl ToJmespath for u8 {
-    fn to_jmespath(self) -> Rcvar {
-        Rcvar::new(Variable::Number(self as f64))
+    fn to_jmespath(self) -> Result<Rcvar, JmespathError> {
+        Ok(Rcvar::new(Variable::Number(self as f64)))
     }
 }
 
 #[cfg(feature = "specialized")]
 impl ToJmespath for u16 {
-    fn to_jmespath(self) -> Rcvar {
-        Rcvar::new(Variable::Number(self as f64))
+    fn to_jmespath(self) -> Result<Rcvar, JmespathError> {
+        Ok(Rcvar::new(Variable::Number(self as f64)))
     }
 }
 
 #[cfg(feature = "specialized")]
 impl ToJmespath for u32 {
-    fn to_jmespath(self) -> Rcvar {
-        Rcvar::new(Variable::Number(self as f64))
+    fn to_jmespath(self) -> Result<Rcvar, JmespathError> {
+        Ok(Rcvar::new(Variable::Number(self as f64)))
     }
 }
 
 #[cfg(feature = "specialized")]
 impl ToJmespath for u64 {
-    fn to_jmespath(self) -> Rcvar {
-        Rcvar::new(Variable::Number(self as f64))
+    fn to_jmespath(self) -> Result<Rcvar, JmespathError> {
+        Ok(Rcvar::new(Variable::Number(self as f64)))
     }
 }
 
 #[cfg(feature = "specialized")]
 impl ToJmespath for isize {
-    fn to_jmespath(self) -> Rcvar {
-        Rcvar::new(Variable::Number(self as f64))
+    fn to_jmespath(self) -> Result<Rcvar, JmespathError> {
+        Ok(Rcvar::new(Variable::Number(self as f64)))
     }
 }
 
 #[cfg(feature = "specialized")]
 impl ToJmespath for usize {
-    fn to_jmespath(self) -> Rcvar {
-        Rcvar::new(Variable::Number(self as f64))
+    fn to_jmespath(self) -> Result<Rcvar, JmespathError> {
+        Ok(Rcvar::new(Variable::Number(self as f64)))
     }
 }
 
 #[cfg(feature = "specialized")]
 impl ToJmespath for f32 {
-    fn to_jmespath(self) -> Rcvar {
-        Rcvar::new(Variable::Number(self as f64))
+    fn to_jmespath(self) -> Result<Rcvar, JmespathError> {
+        Ok(Rcvar::new(Variable::Number(self as f64)))
     }
 }
 
 #[cfg(feature = "specialized")]
 impl ToJmespath for f64 {
-    fn to_jmespath(self) -> Rcvar {
-        Rcvar::new(Variable::Number(self as f64))
+    fn to_jmespath(self) -> Result<Rcvar, JmespathError> {
+        Ok(Rcvar::new(Variable::Number(self as f64)))
     }
 }
 
 #[cfg(feature = "specialized")]
 impl ToJmespath for () {
-    fn to_jmespath(self) -> Rcvar {
-        Rcvar::new(Variable::Null)
+    fn to_jmespath(self) -> Result<Rcvar, JmespathError> {
+        Ok(Rcvar::new(Variable::Null))
     }
 }
 
 #[cfg(feature = "specialized")]
 impl ToJmespath for bool {
-    fn to_jmespath(self) -> Rcvar {
-        Rcvar::new(Variable::Bool(self))
+    fn to_jmespath(self) -> Result<Rcvar, JmespathError> {
+        Ok(Rcvar::new(Variable::Bool(self)))
     }
 }
 
@@ -388,7 +389,7 @@ impl<'a> Expression<'a> {
     /// deserialization, so it can easily be marshalled to another type.
     pub fn search<T: ToJmespath>(&self, data: T) -> SearchResult {
         let mut ctx = Context::new(&self.expression, self.runtime);
-        interpret(&data.to_jmespath(), &self.ast, &mut ctx)
+        interpret(&data.to_jmespath()?, &self.ast, &mut ctx)
     }
 
     /// Returns the JMESPath expression from which the Expression was compiled.
@@ -493,7 +494,7 @@ mod test {
     fn test_creates_rcvar_from_tuple_serialization() {
         use super::ToJmespath;
         let t = (true, false);
-        assert_eq!("[true,false]", t.to_jmespath().to_string());
+        assert_eq!("[true,false]", t.to_jmespath().unwrap().to_string());
     }
 
     #[test]
