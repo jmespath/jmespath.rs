@@ -17,8 +17,8 @@
 
 use std::fmt;
 
-use crate::Rcvar;
 use crate::lexer::Token;
+use crate::Rcvar;
 
 /// A JMESPath expression abstract syntax tree.
 #[derive(Clone, PartialEq, Debug)]
@@ -223,7 +223,9 @@ mod test {
             name: "abc".to_string(),
             offset: 4,
         };
-        assert_eq!("Field {\n    offset: 4,\n    name: \"abc\",\n}",
-                   format!("{}", node));
+        assert_eq!(
+            "Field {\n    offset: 4,\n    name: \"abc\",\n}",
+            format!("{}", node)
+        );
     }
 }

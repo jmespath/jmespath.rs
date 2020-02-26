@@ -30,12 +30,6 @@
 #![crate_type="dylib"]
 #![feature(plugin_registrar, quote, rustc_private)]
 
-extern crate syntax;
-extern crate rustc;
-extern crate rustc_plugin;
-
-extern crate jmespath;
-
 use syntax::ast;
 use syntax::codemap;
 use syntax::ext::base::{ExtCtxt, MacResult, MacEager, DummyResult};

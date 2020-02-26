@@ -1,16 +1,12 @@
-extern crate clap;
-extern crate serde_json;
-extern crate jmespath;
-
-use std::rc::Rc;
-use std::io::prelude::*;
-use std::io;
 use std::fs::File;
+use std::io;
+use std::io::prelude::*;
 use std::process::exit;
+use std::rc::Rc;
 
-use clap::{Arg, App};
+use clap::{App, Arg};
 use jmespath::Rcvar;
-use jmespath::{Variable, compile};
+use jmespath::{compile, Variable};
 
 macro_rules! die(
     ($msg:expr) => (
@@ -25,45 +21,58 @@ fn main() {
     let matches = App::new("jp")
         .version("0.0.1")
         .about("JMESPath command line interface")
-        .arg(Arg::with_name("filename")
-            .help("Read input JSON from a file instead of stdin.")
-            .short("f")
-            .takes_value(true)
-            .long("filename"))
-        .arg(Arg::with_name("unquoted")
-            .help("If the final result is a string, it will be printed without quotes.")
-            .short("u")
-            .long("unquoted")
-            .multiple(false))
-        .arg(Arg::with_name("ast")
-            .help("Only print the AST of the parsed expression.  Do not rely on this output, \
-                  only useful for debugging purposes.")
-            .long("ast")
-            .multiple(false))
-        .arg(Arg::with_name("expr-file")
-            .help("Read JMESPath expression from the specified file.")
-            .short("e")
-            .takes_value(true)
-            .long("expr-file")
-            .conflicts_with("expression")
-            .required(true))
-        .arg(Arg::with_name("expression")
-            .help("JMESPath expression to evaluate")
-            .index(1)
-            .conflicts_with("expr-file")
-            .required(true))
+        .arg(
+            Arg::with_name("filename")
+                .help("Read input JSON from a file instead of stdin.")
+                .short("f")
+                .takes_value(true)
+                .long("filename"),
+        )
+        .arg(
+            Arg::with_name("unquoted")
+                .help("If the final result is a string, it will be printed without quotes.")
+                .short("u")
+                .long("unquoted")
+                .multiple(false),
+        )
+        .arg(
+            Arg::with_name("ast")
+                .help(
+                    "Only print the AST of the parsed expression.  Do not rely on this output, \
+                  only useful for debugging purposes.",
+                )
+                .long("ast")
+                .multiple(false),
+        )
+        .arg(
+            Arg::with_name("expr-file")
+                .help("Read JMESPath expression from the specified file.")
+                .short("e")
+                .takes_value(true)
+                .long("expr-file")
+                .conflicts_with("expression")
+                .required(true),
+        )
+        .arg(
+            Arg::with_name("expression")
+                .help("JMESPath expression to evaluate")
+                .index(1)
+                .conflicts_with("expr-file")
+                .required(true),
+        )
         .get_matches();
 
-    let file_expression = matches.value_of("expr-file")
+    let file_expression = matches
+        .value_of("expr-file")
         .map(|f| read_file("expression", f));
 
     let expr = if let Some(ref e) = file_expression {
-            compile(e)
-        } else {
-            compile(matches.value_of("expression").unwrap())
-        }
-        .map_err(|e| die!(e.to_string()))
-        .unwrap();
+        compile(e)
+    } else {
+        compile(matches.value_of("expression").unwrap())
+    }
+    .map_err(|e| die!(e.to_string()))
+    .unwrap();
 
     if matches.is_present("ast") {
         println!("{:#?}", expr.as_ast());
@@ -92,7 +101,10 @@ fn show_result(result: Rcvar, unquoted: bool) {
 
 fn read_file(label: &str, filename: &str) -> String {
     match File::open(filename) {
-        Err(e) => die!(format!("Error opening {} file at {}: {}", label, filename, e)),
+        Err(e) => die!(format!(
+            "Error opening {} file at {}: {}",
+            label, filename, e
+        )),
         Ok(mut file) => {
             let mut buffer = String::new();
             file.read_to_string(&mut buffer)

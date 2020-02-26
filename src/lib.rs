@@ -94,35 +94,30 @@
 
 #![cfg_attr(feature = "specialized", feature(specialization))]
 
-#[macro_use]
-extern crate lazy_static;
-
-#[macro_use]
-extern crate serde;
-extern crate serde_json;
-
-pub use crate::errors::{JmespathError, ErrorReason, RuntimeError};
+pub use crate::errors::{ErrorReason, JmespathError, RuntimeError};
 pub use crate::parser::{parse, ParseResult};
 pub use crate::runtime::Runtime;
-pub use crate::variable::{Variable, to_variable};
+pub use crate::variable::{to_variable, Variable};
 
 pub mod ast;
 pub mod functions;
 
-use std::fmt;
 use serde::ser;
 #[cfg(feature = "specialized")]
 use serde_json::Value;
+use std::fmt;
+
+use lazy_static::*;
 
 use crate::ast::Ast;
-use crate::variable::Serializer;
 use crate::interpreter::{interpret, SearchResult};
+use crate::variable::Serializer;
 
-mod interpreter;
-mod parser;
-mod lexer;
-mod runtime;
 mod errors;
+mod interpreter;
+mod lexer;
+mod parser;
+mod runtime;
 mod variable;
 
 lazy_static! {
@@ -154,20 +149,26 @@ pub fn compile(expression: &str) -> Result<Expression<'static>, JmespathError> {
 
 /// Converts a value into a reference-counted JMESPath Variable.
 ///
-#[cfg_attr(feature = "specialized", doc = "\
+#[cfg_attr(
+    feature = "specialized",
+    doc = "\
 There is a generic serde Serialize implementation, and since this
 documentation was compiled with the `specialized` feature turned
 **on**, there are also a number of specialized implementations for
 `ToJmespath` built into the library that should work for most
-cases.")]
-#[cfg_attr(not(feature = "specialized"), doc = "\
+cases."
+)]
+#[cfg_attr(
+    not(feature = "specialized"),
+    doc = "\
 There is a generic serde Serialize implementation. Since this
 documentation was compiled with the `specialized` feature turned
 **off**, this is the only implementation available.
 
 (If the `specialized` feature were turned on, there there would be
 a number of additional specialized implementations for `ToJmespath`
-built into the library that should work for most cases.)")]
+built into the library that should work for most cases.)"
+)]
 pub trait ToJmespath {
     fn to_jmespath(self) -> Rcvar;
 }
@@ -369,7 +370,8 @@ impl<'a> Expression<'a> {
     /// or using a jmespath::Runtime.
     #[inline]
     pub fn new<S>(expression: S, ast: Ast, runtime: &'a Runtime) -> Expression<'a>
-        where S: Into<String>
+    where
+        S: Into<String>,
     {
         Expression {
             expression: expression.into(),
@@ -452,8 +454,8 @@ impl<'a> Context<'a> {
 
 #[cfg(test)]
 mod test {
-    use super::*;
     use super::ast::Ast;
+    use super::*;
 
     #[test]
     fn formats_expression_as_string_or_debug() {
@@ -478,11 +480,13 @@ mod test {
     #[test]
     fn can_get_expression_ast() {
         let expr = compile("foo").unwrap();
-        assert_eq!(&Ast::Field {
-                       offset: 0,
-                       name: "foo".to_string(),
-                   },
-                   expr.as_ast());
+        assert_eq!(
+            &Ast::Field {
+                offset: 0,
+                name: "foo".to_string(),
+            },
+            expr.as_ast()
+        );
     }
 
     #[test]
@@ -497,5 +501,4 @@ mod test {
         let expr = compile("foo").unwrap();
         let _ = expr.clone();
     }
-
 }

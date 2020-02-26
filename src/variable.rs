@@ -1,22 +1,19 @@
 //! Module for JMESPath runtime variables.
 
-extern crate serde;
-extern crate serde_json;
-
-use std::vec;
-use serde::{de, ser};
 use serde::de::IntoDeserializer;
+use serde::*;
 use serde_json::error::Error;
 use serde_json::value::Value;
-use std::collections::BTreeMap;
 use std::cmp::{max, Ordering};
+use std::collections::BTreeMap;
 use std::fmt;
 use std::iter::Iterator;
 use std::string::ToString;
+use std::vec;
 
-use crate::ToJmespath;
-use crate::Rcvar;
 use crate::ast::{Ast, Comparator};
+use crate::Rcvar;
+use crate::ToJmespath;
 
 /// JMESPath types.
 #[derive(Debug, PartialEq, PartialOrd, Eq, Ord)]
@@ -32,17 +29,19 @@ pub enum JmespathType {
 
 impl fmt::Display for JmespathType {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(fmt,
-               "{}",
-               match *self {
-                   JmespathType::Null => "null",
-                   JmespathType::String => "string",
-                   JmespathType::Number => "number",
-                   JmespathType::Boolean => "boolean",
-                   JmespathType::Array => "array",
-                   JmespathType::Object => "object",
-                   JmespathType::Expref => "expref",
-               })
+        write!(
+            fmt,
+            "{}",
+            match *self {
+                JmespathType::Null => "null",
+                JmespathType::String => "string",
+                JmespathType::Number => "number",
+                JmespathType::Boolean => "boolean",
+                JmespathType::Array => "array",
+                JmespathType::Object => "object",
+                JmespathType::Expref => "expref",
+            }
+        )
     }
 }
 
@@ -136,12 +135,11 @@ impl Ord for Variable {
         } else {
             match var_type {
                 JmespathType::String => self.as_string().unwrap().cmp(other.as_string().unwrap()),
-                JmespathType::Number => {
-                    self.as_number()
-                        .unwrap()
-                        .partial_cmp(&other.as_number().unwrap())
-                        .unwrap_or(Ordering::Less)
-                }
+                JmespathType::Number => self
+                    .as_number()
+                    .unwrap()
+                    .partial_cmp(&other.as_number().unwrap())
+                    .unwrap_or(Ordering::Less),
                 _ => Ordering::Equal,
             }
         }
@@ -158,7 +156,8 @@ impl fmt::Display for Variable {
 
 /// Generic way of converting a Map in a Value to a Variable.
 fn convert_map<'a, T>(value: T) -> Variable
-    where T: Iterator<Item = (&'a String, &'a Value)>
+where
+    T: Iterator<Item = (&'a String, &'a Value)>,
 {
     let mut map: BTreeMap<String, Rcvar> = BTreeMap::new();
     for kvp in value {
@@ -474,7 +473,8 @@ fn adjust_slice_endpoint(len: i32, mut endpoint: i32, step: i32) -> i32 {
 
 /// Shortcut function to encode a `T` into a JMESPath `Variable`
 pub fn to_variable<T>(value: T) -> Result<Variable, Error>
-    where T: ser::Serialize,
+where
+    T: ser::Serialize,
 {
     value.serialize(Serializer)
 }
@@ -483,7 +483,8 @@ pub fn to_variable<T>(value: T) -> Result<Variable, Error>
 impl<'de> de::Deserialize<'de> for Variable {
     #[inline]
     fn deserialize<D>(deserializer: D) -> Result<Variable, D::Error>
-        where D: de::Deserializer<'de>,
+    where
+        D: de::Deserializer<'de>,
     {
         struct VariableVisitor;
 
@@ -516,7 +517,8 @@ impl<'de> de::Deserialize<'de> for Variable {
 
             #[inline]
             fn visit_str<E>(self, value: &str) -> Result<Variable, E>
-                where E: de::Error,
+            where
+                E: de::Error,
             {
                 self.visit_string(String::from(value))
             }
@@ -532,11 +534,9 @@ impl<'de> de::Deserialize<'de> for Variable {
             }
 
             #[inline]
-            fn visit_some<D>(
-                self,
-                deserializer: D
-            ) -> Result<Variable, D::Error>
-                where D: de::Deserializer<'de>,
+            fn visit_some<D>(self, deserializer: D) -> Result<Variable, D::Error>
+            where
+                D: de::Deserializer<'de>,
             {
                 de::Deserialize::deserialize(deserializer)
             }
@@ -548,7 +548,8 @@ impl<'de> de::Deserialize<'de> for Variable {
 
             #[inline]
             fn visit_seq<V>(self, mut visitor: V) -> Result<Variable, V::Error>
-                where V: de::SeqAccess<'de>,
+            where
+                V: de::SeqAccess<'de>,
             {
                 let mut values = vec![];
 
@@ -561,7 +562,8 @@ impl<'de> de::Deserialize<'de> for Variable {
 
             #[inline]
             fn visit_map<V>(self, mut visitor: V) -> Result<Variable, V::Error>
-                where V: de::MapAccess<'de>,
+            where
+                V: de::MapAccess<'de>,
             {
                 let mut values = BTreeMap::new();
 
@@ -582,7 +584,8 @@ impl<'de> de::Deserializer<'de> for Variable {
 
     #[inline]
     fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Error>
-        where V: de::Visitor<'de>,
+    where
+        V: de::Visitor<'de>,
     {
         match self {
             Variable::Null => visitor.visit_unit(),
@@ -596,22 +599,18 @@ impl<'de> de::Deserializer<'de> for Variable {
                     len: len,
                 })
             }
-            Variable::Object(v) => {
-                visitor.visit_map(MapDeserializer {
-                    iter: v.into_iter(),
-                    value: None,
-                })
-            },
+            Variable::Object(v) => visitor.visit_map(MapDeserializer {
+                iter: v.into_iter(),
+                value: None,
+            }),
             Variable::Expref(v) => visitor.visit_string(format!("<expression: {:?}>", v)),
         }
     }
 
     #[inline]
-    fn deserialize_option<V>(
-        self,
-        visitor: V
-    ) -> Result<V::Value, Error>
-        where V: de::Visitor<'de>,
+    fn deserialize_option<V>(self, visitor: V) -> Result<V::Value, Error>
+    where
+        V: de::Visitor<'de>,
     {
         match self {
             Variable::Null => visitor.visit_none(),
@@ -624,9 +623,10 @@ impl<'de> de::Deserializer<'de> for Variable {
         self,
         _name: &str,
         _variants: &'static [&'static str],
-        visitor: V
+        visitor: V,
     ) -> Result<V::Value, Error>
-        where V: de::Visitor<'de>,
+    where
+        V: de::Visitor<'de>,
     {
         let (variant, value) = match self {
             Variable::Object(value) => {
@@ -634,24 +634,27 @@ impl<'de> de::Deserializer<'de> for Variable {
                 let (variant, value) = match iter.next() {
                     Some(v) => v,
                     None => {
-                        return Err(
-                            de::Error::invalid_value(
-                                de::Unexpected::Map,
-                                &"map with a single key"
-                            )
-                        )
+                        return Err(de::Error::invalid_value(
+                            de::Unexpected::Map,
+                            &"map with a single key",
+                        ))
                     }
                 };
                 // enums are encoded in json as maps with a single key:value pair
                 if iter.next().is_some() {
-                    return Err(
-                        de::Error::invalid_value(de::Unexpected::Map, &"map with a single key"))
+                    return Err(de::Error::invalid_value(
+                        de::Unexpected::Map,
+                        &"map with a single key",
+                    ));
                 }
                 (variant, Some((*value).clone()))
             }
             Variable::String(variant) => (variant, None),
             other => {
-                return Err(de::Error::invalid_type(other.unexpected(), &"string or map"));
+                return Err(de::Error::invalid_type(
+                    other.unexpected(),
+                    &"string or map",
+                ));
             }
         };
 
@@ -665,9 +668,10 @@ impl<'de> de::Deserializer<'de> for Variable {
     fn deserialize_newtype_struct<V>(
         self,
         _name: &'static str,
-        visitor: V
+        visitor: V,
     ) -> Result<V::Value, Self::Error>
-        where V: de::Visitor<'de>,
+    where
+        V: de::Visitor<'de>,
     {
         visitor.visit_newtype_struct(self)
     }
@@ -689,58 +693,70 @@ impl<'de> de::VariantAccess<'de> for VariantDeserializer {
     fn unit_variant(self) -> Result<(), Error> {
         match self.val {
             Some(value) => de::Deserialize::deserialize(value),
-            None => Ok(())
+            None => Ok(()),
         }
     }
 
     fn newtype_variant_seed<T>(self, seed: T) -> Result<T::Value, Error>
-        where T: de::DeserializeSeed<'de>,
+    where
+        T: de::DeserializeSeed<'de>,
     {
         match self.val {
             Some(value) => seed.deserialize(value),
-            None => Err(de::Error::invalid_type(de::Unexpected::UnitVariant, &"newtype variant")),
+            None => Err(de::Error::invalid_type(
+                de::Unexpected::UnitVariant,
+                &"newtype variant",
+            )),
         }
     }
 
-    fn tuple_variant<V>(
-        self,
-        _len: usize,
-        visitor: V
-    ) -> Result<V::Value, Error>
-        where V: de::Visitor<'de>,
+    fn tuple_variant<V>(self, _len: usize, visitor: V) -> Result<V::Value, Error>
+    where
+        V: de::Visitor<'de>,
     {
         match self.val {
-            Some(Variable::Array(fields)) => {
-                de::Deserializer::deserialize_any(SeqDeserializer {
+            Some(Variable::Array(fields)) => de::Deserializer::deserialize_any(
+                SeqDeserializer {
                     len: fields.len(),
                     iter: fields.into_iter(),
                 },
-                visitor)
-            }
-            Some(other) => Err(de::Error::invalid_type(other.unexpected(), &"tuple variant")),
-            None => Err(de::Error::invalid_type(de::Unexpected::UnitVariant, &"tuple variant")),
+                visitor,
+            ),
+            Some(other) => Err(de::Error::invalid_type(
+                other.unexpected(),
+                &"tuple variant",
+            )),
+            None => Err(de::Error::invalid_type(
+                de::Unexpected::UnitVariant,
+                &"tuple variant",
+            )),
         }
     }
 
     fn struct_variant<V>(
         self,
         _fields: &'static [&'static str],
-        visitor: V
+        visitor: V,
     ) -> Result<V::Value, Error>
-        where V: de::Visitor<'de>,
+    where
+        V: de::Visitor<'de>,
     {
         match self.val {
-            Some(Variable::Object(fields)) => {
-                de::Deserializer::deserialize_any(MapDeserializer {
+            Some(Variable::Object(fields)) => de::Deserializer::deserialize_any(
+                MapDeserializer {
                     iter: fields.into_iter(),
                     value: None,
                 },
-                visitor)
-            },
-            Some(other) => {
-                Err(de::Error::invalid_type(other.unexpected(), &"struct variant"))
-            },
-            _ => Err(de::Error::invalid_type(de::Unexpected::UnitVariant, &"struct variant")),
+                visitor,
+            ),
+            Some(other) => Err(de::Error::invalid_type(
+                other.unexpected(),
+                &"struct variant",
+            )),
+            _ => Err(de::Error::invalid_type(
+                de::Unexpected::UnitVariant,
+                &"struct variant",
+            )),
         }
     }
 }
@@ -774,7 +790,8 @@ impl<'de> de::Deserializer<'de> for SeqDeserializer {
 
     #[inline]
     fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Error>
-        where V: de::Visitor<'de>,
+    where
+        V: de::Visitor<'de>,
     {
         if self.len == 0 {
             visitor.visit_unit()
@@ -794,7 +811,8 @@ impl<'de> de::SeqAccess<'de> for SeqDeserializer {
     type Error = Error;
 
     fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, Error>
-        where T: de::DeserializeSeed<'de>,
+    where
+        T: de::DeserializeSeed<'de>,
     {
         match self.iter.next() {
             Some(value) => seed.deserialize(Variable::clone(&value)).map(Some),
@@ -819,7 +837,8 @@ impl<'de> de::MapAccess<'de> for MapDeserializer {
     type Error = Error;
 
     fn next_key_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, Error>
-        where T: de::DeserializeSeed<'de>,
+    where
+        T: de::DeserializeSeed<'de>,
     {
         match self.iter.next() {
             Some((key, value)) => {
@@ -831,7 +850,8 @@ impl<'de> de::MapAccess<'de> for MapDeserializer {
     }
 
     fn next_value_seed<T>(&mut self, seed: T) -> Result<T::Value, Error>
-        where T: de::DeserializeSeed<'de>,
+    where
+        T: de::DeserializeSeed<'de>,
     {
         match self.value.take() {
             Some(value) => seed.deserialize(value),
@@ -852,7 +872,8 @@ impl<'de> de::Deserializer<'de> for MapDeserializer {
 
     #[inline]
     fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Error>
-        where V: de::Visitor<'de>,
+    where
+        V: de::Visitor<'de>,
     {
         visitor.visit_map(self)
     }
@@ -866,10 +887,10 @@ impl<'de> de::Deserializer<'de> for MapDeserializer {
 
 // Serde Variable serialization
 impl ser::Serialize for Variable {
-
     #[inline]
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where S: ser::Serializer,
+    where
+        S: ser::Serializer,
     {
         match *self {
             Variable::Null => serializer.serialize_unit(),
@@ -881,7 +902,7 @@ impl ser::Serialize for Variable {
                 } else {
                     serializer.serialize_f64(v)
                 }
-            },
+            }
             Variable::String(ref v) => serializer.serialize_str(v),
             Variable::Array(ref v) => v.serialize(serializer),
             Variable::Object(ref v) => v.serialize(serializer),
@@ -999,7 +1020,10 @@ impl ser::Serializer for Serializer {
     }
 
     fn serialize_bytes(self, value: &[u8]) -> Result<Variable, Error> {
-        let vec = value.iter().map(|&b| Rcvar::new(Variable::Number(b as f64))).collect();
+        let vec = value
+            .iter()
+            .map(|&b| Rcvar::new(Variable::Number(b as f64)))
+            .collect();
         Ok(Variable::Array(vec))
     }
 
@@ -1009,10 +1033,7 @@ impl ser::Serializer for Serializer {
     }
 
     #[inline]
-    fn serialize_unit_struct(
-        self,
-        _name: &'static str
-    ) -> Result<Variable, Error> {
+    fn serialize_unit_struct(self, _name: &'static str) -> Result<Variable, Error> {
         self.serialize_unit()
     }
 
@@ -1021,7 +1042,7 @@ impl ser::Serializer for Serializer {
         self,
         _name: &'static str,
         _variant_index: u32,
-        variant: &'static str
+        variant: &'static str,
     ) -> Result<Variable, Error> {
         self.serialize_str(variant)
     }
@@ -1030,9 +1051,10 @@ impl ser::Serializer for Serializer {
     fn serialize_newtype_struct<T: ?Sized>(
         self,
         _name: &'static str,
-        value: &T
+        value: &T,
     ) -> Result<Variable, Error>
-        where T: ser::Serialize,
+    where
+        T: ser::Serialize,
     {
         value.serialize(self)
     }
@@ -1042,9 +1064,10 @@ impl ser::Serializer for Serializer {
         _name: &'static str,
         _variant_index: u32,
         variant: &'static str,
-        value: &T
+        value: &T,
     ) -> Result<Variable, Error>
-        where T: ser::Serialize,
+    where
+        T: ser::Serialize,
     {
         let mut values = BTreeMap::new();
         values.insert(String::from(variant), Rcvar::new(to_variable(&value)?));
@@ -1058,15 +1081,13 @@ impl ser::Serializer for Serializer {
 
     #[inline]
     fn serialize_some<V: ?Sized>(self, value: &V) -> Result<Variable, Error>
-        where V: ser::Serialize,
+    where
+        V: ser::Serialize,
     {
         value.serialize(self)
     }
 
-    fn serialize_seq(
-        self,
-        len: Option<usize>
-    ) -> Result<SeqState, Error> {
+    fn serialize_seq(self, len: Option<usize>) -> Result<SeqState, Error> {
         Ok(SeqState(Vec::with_capacity(len.unwrap_or(0))))
     }
 
@@ -1074,11 +1095,7 @@ impl ser::Serializer for Serializer {
         self.serialize_seq(Some(len))
     }
 
-    fn serialize_tuple_struct(
-        self,
-        _name: &'static str,
-        len: usize
-    ) -> Result<SeqState, Error> {
+    fn serialize_tuple_struct(self, _name: &'static str, len: usize) -> Result<SeqState, Error> {
         self.serialize_seq(Some(len))
     }
 
@@ -1087,7 +1104,7 @@ impl ser::Serializer for Serializer {
         _name: &'static str,
         _variant_index: u32,
         variant: &'static str,
-        len: usize
+        len: usize,
     ) -> Result<TupleVariantState, Error> {
         Ok(TupleVariantState {
             name: String::from(variant),
@@ -1102,11 +1119,7 @@ impl ser::Serializer for Serializer {
         })
     }
 
-    fn serialize_struct(
-        self,
-        _name: &'static str,
-        len: usize
-    ) -> Result<MapState, Error> {
+    fn serialize_struct(self, _name: &'static str, len: usize) -> Result<MapState, Error> {
         self.serialize_map(Some(len))
     }
 
@@ -1115,7 +1128,7 @@ impl ser::Serializer for Serializer {
         _name: &'static str,
         _variant_index: u32,
         variant: &'static str,
-        _len: usize
+        _len: usize,
     ) -> Result<StructVariantState, Error> {
         Ok(StructVariantState {
             name: String::from(variant),
@@ -1211,7 +1224,10 @@ impl ser::SerializeMap for MapState {
     where
         T: ser::Serialize,
     {
-        let key = self.next_key.take().expect("serialize_value called before serialize_key");
+        let key = self
+            .next_key
+            .take()
+            .expect("serialize_value called before serialize_key");
         self.map.insert(key, Rcvar::new(to_variable(value)?));
         Ok(())
     }
@@ -1246,7 +1262,8 @@ impl ser::SerializeStructVariant for StructVariantState {
     where
         T: ser::Serialize,
     {
-        self.map.insert(String::from(key), Rcvar::new(to_variable(value)?));
+        self.map
+            .insert(String::from(key), Rcvar::new(to_variable(value)?));
         Ok(())
     }
 
@@ -1259,36 +1276,50 @@ impl ser::SerializeStructVariant for StructVariantState {
 
 #[cfg(test)]
 mod tests {
+    use serde_json::{self, Value};
+    use super::{JmespathType, Variable};
+    use crate::ast::{Ast, Comparator};
     use crate::Rcvar;
     use std::collections::BTreeMap;
-    use super::serde_json::{self, Value};
-    use super::{Variable, JmespathType};
-    use crate::ast::{Ast, Comparator};
 
     #[test]
     fn creates_variable_from_str() {
         assert_eq!(Ok(Variable::Bool(true)), Variable::from_json("true"));
-        assert_eq!(Err("expected value at line 1 column 1".to_string()),
-                   Variable::from_json("abc"));
+        assert_eq!(
+            Err("expected value at line 1 column 1".to_string()),
+            Variable::from_json("abc")
+        );
     }
 
     #[test]
     fn test_determines_types() {
-        assert_eq!(JmespathType::Object,
-                   Variable::from_json(&"{\"foo\": \"bar\"}").unwrap().get_type());
-        assert_eq!(JmespathType::Array,
-                   Variable::from_json(&"[\"foo\"]").unwrap().get_type());
+        assert_eq!(
+            JmespathType::Object,
+            Variable::from_json(&"{\"foo\": \"bar\"}")
+                .unwrap()
+                .get_type()
+        );
+        assert_eq!(
+            JmespathType::Array,
+            Variable::from_json(&"[\"foo\"]").unwrap().get_type()
+        );
         assert_eq!(JmespathType::Null, Variable::Null.get_type());
         assert_eq!(JmespathType::Boolean, Variable::Bool(true).get_type());
-        assert_eq!(JmespathType::String,
-                   Variable::String("foo".to_string()).get_type());
+        assert_eq!(
+            JmespathType::String,
+            Variable::String("foo".to_string()).get_type()
+        );
         assert_eq!(JmespathType::Number, Variable::Number(1.0).get_type());
     }
 
     #[test]
     fn test_is_truthy() {
-        assert_eq!(true,
-                   Variable::from_json(&"{\"foo\": \"bar\"}").unwrap().is_truthy());
+        assert_eq!(
+            true,
+            Variable::from_json(&"{\"foo\": \"bar\"}")
+                .unwrap()
+                .is_truthy()
+        );
         assert_eq!(false, Variable::from_json(&"{}").unwrap().is_truthy());
         assert_eq!(true, Variable::from_json(&"[\"foo\"]").unwrap().is_truthy());
         assert_eq!(false, Variable::from_json(&"[]").unwrap().is_truthy());
@@ -1333,8 +1364,10 @@ mod tests {
 
     #[test]
     fn getting_value_from_non_object_is_null() {
-        assert_eq!(Rcvar::new(Variable::Null),
-                   Variable::Bool(false).get_field("foo"));
+        assert_eq!(
+            Rcvar::new(Variable::Null),
+            Variable::Bool(false).get_field("foo")
+        );
     }
 
     #[test]
@@ -1369,8 +1402,10 @@ mod tests {
 
     #[test]
     fn option_of_string() {
-        assert_eq!(Some(&"foo".to_string()),
-                   Variable::String("foo".to_string()).as_string());
+        assert_eq!(
+            Some(&"foo".to_string()),
+            Variable::String("foo".to_string()).as_string()
+        );
         assert_eq!(None, Variable::Null.as_string());
     }
 
@@ -1414,10 +1449,16 @@ mod tests {
 
     #[test]
     fn test_is_expref() {
-        assert_eq!(true,
-                   Variable::Expref(Ast::Identity { offset: 0 }).is_expref());
-        assert_eq!(&Ast::Identity { offset: 0 },
-                   Variable::Expref(Ast::Identity { offset: 0 }).as_expref().unwrap());
+        assert_eq!(
+            true,
+            Variable::Expref(Ast::Identity { offset: 0 }).is_expref()
+        );
+        assert_eq!(
+            &Ast::Identity { offset: 0 },
+            Variable::Expref(Ast::Identity { offset: 0 })
+                .as_expref()
+                .unwrap()
+        );
     }
 
     #[test]
@@ -1428,8 +1469,10 @@ mod tests {
         assert_eq!(Variable::Number(1.0), Variable::from_json("1").unwrap());
         assert_eq!(Variable::Number(-1.0), Variable::from_json("-1").unwrap());
         assert_eq!(Variable::Number(1.5), Variable::from_json("1.5").unwrap());
-        assert_eq!(Variable::String("abc".to_string()),
-                   Variable::from_json("\"abc\"").unwrap());
+        assert_eq!(
+            Variable::String("abc".to_string()),
+            Variable::from_json("\"abc\"").unwrap()
+        );
     }
 
     #[test]
@@ -1462,8 +1505,10 @@ mod tests {
         let val = serde_json::to_value(&var).unwrap();
         assert_eq!(Value::Array(vec![Value::String("a".to_string())]), val);
         let round_trip = serde_json::from_value::<Variable>(val).unwrap();
-        assert_eq!(Variable::Array(vec![Rcvar::new(Variable::String("a".to_string()))]),
-                   round_trip);
+        assert_eq!(
+            Variable::Array(vec![Rcvar::new(Variable::String("a".to_string()))]),
+            round_trip
+        );
     }
 
     /// Converting an expression variable to a string is a special case.

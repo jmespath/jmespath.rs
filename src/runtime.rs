@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
-use crate::parse;
-use crate::JmespathError;
-use crate::Expression;
 use crate::functions::*;
+use crate::parse;
+use crate::Expression;
+use crate::JmespathError;
 
 /// Compiles JMESPath expressions.
 ///
@@ -17,7 +17,9 @@ pub struct Runtime {
 impl Runtime {
     /// Creates a new Runtime.
     pub fn new() -> Runtime {
-        Runtime { functions: HashMap::with_capacity(26) }
+        Runtime {
+            functions: HashMap::with_capacity(26),
+        }
     }
 
     /// Creates a new JMESPath expression from an expression string.

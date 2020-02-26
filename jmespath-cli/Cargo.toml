@@ -3,9 +3,7 @@ name = "jmespath-cli"
 version = "0.0.2"
 authors = ["Michael Dowling <mtdowling@gmail.com>"]
 license = "MIT"
-
-[[bin]]
-name = "jp"
+edition = "2018"
 
 [dependencies]
 serde = "1"
