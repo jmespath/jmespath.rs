@@ -52,8 +52,8 @@ impl Runtime {
 
     /// Gets a function by name from the runtime.
     #[inline]
-    pub fn get_function<'a>(&'a self, name: &str) -> Option<&'a Box<dyn Function>> {
-        self.functions.get(name)
+    pub fn get_function<'a>(&'a self, name: &str) -> Option<&'a dyn Function> {
+        self.functions.get(name).map(AsRef::as_ref)
     }
 
     /// Registers all of the builtin JMESPath functions with the runtime.
