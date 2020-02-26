@@ -91,12 +91,18 @@ impl PartialEq for Variable {
             false
         } else {
             match self {
-                Variable::Number(a) => float_eq(a.as_f64().unwrap(), other.as_number().unwrap()),
-                Variable::String(ref s) => s == other.as_string().unwrap(),
-                Variable::Bool(b) => *b == other.as_boolean().unwrap(),
-                Variable::Array(ref a) => a == other.as_array().unwrap(),
-                Variable::Object(ref o) => o == other.as_object().unwrap(),
-                Variable::Expref(ref e) => e == other.as_expref().unwrap(),
+                Variable::Number(a) => {
+                    if let (Some(a), Some(b)) = (a.as_f64(), other.as_number()) {
+                        float_eq(a, b)
+                    } else {
+                        false
+                    }
+                },
+                Variable::String(ref s) => Some(s) == other.as_string(),
+                Variable::Bool(b) => Some(*b) == other.as_boolean(),
+                Variable::Array(ref a) => Some(a) == other.as_array(),
+                Variable::Object(ref o) => Some(o) == other.as_object(),
+                Variable::Expref(ref e) => Some(e) == other.as_expref(),
                 Variable::Null => true,
             }
         }
@@ -136,12 +142,18 @@ impl Ord for Variable {
             Ordering::Equal
         } else {
             match var_type {
-                JmespathType::String => self.as_string().unwrap().cmp(other.as_string().unwrap()),
-                JmespathType::Number => self
-                    .as_number()
-                    .unwrap()
-                    .partial_cmp(&other.as_number().unwrap())
-                    .unwrap_or(Ordering::Less),
+                JmespathType::String =>
+                    if let (Some(a), Some(b)) = (self.as_string(), other.as_string()) {
+                        a.cmp(b)
+                    } else {
+                        Ordering::Equal
+                    }
+                JmespathType::Number =>
+                    if let (Some(a), Some(b)) = (self.as_number(), other.as_number()) {
+                        a.partial_cmp(&b).unwrap_or(Ordering::Less)
+                    } else {
+                        Ordering::Equal
+                    }
                 _ => Ordering::Equal,
             }
         }
@@ -152,7 +164,7 @@ impl Ord for Variable {
 /// string containing the debug dump of the expref variable.
 impl fmt::Display for Variable {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(fmt, "{}", serde_json::to_string(self).unwrap())
+        write!(fmt, "{}", serde_json::to_string(self).unwrap_or_else(|err| format!("unable to stringify Variable. Err: {}", err)))
     }
 }
 

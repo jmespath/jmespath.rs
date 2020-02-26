@@ -423,7 +423,7 @@ impl<'a> Parser<'a> {
             // No colons were found, so this is a simple index extraction.
             Ok(Ast::Index {
                 offset: self.offset,
-                idx: parts[0].unwrap(),
+                idx: parts[0].ok_or_else(|| JmespathError::new(&self.expr, self.offset, ErrorReason::Parse("Expected parts[0] to be Some; but found None".to_owned())))?,
             })
         } else {
             // Sliced array from start (e.g., [2:])
