@@ -49,7 +49,7 @@ impl<'a> Parser<'a> {
             // After parsing the expr, we should reach the end of the stream.
             match self.peek(0) {
                 &Token::Eof => Ok(result),
-                t @ _ => Err(self.err(t, "Did not parse the complete expression", true)),
+                t => Err(self.err(t, "Did not parse the complete expression", true)),
             }
         })
     }
@@ -142,7 +142,7 @@ impl<'a> Parser<'a> {
                         Token::Rbrace => break,
                         // Skip commas as they are used to delineate kvps
                         Token::Comma => continue,
-                        ref t @ _ => return Err(self.err(t, "Expected '}' or ','", false)),
+                        ref t => return Err(self.err(t, "Expected '}' or ','", false)),
                     }
                 }
                 Ok(Ast::MultiHash {
@@ -166,10 +166,10 @@ impl<'a> Parser<'a> {
                 let result = self.expr(0)?;
                 match self.advance() {
                     Token::Rparen => Ok(result),
-                    ref t @ _ => Err(self.err(t, "Expected ')' to close '('", false)),
+                    ref t => Err(self.err(t, "Expected ')' to close '('", false)),
                 }
             }
-            ref t @ _ => Err(self.err(t, "Unexpected nud token", false)),
+            ref t => Err(self.err(t, "Unexpected nud token", false)),
         }
     }
 
@@ -195,7 +195,7 @@ impl<'a> Parser<'a> {
                 match match self.peek(0) {
                     &Token::Number(_) | &Token::Colon => true,
                     &Token::Star => false,
-                    t @ _ => return Err(self.err(t, "Expected number, ':', or '*'", true)),
+                    t => return Err(self.err(t, "Expected number, ':', or '*'", true)),
                 } {
                     true => Ok(Ast::Subexpr {
                         offset,
@@ -251,7 +251,7 @@ impl<'a> Parser<'a> {
             Token::Gte => self.parse_comparator(Comparator::GreaterThanEqual, left),
             Token::Lt => self.parse_comparator(Comparator::LessThan, left),
             Token::Lte => self.parse_comparator(Comparator::LessThanEqual, left),
-            ref t @ _ => Err(self.err(t, "Unexpected led token", false)),
+            ref t => Err(self.err(t, "Unexpected led token", false)),
         }
     }
 
@@ -268,7 +268,7 @@ impl<'a> Parser<'a> {
                     Err(self.err(self.peek(0), "Expected ':' to follow key", true))
                 }
             }
-            ref t @ _ => Err(self.err(t, "Expected Field to start key value pair", false)),
+            ref t => Err(self.err(t, "Expected Field to start key value pair", false)),
         }
     }
 
@@ -292,7 +292,7 @@ impl<'a> Parser<'a> {
                     }),
                 })
             }
-            ref t @ _ => Err(self.err(t, "Expected ']'", false)),
+            ref t => Err(self.err(t, "Expected ']'", false)),
         }
     }
 
@@ -328,7 +328,7 @@ impl<'a> Parser<'a> {
             | &Token::Star
             | &Token::Lbrace
             | &Token::Ampersand => false,
-            t @ _ => {
+            t => {
                 return Err(self.err(t, "Expected identifier, '*', '{', '[', '&', or '[?'", true))
             }
         } {
@@ -346,12 +346,12 @@ impl<'a> Parser<'a> {
         match match self.peek(0) {
             &Token::Dot => true,
             &Token::Lbracket | &Token::Filter => false,
-            ref t @ _ if t.lbp() < PROJECTION_STOP => {
+            ref t if t.lbp() < PROJECTION_STOP => {
                 return Ok(Ast::Identity {
                     offset: self.offset,
                 });
             }
-            ref t @ _ => {
+            ref t => {
                 return Err(self.err(t, "Expected '.', '[', or '[?'", true));
             }
         } {
@@ -374,7 +374,7 @@ impl<'a> Parser<'a> {
                     rhs,
                 })
             }
-            ref t @ _ => Err(self.err(t, "Expected ']' for wildcard index", false)),
+            ref t => Err(self.err(t, "Expected ']' for wildcard index", false)),
         }
     }
 
@@ -401,7 +401,7 @@ impl<'a> Parser<'a> {
                     parts[pos] = Some(value);
                     match self.peek(0) {
                         &Token::Colon | &Token::Rbracket => (),
-                        t @ _ => return Err(self.err(t, "Expected ':', or ']'", true)),
+                        t => return Err(self.err(t, "Expected ':', or ']'", true)),
                     };
                 }
                 Token::Rbracket => break,
@@ -412,10 +412,10 @@ impl<'a> Parser<'a> {
                     pos += 1;
                     match self.peek(0) {
                         &Token::Number(_) | &Token::Colon | &Token::Rbracket => continue,
-                        ref t @ _ => return Err(self.err(t, "Expected number, ':', or ']'", true)),
+                        ref t => return Err(self.err(t, "Expected number, ':', or ']'", true)),
                     };
                 }
-                ref t @ _ => return Err(self.err(t, "Expected number, ':', or ']'", false)),
+                ref t => return Err(self.err(t, "Expected number, ':', or ']'", false)),
             }
         }
 

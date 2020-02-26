@@ -165,8 +165,8 @@ pub fn interpret(data: &Rcvar, node: &Ast, ctx: &mut Context<'_>) -> SearchResul
         }
         Ast::Expref { ref ast, .. } => Ok(Rcvar::new(Variable::Expref(*ast.clone()))),
         Ast::Slice {
-            ref start,
-            ref stop,
+            start,
+            stop,
             step,
             offset,
         } => {
