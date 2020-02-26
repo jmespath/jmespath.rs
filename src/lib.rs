@@ -111,6 +111,7 @@ use lazy_static::*;
 
 use crate::ast::Ast;
 use crate::interpreter::{interpret, SearchResult};
+use std::convert::TryInto;
 
 mod errors;
 mod interpreter;
@@ -176,16 +177,14 @@ pub trait ToJmespath {
 impl<'a, T: ser::Serialize> ToJmespath for T {
     #[cfg(not(feature = "specialized"))]
     fn to_jmespath(self) -> Result<Rcvar, JmespathError> {
-        to_variable(self)
-            .map(|var| Rcvar::new(var))
-            .map_err(|err| JmespathError::new("",0, ErrorReason::Parse(format!("Serde parse error: {}", err))))
+        Ok(to_variable(self)
+            .map(|var| Rcvar::new(var))?)
     }
 
     #[cfg(feature = "specialized")]
     default fn to_jmespath(self) -> Result<Rcvar, JmespathError> {
-        to_variable(self)
-            .map(|var| Rcvar::new(var))
-            .map_err(|err| JmespathError::new("",0, ErrorReason::Parse(format!("Serde parse error: {}", err))))
+        Ok(to_variable(self)
+            .map(|var| Rcvar::new(var))?)
     }
 }
 
@@ -193,7 +192,7 @@ impl<'a, T: ser::Serialize> ToJmespath for T {
 impl ToJmespath for Value {
     #[inline]
     fn to_jmespath(self) -> Result<Rcvar, JmespathError> {
-        Ok(Rcvar::new(Variable::from(self)))
+        self.try_into().map(|var: Variable| Rcvar::new(var))
     }
 }
 
@@ -201,7 +200,7 @@ impl ToJmespath for Value {
 impl<'a> ToJmespath for &'a Value {
     #[inline]
     fn to_jmespath(self) -> Result<Rcvar, JmespathError> {
-        Ok(Rcvar::new(Variable::from(self)))
+        self.try_into().map(|var: Variable| Rcvar::new(var))
     }
 }
 
@@ -255,84 +254,84 @@ impl<'a> ToJmespath for &'a str {
 #[cfg(feature = "specialized")]
 impl ToJmespath for i8 {
     fn to_jmespath(self) -> Result<Rcvar, JmespathError> {
-        Ok(Rcvar::new(Variable::Number(self as f64)))
+        Ok(Rcvar::new(Variable::Number(serde_json::Number::from(self))))
     }
 }
 
 #[cfg(feature = "specialized")]
 impl ToJmespath for i16 {
     fn to_jmespath(self) -> Result<Rcvar, JmespathError> {
-        Ok(Rcvar::new(Variable::Number(self as f64)))
+        Ok(Rcvar::new(Variable::Number(serde_json::Number::from(self))))
     }
 }
 
 #[cfg(feature = "specialized")]
 impl ToJmespath for i32 {
     fn to_jmespath(self) -> Result<Rcvar, JmespathError> {
-        Ok(Rcvar::new(Variable::Number(self as f64)))
+        Ok(Rcvar::new(Variable::Number(serde_json::Number::from(self))))
     }
 }
 
 #[cfg(feature = "specialized")]
 impl ToJmespath for i64 {
     fn to_jmespath(self) -> Result<Rcvar, JmespathError> {
-        Ok(Rcvar::new(Variable::Number(self as f64)))
+        Ok(Rcvar::new(Variable::Number(serde_json::Number::from(self))))
     }
 }
 
 #[cfg(feature = "specialized")]
 impl ToJmespath for u8 {
     fn to_jmespath(self) -> Result<Rcvar, JmespathError> {
-        Ok(Rcvar::new(Variable::Number(self as f64)))
+        Ok(Rcvar::new(Variable::Number(serde_json::Number::from(self))))
     }
 }
 
 #[cfg(feature = "specialized")]
 impl ToJmespath for u16 {
     fn to_jmespath(self) -> Result<Rcvar, JmespathError> {
-        Ok(Rcvar::new(Variable::Number(self as f64)))
+        Ok(Rcvar::new(Variable::Number(serde_json::Number::from(self))))
     }
 }
 
 #[cfg(feature = "specialized")]
 impl ToJmespath for u32 {
     fn to_jmespath(self) -> Result<Rcvar, JmespathError> {
-        Ok(Rcvar::new(Variable::Number(self as f64)))
+        Ok(Rcvar::new(Variable::Number(serde_json::Number::from(self))))
     }
 }
 
 #[cfg(feature = "specialized")]
 impl ToJmespath for u64 {
     fn to_jmespath(self) -> Result<Rcvar, JmespathError> {
-        Ok(Rcvar::new(Variable::Number(self as f64)))
+        Ok(Rcvar::new(Variable::Number(serde_json::Number::from(self))))
     }
 }
 
 #[cfg(feature = "specialized")]
 impl ToJmespath for isize {
     fn to_jmespath(self) -> Result<Rcvar, JmespathError> {
-        Ok(Rcvar::new(Variable::Number(self as f64)))
+        Ok(Rcvar::new(Variable::Number(serde_json::Number::from(self))))
     }
 }
 
 #[cfg(feature = "specialized")]
 impl ToJmespath for usize {
     fn to_jmespath(self) -> Result<Rcvar, JmespathError> {
-        Ok(Rcvar::new(Variable::Number(self as f64)))
+        Ok(Rcvar::new(Variable::Number(serde_json::Number::from(self))))
     }
 }
 
 #[cfg(feature = "specialized")]
 impl ToJmespath for f32 {
     fn to_jmespath(self) -> Result<Rcvar, JmespathError> {
-        Ok(Rcvar::new(Variable::Number(self as f64)))
+        (self as f64).to_jmespath()
     }
 }
 
 #[cfg(feature = "specialized")]
 impl ToJmespath for f64 {
     fn to_jmespath(self) -> Result<Rcvar, JmespathError> {
-        Ok(Rcvar::new(Variable::Number(self as f64)))
+        Ok(Rcvar::new(Variable::Number(serde_json::Number::from_f64(self).ok_or_else(||  JmespathError::new("",0, ErrorReason::Parse(format!("Cannot parse {} into a Number", self))))?)))
     }
 }
 

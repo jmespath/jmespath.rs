@@ -56,6 +56,12 @@ impl Error for JmespathError {
     }
 }
 
+impl From<serde_json::Error> for JmespathError {
+    fn from(err: serde_json::Error) -> Self {
+        JmespathError::new("",0, ErrorReason::Parse(format!("Serde parse error: {}", err)))
+    }
+}
+
 fn inject_carat(column: usize, buff: &mut String) {
     buff.push_str(&(0..column).map(|_| ' ').collect::<String>());
     buff.push_str(&"^\n");

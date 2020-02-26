@@ -2,6 +2,8 @@
 //! sourced from tests/compliance/benchmarks.json
 #![feature(test)]
 
+extern crate test;
+
 use jmespath::{compile, parse, Rcvar, Variable};
 use test::Bencher;
 
