@@ -15,6 +15,7 @@ use crate::ast::{Ast, Comparator};
 use crate::{Rcvar, JmespathError};
 use crate::ToJmespath;
 use std::convert::TryFrom;
+use serde_json::Number;
 
 /// JMESPath types.
 #[derive(Debug, PartialEq, PartialOrd, Eq, Ord)]
@@ -52,7 +53,7 @@ pub enum Variable {
     Null,
     String(String),
     Bool(bool),
-    Number(f64),
+    Number(Number),
     Array(Vec<Rcvar>),
     Object(BTreeMap<String, Rcvar>),
     Expref(Ast),
@@ -89,10 +90,10 @@ impl PartialEq for Variable {
         if self.get_type() != other.get_type() {
             false
         } else {
-            match *self {
-                Variable::Number(a) => float_eq(a, other.as_number().unwrap()),
+            match self {
+                Variable::Number(a) => float_eq(a.as_f64().unwrap(), other.as_number().unwrap()),
                 Variable::String(ref s) => s == other.as_string().unwrap(),
-                Variable::Bool(b) => b == other.as_boolean().unwrap(),
+                Variable::Bool(b) => *b == other.as_boolean().unwrap(),
                 Variable::Array(ref a) => a == other.as_array().unwrap(),
                 Variable::Object(ref o) => o == other.as_object().unwrap(),
                 Variable::Expref(ref e) => e == other.as_expref().unwrap(),
@@ -177,7 +178,7 @@ impl<'a> TryFrom<&'a Value> for Variable {
             Value::String(ref s) => Variable::String(s.to_owned()),
             Value::Null => Variable::Null,
             Value::Bool(b) => Variable::Bool(b),
-            Value::Number(ref n) => Variable::Number(n.as_f64().unwrap()),
+            Value::Number(ref n) => Variable::Number(n.clone()),
             Value::Object(ref values) => convert_map(values.iter())?,
             Value::Array(ref values) => {
                 Variable::Array(values.iter().map(|v| v.to_jmespath()).collect::<Result<_,JmespathError>>()?)
@@ -197,7 +198,7 @@ impl TryFrom<Value> for Variable {
             Value::String(s) => Variable::String(s),
             Value::Null => Variable::Null,
             Value::Bool(b) => Variable::Bool(b),
-            Value::Number(n) => Variable::Number(n.as_f64().unwrap()),
+            Value::Number(n) => Variable::Number(n),
             Value::Object(ref values) => convert_map(values.iter())?,
             Value::Array(mut values) => {
                 Variable::Array(values.drain(..).map(|v| v.to_jmespath()).collect::<Result<_,JmespathError>>()?)
@@ -221,8 +222,8 @@ impl Variable {
     /// If the Variable value is an Array, returns the associated vector.
     /// Returns None otherwise.
     pub fn as_array(&self) -> Option<&Vec<Rcvar>> {
-        match *self {
-            Variable::Array(ref array) => Some(array),
+        match self {
+            Variable::Array(array) => Some(array),
             _ => None,
         }
     }
@@ -235,8 +236,8 @@ impl Variable {
     /// If the value is an Object, returns the associated BTreeMap.
     /// Returns None otherwise.
     pub fn as_object(&self) -> Option<&BTreeMap<String, Rcvar>> {
-        match *self {
-            Variable::Object(ref map) => Some(map),
+        match self {
+            Variable::Object(map) => Some(map),
             _ => None,
         }
     }
@@ -249,7 +250,7 @@ impl Variable {
     /// If the value is a String, returns the associated str.
     /// Returns None otherwise.
     pub fn as_string(&self) -> Option<&String> {
-        match *self {
+        match self {
             Variable::String(ref s) => Some(s),
             _ => None,
         }
@@ -257,7 +258,7 @@ impl Variable {
 
     /// Returns true if the value is a Number. Returns false otherwise.
     pub fn is_number(&self) -> bool {
-        match *self {
+        match self {
             Variable::Number(_) => true,
             _ => false,
         }
@@ -266,8 +267,8 @@ impl Variable {
     /// If the value is a number, return or cast it to a f64.
     /// Returns None otherwise.
     pub fn as_number(&self) -> Option<f64> {
-        match *self {
-            Variable::Number(f) => Some(f),
+        match self {
+            Variable::Number(f) => f.as_f64(),
             _ => None,
         }
     }
@@ -280,8 +281,8 @@ impl Variable {
     /// If the value is a Boolean, returns the associated bool.
     /// Returns None otherwise.
     pub fn as_boolean(&self) -> Option<bool> {
-        match *self {
-            Variable::Bool(b) => Some(b),
+        match self {
+            Variable::Bool(b) => Some(*b),
             _ => None,
         }
     }
@@ -294,7 +295,7 @@ impl Variable {
     /// If the value is a Null, returns ().
     /// Returns None otherwise.
     pub fn as_null(&self) -> Option<()> {
-        match *self {
+        match self {
             Variable::Null => Some(()),
             _ => None,
         }
@@ -319,7 +320,7 @@ impl Variable {
     /// Otherwise, returns Null.
     #[inline]
     pub fn get_field(&self, key: &str) -> Rcvar {
-        if let Variable::Object(ref map) = *self {
+        if let Variable::Object(ref map) = self {
             if let Some(result) = map.get(key) {
                 return result.clone();
             }
@@ -330,7 +331,7 @@ impl Variable {
     /// If the value is an array, then gets an array value by index. Otherwise returns Null.
     #[inline]
     pub fn get_index(&self, index: usize) -> Rcvar {
-        if let Variable::Array(ref array) = *self {
+        if let Variable::Array(ref array) = self {
             if let Some(result) = array.get(index) {
                 return result.clone();
             }
@@ -344,7 +345,7 @@ impl Variable {
     /// The formula for determining the index position is length - index (i.e., an
     /// index of 0 or 1 is treated as the end of the array).
     pub fn get_negative_index(&self, index: usize) -> Rcvar {
-        if let Variable::Array(ref array) = *self {
+        if let Variable::Array(ref array) = self {
             let adjusted_index = max(index, 1);
             if array.len() >= adjusted_index {
                 return array[array.len() - adjusted_index].clone();
@@ -355,8 +356,8 @@ impl Variable {
 
     /// Returns true or false based on if the Variable value is considered truthy.
     pub fn is_truthy(&self) -> bool {
-        match *self {
-            Variable::Bool(b) => b,
+        match self {
+            Variable::Bool(b) => *b,
             Variable::String(ref s) => !s.is_empty(),
             Variable::Array(ref a) => !a.is_empty(),
             Variable::Object(ref o) => !o.is_empty(),
@@ -402,19 +403,21 @@ impl Variable {
     }
 }
 
+
 impl Variable {
     fn unexpected(&self) -> de::Unexpected<'_> {
-        match *self {
+        match self {
             Variable::Null => de::Unexpected::Unit,
-            Variable::Bool(b) => de::Unexpected::Bool(b),
-            Variable::Number(ref n) => de::Unexpected::Float(*n),
-            Variable::String(ref s) => de::Unexpected::Str(s),
+            Variable::Bool(b) => de::Unexpected::Bool(*b),
+            Variable::Number(_) => de::Unexpected::Other("number"),
+            Variable::String(s) => de::Unexpected::Str(s),
             Variable::Array(_) => de::Unexpected::Seq,
             Variable::Object(_) => de::Unexpected::Map,
             Variable::Expref(_) => de::Unexpected::Other("expression"),
         }
     }
 }
+
 
 // ------------------------------------------
 // Variable slicing implementation
@@ -511,17 +514,17 @@ impl<'de> de::Deserialize<'de> for Variable {
 
             #[inline]
             fn visit_i64<E>(self, value: i64) -> Result<Variable, E> {
-                Ok(Variable::Number(value as f64))
+                Ok(Variable::Number(value.into()))
             }
 
             #[inline]
             fn visit_u64<E>(self, value: u64) -> Result<Variable, E> {
-                Ok(Variable::Number(value as f64))
+                Ok(Variable::Number(value.into()))
             }
 
             #[inline]
             fn visit_f64<E>(self, value: f64) -> Result<Variable, E> {
-                Ok(Variable::Number(value))
+                Ok(Number::from_f64(value).map_or(Variable::Null, Variable::Number))
             }
 
             #[inline]
@@ -599,7 +602,7 @@ impl<'de> de::Deserializer<'de> for Variable {
         match self {
             Variable::Null => visitor.visit_unit(),
             Variable::Bool(v) => visitor.visit_bool(v),
-            Variable::Number(v) => visitor.visit_f64(v),
+            Variable::Number(v) => v.deserialize_any(visitor),
             Variable::String(v) => visitor.visit_string(v),
             Variable::Array(v) => {
                 let len = v.len();
@@ -901,17 +904,10 @@ impl ser::Serialize for Variable {
     where
         S: ser::Serializer,
     {
-        match *self {
+        match self {
             Variable::Null => serializer.serialize_unit(),
-            Variable::Bool(v) => serializer.serialize_bool(v),
-            Variable::Number(v) => {
-                // Serializes as an integer when the decimal is 0 (i.e., 0.0).
-                if v.floor() == v {
-                    serializer.serialize_i64(v as i64)
-                } else {
-                    serializer.serialize_f64(v)
-                }
-            }
+            Variable::Bool(v) => serializer.serialize_bool(*v),
+            Variable::Number(v) => v.serialize(serializer),
             Variable::String(ref v) => serializer.serialize_str(v),
             Variable::Array(ref v) => v.serialize(serializer),
             Variable::Object(ref v) => v.serialize(serializer),
@@ -964,41 +960,38 @@ impl ser::Serializer for Serializer {
 
     #[inline]
     fn serialize_i8(self, value: i8) -> Result<Variable, Error> {
-        self.serialize_f64(value as f64)
+        Ok(Variable::Number(Number::from(value)))
     }
 
     #[inline]
     fn serialize_i16(self, value: i16) -> Result<Variable, Error> {
-        self.serialize_f64(value as f64)
-    }
+        Ok(Variable::Number(Number::from(value)))    }
 
     #[inline]
     fn serialize_i32(self, value: i32) -> Result<Variable, Error> {
-        self.serialize_f64(value as f64)
-    }
+        Ok(Variable::Number(Number::from(value)))    }
 
     fn serialize_i64(self, value: i64) -> Result<Variable, Error> {
-        self.serialize_f64(value as f64)
-    }
+        Ok(Variable::Number(Number::from(value)))    }
 
     #[inline]
     fn serialize_u8(self, value: u8) -> Result<Variable, Error> {
-        self.serialize_f64(value as f64)
+        Ok(Variable::Number(Number::from(value)))
     }
 
     #[inline]
     fn serialize_u16(self, value: u16) -> Result<Variable, Error> {
-        self.serialize_f64(value as f64)
+        Ok(Variable::Number(Number::from(value)))
     }
 
     #[inline]
     fn serialize_u32(self, value: u32) -> Result<Variable, Error> {
-        self.serialize_f64(value as f64)
+        Ok(Variable::Number(Number::from(value)))
     }
 
     #[inline]
     fn serialize_u64(self, value: u64) -> Result<Variable, Error> {
-        self.serialize_f64(value as f64)
+        Ok(Variable::Number(Number::from(value)))
     }
 
     #[inline]
@@ -1008,12 +1001,7 @@ impl ser::Serializer for Serializer {
 
     #[inline]
     fn serialize_f64(self, value: f64) -> Result<Variable, Error> {
-        let value = if value.is_finite() {
-            Variable::Number(value)
-        } else {
-            Variable::Null
-        };
-        Ok(value)
+        Ok(Number::from_f64(value).map_or(Variable::Null, Variable::Number))
     }
 
     #[inline]
@@ -1031,7 +1019,7 @@ impl ser::Serializer for Serializer {
     fn serialize_bytes(self, value: &[u8]) -> Result<Variable, Error> {
         let vec = value
             .iter()
-            .map(|&b| Rcvar::new(Variable::Number(b as f64)))
+            .map(|&b| Rcvar::new(Variable::Number(Number::from(b))))
             .collect();
         Ok(Variable::Array(vec))
     }
@@ -1288,7 +1276,7 @@ mod tests {
     use super::{JmespathType, Variable};
     use crate::ast::{Ast, Comparator};
     use crate::Rcvar;
-    use serde_json::{self, Value};
+    use serde_json::{self, Value, Number};
     use std::collections::BTreeMap;
 
     #[test]
@@ -1318,7 +1306,7 @@ mod tests {
             JmespathType::String,
             Variable::String("foo".to_string()).get_type()
         );
-        assert_eq!(JmespathType::Number, Variable::Number(1.0).get_type());
+        assert_eq!(JmespathType::Number, Variable::Number(Number::from_f64(1.0).unwrap()).get_type());
     }
 
     #[test]
@@ -1337,8 +1325,8 @@ mod tests {
         assert_eq!(false, Variable::Bool(false).is_truthy());
         assert_eq!(true, Variable::String("foo".to_string()).is_truthy());
         assert_eq!(false, Variable::String("".to_string()).is_truthy());
-        assert_eq!(true, Variable::Number(10.0).is_truthy());
-        assert_eq!(true, Variable::Number(0.0).is_truthy());
+        assert_eq!(true, Variable::Number(Number::from_f64(10.0).unwrap()).is_truthy());
+        assert_eq!(true, Variable::Number(Number::from_f64(0.0).unwrap()).is_truthy());
     }
 
     #[test]
@@ -1352,8 +1340,8 @@ mod tests {
     #[test]
     fn test_compare() {
         let invalid = Variable::String("foo".to_string());
-        let l = Variable::Number(10.0);
-        let r = Variable::Number(20.0);
+        let l = Variable::Number(Number::from_f64(10.0).unwrap());
+        let r = Variable::Number(Number::from_f64(20.0).unwrap());
         assert_eq!(None, invalid.compare(&Comparator::GreaterThan, &r));
         assert_eq!(Some(false), l.compare(&Comparator::GreaterThan, &r));
         assert_eq!(Some(false), l.compare(&Comparator::GreaterThanEqual, &r));
@@ -1368,7 +1356,7 @@ mod tests {
     #[test]
     fn gets_value_from_object() {
         let var = Variable::from_json("{\"foo\":1}").unwrap();
-        assert_eq!(Rcvar::new(Variable::Number(1.0)), var.get_field("foo"));
+        assert_eq!(Rcvar::new(Variable::Number(Number::from_f64(1.0).unwrap())), var.get_field("foo"));
     }
 
     #[test]
@@ -1475,9 +1463,9 @@ mod tests {
         assert_eq!(Variable::Null, Variable::from_json("null").unwrap());
         assert_eq!(Variable::Bool(true), Variable::from_json("true").unwrap());
         assert_eq!(Variable::Bool(false), Variable::from_json("false").unwrap());
-        assert_eq!(Variable::Number(1.0), Variable::from_json("1").unwrap());
-        assert_eq!(Variable::Number(-1.0), Variable::from_json("-1").unwrap());
-        assert_eq!(Variable::Number(1.5), Variable::from_json("1.5").unwrap());
+        assert_eq!(Variable::Number(Number::from_f64(1.0).unwrap()), Variable::from_json("1").unwrap());
+        assert_eq!(Variable::Number(Number::from_f64(-1.0).unwrap()), Variable::from_json("-1").unwrap());
+        assert_eq!(Variable::Number(Number::from_f64(1.5).unwrap()), Variable::from_json("1.5").unwrap());
         assert_eq!(
             Variable::String("abc".to_string()),
             Variable::from_json("\"abc\"").unwrap()
@@ -1496,7 +1484,7 @@ mod tests {
         let var = Variable::from_json("{\"a\": 1, \"b\": {\"c\": true}}").unwrap();
         let mut expected = BTreeMap::new();
         let mut sub_obj = BTreeMap::new();
-        expected.insert("a".to_string(), Rcvar::new(Variable::Number(1.0)));
+        expected.insert("a".to_string(), Rcvar::new(Variable::Number(Number::from_f64(1.0).unwrap())));
         sub_obj.insert("c".to_string(), Rcvar::new(Variable::Bool(true)));
         expected.insert("b".to_string(), Rcvar::new(Variable::Object(sub_obj)));
         assert_eq!(var, Variable::Object(expected));
@@ -1531,13 +1519,13 @@ mod tests {
 
     #[test]
     fn test_compares_float_equality() {
-        assert!(Variable::Number(1.0) == Variable::Number(1.0));
-        assert!(Variable::Number(0.0) == Variable::Number(0.0));
-        assert!(Variable::Number(0.00001) != Variable::Number(0.0));
-        assert!(Variable::Number(999.999) == Variable::Number(999.999));
-        assert!(Variable::Number(1.000000000001) == Variable::Number(1.000000000001));
-        assert!(Variable::Number(0.7100000000000002) == Variable::Number(0.71));
-        assert!(Variable::Number(0.0000000000000002) == Variable::Number(0.0000000000000002));
-        assert!(Variable::Number(0.0000000000000002) != Variable::Number(0.0000000000000003));
+        assert!(Variable::Number(Number::from_f64(1.0).unwrap()) == Variable::Number(Number::from_f64(1.0).unwrap()));
+        assert!(Variable::Number(Number::from_f64(0.0).unwrap()) == Variable::Number(Number::from_f64(0.0).unwrap()));
+        assert!(Variable::Number(Number::from_f64(0.00001).unwrap()) != Variable::Number(Number::from_f64(0.0).unwrap()));
+        assert!(Variable::Number(Number::from_f64(999.999).unwrap()) == Variable::Number(Number::from_f64(999.999).unwrap()));
+        assert!(Variable::Number(Number::from_f64(1.000000000001).unwrap()) == Variable::Number(Number::from_f64(1.000000000001).unwrap()));
+        assert!(Variable::Number(Number::from_f64(0.7100000000000002).unwrap()) == Variable::Number(Number::from_f64(0.71).unwrap()));
+        assert!(Variable::Number(Number::from_f64(0.0000000000000002).unwrap()) == Variable::Number(Number::from_f64(0.0000000000000002).unwrap()));
+        assert!(Variable::Number(Number::from_f64(0.0000000000000002).unwrap()) != Variable::Number(Number::from_f64(0.0000000000000003).unwrap()));
     }
 }

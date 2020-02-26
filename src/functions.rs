@@ -7,6 +7,7 @@ use std::fmt;
 use crate::interpreter::{interpret, SearchResult};
 use crate::variable::{JmespathType, Variable};
 use crate::{Context, ErrorReason, JmespathError, Rcvar, RuntimeError};
+use serde_json::Number;
 
 /// Represents a JMESPath function.
 pub trait Function: Sync {
@@ -302,8 +303,8 @@ defn!(AbsFn, vec![arg!(number)], None);
 impl Function for AbsFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context<'_>) -> SearchResult {
         self.signature.validate(args, ctx)?;
-        match *args[0] {
-            Variable::Number(n) => Ok(Rcvar::new(Variable::Number(n.abs()))),
+        match args[0].as_ref() {
+            Variable::Number(n) => Ok(Rcvar::new(Variable::Number(Number::from_f64(n.as_f64().unwrap().abs()).unwrap()))),
             _ => Ok(args[0].clone()),
         }
     }
@@ -319,7 +320,7 @@ impl Function for AvgFn {
             .iter()
             .map(|n| n.as_number().unwrap())
             .fold(0f64, |a, ref b| a + b);
-        Ok(Rcvar::new(Variable::Number(sum / (values.len() as f64))))
+        Ok(Rcvar::new(Variable::Number(Number::from_f64(sum / (values.len() as f64)).unwrap())))
     }
 }
 
@@ -329,7 +330,7 @@ impl Function for CeilFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context<'_>) -> SearchResult {
         self.signature.validate(args, ctx)?;
         let n = args[0].as_number().unwrap();
-        Ok(Rcvar::new(Variable::Number(n.ceil())))
+        Ok(Rcvar::new(Variable::Number(Number::from_f64(n.ceil()).unwrap())))
     }
 }
 
@@ -368,7 +369,7 @@ impl Function for FloorFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context<'_>) -> SearchResult {
         self.signature.validate(args, ctx)?;
         let n = args[0].as_number().unwrap();
-        Ok(Rcvar::new(Variable::Number(n.floor())))
+        Ok(Rcvar::new(Variable::Number(Number::from_f64(n.floor()).unwrap())))
     }
 }
 
@@ -408,11 +409,11 @@ defn!(LengthFn, vec![arg!(array | object | string)], None);
 impl Function for LengthFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context<'_>) -> SearchResult {
         self.signature.validate(args, ctx)?;
-        match *args[0] {
-            Variable::Array(ref a) => Ok(Rcvar::new(Variable::Number(a.len() as f64))),
-            Variable::Object(ref m) => Ok(Rcvar::new(Variable::Number(m.len() as f64))),
+        match args[0].as_ref() {
+            Variable::Array(ref a) => Ok(Rcvar::new(Variable::Number(Number::from(a.len())))),
+            Variable::Object(ref m) => Ok(Rcvar::new(Variable::Number(Number::from(m.len())))),
             // Note that we need to count the code points not the number of unicode characters
-            Variable::String(ref s) => Ok(Rcvar::new(Variable::Number(s.chars().count() as f64))),
+            Variable::String(ref s) => Ok(Rcvar::new(Variable::Number(Number::from(s.chars().count())))),
             _ => unreachable!(),
         }
     }
@@ -588,7 +589,7 @@ impl Function for SumFn {
             .unwrap()
             .iter()
             .fold(0.0, |acc, item| acc + item.as_number().unwrap());
-        Ok(Rcvar::new(Variable::Number(result)))
+        Ok(Rcvar::new(Variable::Number(Number::from_f64(result).unwrap())))
     }
 }
 
