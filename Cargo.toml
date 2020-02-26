@@ -21,6 +21,9 @@ lazy_static = "1.4"
 serde_json = "1"
 slug = "0.1.2"
 
+[dev-dependencies]
+serde_derive = "1"
+
 [features]
 # `sync` utilizes an Arc instead of an Rc for JMESPath runtime variables.
 # Using an Arc allows you to share compiled expressions across threads.

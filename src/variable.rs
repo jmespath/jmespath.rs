@@ -221,6 +221,16 @@ impl TryFrom<Value> for Variable {
 }
 
 impl Variable {
+
+    /// Shortcut function to encode a `T` into a JMESPath `Variable`
+    pub fn from_serializable<T>(value: T) -> Result<Variable, JmespathError>
+        where
+            T: ser::Serialize,
+    {
+        Ok(to_variable(value)?)
+    }
+
+
     /// Create a JMESPath Variable from a JSON encoded string.
     pub fn from_json(s: &str) -> Result<Self, String> {
         serde_json::from_str::<Variable>(s).map_err(|e| e.to_string())
@@ -494,7 +504,7 @@ fn adjust_slice_endpoint(len: i32, mut endpoint: i32, step: i32) -> i32 {
 // around it.
 
 /// Shortcut function to encode a `T` into a JMESPath `Variable`
-pub fn to_variable<T>(value: T) -> Result<Variable, Error>
+fn to_variable<T>(value: T) -> Result<Variable, Error>
 where
     T: ser::Serialize,
 {
@@ -1283,7 +1293,7 @@ impl ser::SerializeStructVariant for StructVariantState {
 
 #[cfg(test)]
 mod tests {
-    use super::{JmespathType, Variable};
+    use super::*;
     use crate::ast::{Ast, Comparator};
     use crate::Rcvar;
     use serde_json::{self, Value, Number};
@@ -1473,7 +1483,7 @@ mod tests {
         assert_eq!(Variable::Null, Variable::from_json("null").unwrap());
         assert_eq!(Variable::Bool(true), Variable::from_json("true").unwrap());
         assert_eq!(Variable::Bool(false), Variable::from_json("false").unwrap());
-        assert_eq!(Variable::Number(Number::from_f64(1.0).unwrap()), Variable::from_json("1").unwrap());
+        assert_eq!(Variable::Number(Number::from(1)), Variable::from_json("1").unwrap());
         assert_eq!(Variable::Number(Number::from_f64(-1.0).unwrap()), Variable::from_json("-1").unwrap());
         assert_eq!(Variable::Number(Number::from_f64(1.5).unwrap()), Variable::from_json("1.5").unwrap());
         assert_eq!(
@@ -1529,13 +1539,61 @@ mod tests {
 
     #[test]
     fn test_compares_float_equality() {
-        assert!(Variable::Number(Number::from_f64(1.0).unwrap()) == Variable::Number(Number::from_f64(1.0).unwrap()));
-        assert!(Variable::Number(Number::from_f64(0.0).unwrap()) == Variable::Number(Number::from_f64(0.0).unwrap()));
-        assert!(Variable::Number(Number::from_f64(0.00001).unwrap()) != Variable::Number(Number::from_f64(0.0).unwrap()));
-        assert!(Variable::Number(Number::from_f64(999.999).unwrap()) == Variable::Number(Number::from_f64(999.999).unwrap()));
-        assert!(Variable::Number(Number::from_f64(1.000000000001).unwrap()) == Variable::Number(Number::from_f64(1.000000000001).unwrap()));
-        assert!(Variable::Number(Number::from_f64(0.7100000000000002).unwrap()) == Variable::Number(Number::from_f64(0.71).unwrap()));
-        assert!(Variable::Number(Number::from_f64(0.0000000000000002).unwrap()) == Variable::Number(Number::from_f64(0.0000000000000002).unwrap()));
-        assert!(Variable::Number(Number::from_f64(0.0000000000000002).unwrap()) != Variable::Number(Number::from_f64(0.0000000000000003).unwrap()));
+        assert_eq!(Variable::Number(Number::from_f64(1.0).unwrap()), Variable::Number(Number::from_f64(1.0).unwrap()));
+        assert_eq!(Variable::Number(Number::from_f64(0.0).unwrap()), Variable::Number(Number::from_f64(0.0).unwrap()));
+        assert_ne!(Variable::Number(Number::from_f64(0.00001).unwrap()), Variable::Number(Number::from_f64(0.0).unwrap()));
+        assert_eq!(Variable::Number(Number::from_f64(999.999).unwrap()), Variable::Number(Number::from_f64(999.999).unwrap()));
+        assert_eq!(Variable::Number(Number::from_f64(1.000000000001).unwrap()), Variable::Number(Number::from_f64(1.000000000001).unwrap()));
+        assert_eq!(Variable::Number(Number::from_f64(0.7100000000000002).unwrap()), Variable::Number(Number::from_f64(0.71).unwrap()));
+        assert_eq!(Variable::Number(Number::from_f64(0.0000000000000002).unwrap()), Variable::Number(Number::from_f64(0.0000000000000002).unwrap()));
+        assert_ne!(Variable::Number(Number::from_f64(0.0000000000000002).unwrap()), Variable::Number(Number::from_f64(0.0000000000000003).unwrap()));
+    }
+
+    #[test]
+    fn test_serialize_variable_with_positive_integer_value() {
+
+        #[derive(serde_derive::Serialize)]
+        struct Map {
+            num: usize
+        };
+
+        let map = Map{num: 231};
+
+        let var = Variable::from_serializable(&map).unwrap();
+        let json_string = serde_json::to_string(&var).unwrap();
+
+        assert_eq!(r#"{"num":231}"#, json_string);
+    }
+
+    #[test]
+    fn test_serialize_variable_with_negative_integer_value() {
+
+        #[derive(serde_derive::Serialize)]
+        struct Map {
+            num: isize
+        };
+
+        let map = Map{num: -2141};
+
+        let var = Variable::from_serializable(&map).unwrap();
+        let json_string = serde_json::to_string(&var).unwrap();
+
+        assert_eq!(r#"{"num":-2141}"#, json_string);
+    }
+
+    #[test]
+    fn test_serialize_variable_with_float_value() {
+
+        #[derive(serde_derive::Serialize)]
+        struct Map {
+            num: f64
+        };
+
+        let map = Map{num: 41.0};
+
+        let var = Variable::from_serializable(&map).unwrap();
+        let json_string = serde_json::to_string(&var).unwrap();
+
+        assert_eq!(r#"{"num":41.0}"#, json_string);
     }
 }

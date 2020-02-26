@@ -97,7 +97,7 @@
 pub use crate::errors::{ErrorReason, JmespathError, RuntimeError};
 pub use crate::parser::{parse, ParseResult};
 pub use crate::runtime::Runtime;
-pub use crate::variable::{to_variable, Variable};
+pub use crate::variable::{Variable};
 
 pub mod ast;
 pub mod functions;
@@ -178,13 +178,13 @@ pub trait ToJmespath {
 impl<'a, T: ser::Serialize> ToJmespath for T {
     #[cfg(not(feature = "specialized"))]
     fn to_jmespath(self) -> Result<Rcvar, JmespathError> {
-        Ok(to_variable(self)
+        Ok(Variable::from_serializable(self)
             .map(Rcvar::new)?)
     }
 
     #[cfg(feature = "specialized")]
     default fn to_jmespath(self) -> Result<Rcvar, JmespathError> {
-        Ok(to_variable(self)
+        Ok(Variable::from_serializable(self)
             .map(|var| Rcvar::new(var))?)
     }
 }
