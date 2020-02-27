@@ -1,6 +1,6 @@
 [package]
 name = "jmespath"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["Michael Dowling <mtdowling@gmail.com>"]
 description = "Rust implementation of JMESPath, a query language for JSON"
 readme = "README.md"
