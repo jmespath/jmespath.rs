@@ -15,13 +15,11 @@ fn get_output(args: Vec<&str>) -> Result<String, String> {
     }
 }
 
-/*
 #[test]
 fn prints_ast() {
     let output = get_output(vec!["--ast", "foo"]).unwrap();
-    assert_eq!("Field {\n    offset: 0,\n    name: \"foo\"\n}\n", output);
+    assert_eq!("Field {\n    offset: 0,\n    name: \"foo\",\n}\n", output);
 }
-*/
 
 #[test]
 fn shows_parse_error_information_with_non_zero_rc() {
