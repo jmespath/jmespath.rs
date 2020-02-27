@@ -4,9 +4,9 @@ version = "0.1.1"
 authors = ["Michael Dowling <mtdowling@gmail.com>"]
 readme = "README.md"
 keywords = ["json", "jmespath", "query"]
-homepage = "https://github.com/mtdowling/jmespath.rs"
-repository = "https://github.com/mtdowling/jmespath.rs"
-documentation = "http://mtdowling.com/jmespath.rs/jmespath/"
+homepage = "https://github.com/jmespath/jmespath.rs"
+repository = "https://github.com/jmespath/jmespath.rs"
+documentation = "https://docs.rs/jmespath-macros/"
 license = "MIT"
 description = "Statically compiles JMESPath expressions."
 
