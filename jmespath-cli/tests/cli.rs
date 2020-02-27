@@ -1,6 +1,6 @@
 use std::process::{Command, Stdio};
 
-const JPBIN: &'static str = "../target/debug/jmespath-cli";
+const JPBIN: &str = "../target/debug/jp";
 
 fn get_output(args: Vec<&str>) -> Result<String, String> {
     let mut cmd = Command::new(JPBIN);

@@ -5,6 +5,10 @@ authors = ["Michael Dowling <mtdowling@gmail.com>"]
 license = "MIT"
 edition = "2018"
 
+[[bin]]
+name = "jp"
+path = "src/main.rs"
+
 [dependencies]
 serde = "1"
 serde_json = "1"
