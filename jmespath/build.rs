@@ -15,6 +15,8 @@ pub fn main() {
     let mut compliance_file = File::create(&compliance_path).expect("Could not create file");
     let suites = load_test_suites();
 
+    let mut all_benches_test = vec![];
+
     for (suite_num, &(ref filename, ref suite)) in suites.iter().enumerate() {
         let suite_obj = suite.as_object().expect("Suite not object");
         let given = suite_obj.get("given").expect("No given value");
@@ -32,6 +34,7 @@ pub fn main() {
             let case_obj = case.as_object().expect("case not object");
             if case_obj.get("bench").is_some() {
                 generate_bench(
+                    &mut all_benches_test,
                     &short_filename,
                     suite_num,
                     case_num,
@@ -51,6 +54,18 @@ pub fn main() {
             }
         }
     }
+    bench_file
+        .write_all(
+            format!(
+                r#"
+benchmark_group!(benches, {});
+benchmark_main!(benches);
+"#,
+                all_benches_test.join(", ")
+            )
+            .as_bytes(),
+        )
+        .expect("Error bench headers");
 }
 
 /// Load all tests suites found in the tests/compliance directory.
@@ -123,6 +138,7 @@ fn generate_fn_name(
 /// Each test case will generate a case for parsing and a case for both
 /// parsing and interpreting.
 fn generate_bench(
+    all_tests: &mut Vec<String>,
     filename: &str,
     suite_num: usize,
     case_num: usize,
@@ -146,59 +162,65 @@ fn generate_bench(
 
     // Create the parsing benchmark if "parse" or "full"
     if bench_type == "parse" || bench_type == "full" {
+        let test_fn_name = format!("{}_parse_lex", fn_suffix);
         f.write_all(
             format!(
-                "\
-#[bench]
-fn {}_parse_lex(b: &mut Bencher) {{
+                r##"
+
+fn {}(b: &mut Bencher) {{
     b.iter(|| {{ parse({:?}).ok() }});
 }}
 
-",
-                fn_suffix, expr_string
+"##,
+                test_fn_name, expr_string
             )
             .as_bytes(),
         )
         .expect("Error writing parse benchmark");
+        all_tests.push(test_fn_name)
     }
 
     // Create the interpreter benchmark if "interpret" or "full"
     if bench_type == "interpret" || bench_type == "full" {
+        let test_fn_name = format!("{}_interpret", fn_suffix);
         f.write_all(
             format!(
-                "\
-#[bench]
-fn {}_interpret(b: &mut Bencher) {{
-    let data = Rcvar::new(Variable::from_json({:?}).expect(\"Invalid JSON given\"));
+                r##"
+
+fn {}(b: &mut Bencher) {{
+    let data = Rcvar::new(Variable::from_json({:?}).expect("Invalid JSON given"));
     let expr = compile({:?}).unwrap();
     b.iter(|| {{ expr.search(&data).ok() }});
 }}
 
-",
-                fn_suffix, given_string, expr_string
+"##,
+                test_fn_name, given_string, expr_string
             )
             .as_bytes(),
         )
         .expect("Error writing interpret benchmark");
+        all_tests.push(test_fn_name)
     }
 
     // Create the "full" benchmark if "full"
     if bench_type == "full" {
+        let test_fn_name = format!("{}_full", fn_suffix);
         f.write_all(
             format!(
-                "\
-#[bench]
-fn {}_full(b: &mut Bencher) {{
-    let data = Rcvar::new(Variable::from_json({:?}).expect(\"Invalid JSON given\"));
+                r##"
+
+fn {}(b: &mut Bencher) {{
+    let data = Rcvar::new(Variable::from_json({:?}).expect("Invalid JSON given"));
     b.iter(|| {{ compile({:?}).unwrap().search(&data).ok() }});
 }}
 
-",
-                fn_suffix, given_string, expr_string
+"##,
+                test_fn_name, given_string, expr_string
             )
             .as_bytes(),
         )
         .expect("Error writing interpret benchmark");
+        all_tests.push(test_fn_name)
     }
 }
 
@@ -216,7 +238,7 @@ fn generate_test(
 
     f.write_all(
         format!(
-            "\
+            r##"
 #[test]
 fn test_{}() {{
     let case: TestCase = TestCase::from_str({:?}).unwrap();
@@ -224,7 +246,7 @@ fn test_{}() {{
     case.assert({:?}, data).unwrap();
 }}
 
-",
+"##,
             fn_suffix, case_string, given_string, filename
         )
         .as_bytes(),
