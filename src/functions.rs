@@ -93,13 +93,13 @@ pub struct CustomFunction {
     /// Signature used to validate the function.
     signature: Signature,
     /// Function to invoke after validating the signature.
-    f: Box<Fn(&[Rcvar], &mut Context) -> SearchResult + Sync>,
+    f: Box<dyn Fn(&[Rcvar], &mut Context) -> SearchResult + Sync>,
 }
 
 impl CustomFunction {
     /// Creates a new custom function.
     pub fn new(fn_signature: Signature,
-               f: Box<Fn(&[Rcvar], &mut Context) -> SearchResult + Sync>)
+               f: Box<dyn Fn(&[Rcvar], &mut Context) -> SearchResult + Sync>)
                -> CustomFunction {
         CustomFunction {
             signature: fn_signature,
