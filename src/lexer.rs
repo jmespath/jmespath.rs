@@ -107,7 +107,7 @@ impl<'a> Lexer<'a> {
             match self.iter.next() {
                 Some((pos, ch)) => {
                     match ch {
-                        'a'...'z' | 'A'...'Z' | '_' => {
+                        'a'..='z' | 'A'..='Z' | '_' => {
                             tokens.push_back((pos, self.consume_identifier(ch)))
                         }
                         '.' => tokens.push_back((pos, Dot)),
@@ -139,7 +139,7 @@ impl<'a> Lexer<'a> {
                         '>' => tokens.push_back((pos, self.alt(&'=', Gte, Gt))),
                         '<' => tokens.push_back((pos, self.alt(&'=', Lte, Lt))),
                         '!' => tokens.push_back((pos, self.alt(&'=', Ne, Not))),
-                        '0'...'9' => tokens.push_back((pos, self.consume_number(ch, false))),
+                        '0'..='9' => tokens.push_back((pos, self.consume_number(ch, false))),
                         '-' => tokens.push_back((pos, self.consume_negative_number(pos)?)),
                         // Skip whitespace tokens
                         ' ' | '\n' | '\t' | '\r' => {}
@@ -196,7 +196,7 @@ impl<'a> Lexer<'a> {
     fn consume_identifier(&mut self, first_char: char) -> Token {
         Identifier(self.consume_while(first_char.to_string(), |c| {
             match c {
-                'a'...'z' | '_' | 'A'...'Z' | '0'...'9' => true,
+                'a'..='z' | '_' | 'A'..='Z' | '0'..='9' => true,
                 _ => false,
             }
         }))
