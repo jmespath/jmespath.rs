@@ -3,7 +3,6 @@
 
 #![feature(test)]
 
-extern crate jmespath;
 extern crate test;
 
 use jmespath::{compile, parse, Rcvar, Variable};

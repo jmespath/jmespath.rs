@@ -6,16 +6,16 @@
 
 use std::collections::VecDeque;
 
-use ast::{Ast, Comparator, KeyValuePair};
-use lexer::{tokenize, Token, TokenTuple};
-use {ErrorReason, JmespathError};
+use crate::ast::{Ast, Comparator, KeyValuePair};
+use crate::lexer::{tokenize, Token, TokenTuple};
+use crate::{ErrorReason, JmespathError};
 
 /// Result of parsing an expression.
 pub type ParseResult = Result<Ast, JmespathError>;
 
 /// Parses a JMESPath expression into an AST.
 pub fn parse(expr: &str) -> ParseResult {
-    let tokens = try!(tokenize(expr));
+    let tokens = tokenize(expr)?;
     Parser::new(tokens, expr).parse()
 }
 
@@ -95,7 +95,7 @@ impl<'a> Parser<'a> {
     fn expr(&mut self, rbp: usize) -> ParseResult {
         let mut left = self.nud();
         while rbp < self.peek(0).lbp() {
-            left = self.led(Box::new(try!(left)));
+            left = self.led(Box::new(left?));
         }
         left
     }
@@ -136,7 +136,7 @@ impl<'a> Parser<'a> {
                 let mut pairs = vec![];
                 loop {
                     // Requires at least on key value pair.
-                    pairs.push(try!(self.parse_kvp()));
+                    pairs.push(self.parse_kvp()?);
                     match self.advance() {
                         // Terminal condition is the Rbrace token
                         Token::Rbrace => break,
@@ -151,19 +151,19 @@ impl<'a> Parser<'a> {
                 })
             }
             t @ Token::Ampersand => {
-                let rhs = try!(self.expr(t.lbp()));
+                let rhs = self.expr(t.lbp())?;
                 Ok(Ast::Expref {
                     ast: Box::new(rhs),
                     offset: offset,
                 })
             }
             t @ Token::Not => Ok(Ast::Not {
-                node: Box::new(try!(self.expr(t.lbp()))),
+                node: Box::new(self.expr(t.lbp())?),
                 offset: offset,
             }),
             Token::Filter => self.parse_filter(Box::new(Ast::Identity { offset: offset })),
             Token::Lparen => {
-                let result = try!(self.expr(0));
+                let result = self.expr(0)?;
                 match self.advance() {
                     Token::Rparen => Ok(result),
                     ref t @ _ => Err(self.err(t, "Expected ')' to close '('", false)),
@@ -183,7 +183,7 @@ impl<'a> Parser<'a> {
                     self.parse_wildcard_values(left)
                 } else {
                     let offset = offset;
-                    let rhs = try!(self.parse_dot(t.lbp()));
+                    let rhs = self.parse_dot(t.lbp())?;
                     Ok(Ast::Subexpr {
                         offset: offset,
                         lhs: left,
@@ -200,7 +200,7 @@ impl<'a> Parser<'a> {
                     true => Ok(Ast::Subexpr {
                         offset: offset,
                         lhs: left,
-                        rhs: Box::new(try!(self.parse_index())),
+                        rhs: Box::new(self.parse_index()?),
                     }),
                     false => {
                         self.advance();
@@ -210,7 +210,7 @@ impl<'a> Parser<'a> {
             }
             t @ Token::Or => {
                 let offset = offset;
-                let rhs = try!(self.expr(t.lbp()));
+                let rhs = self.expr(t.lbp())?;
                 Ok(Ast::Or {
                     offset: offset,
                     lhs: left,
@@ -219,7 +219,7 @@ impl<'a> Parser<'a> {
             }
             t @ Token::And => {
                 let offset = offset;
-                let rhs = try!(self.expr(t.lbp()));
+                let rhs = self.expr(t.lbp())?;
                 Ok(Ast::And {
                     offset: offset,
                     lhs: left,
@@ -228,7 +228,7 @@ impl<'a> Parser<'a> {
             }
             t @ Token::Pipe => {
                 let offset = offset;
-                let rhs = try!(self.expr(t.lbp()));
+                let rhs = self.expr(t.lbp())?;
                 Ok(Ast::Subexpr {
                     offset: offset,
                     lhs: left,
@@ -239,7 +239,7 @@ impl<'a> Parser<'a> {
                 Ast::Field { name: v, .. } => Ok(Ast::Function {
                     offset: offset,
                     name: v,
-                    args: try!(self.parse_list(Token::Rparen)),
+                    args: self.parse_list(Token::Rparen)?,
                 }),
                 _ => Err(self.err(self.peek(0), "Invalid function name", true)),
             },
@@ -262,7 +262,7 @@ impl<'a> Parser<'a> {
                     self.advance();
                     Ok(KeyValuePair {
                         key: value,
-                        value: try!(self.expr(0)),
+                        value: self.expr(0)?,
                     })
                 } else {
                     Err(self.err(self.peek(0), "Expected ':' to follow key", true))
@@ -277,11 +277,11 @@ impl<'a> Parser<'a> {
     /// returns a truthy value, then the value is yielded by the projection.
     fn parse_filter(&mut self, lhs: Box<Ast>) -> ParseResult {
         // Parse the LHS of the condition node.
-        let condition_lhs = Box::new(try!(self.expr(0)));
+        let condition_lhs = Box::new(self.expr(0)?);
         // Eat the closing bracket.
         match self.advance() {
             Token::Rbracket => {
-                let condition_rhs = Box::new(try!(self.projection_rhs(Token::Filter.lbp())));
+                let condition_rhs = Box::new(self.projection_rhs(Token::Filter.lbp())?);
                 Ok(Ast::Projection {
                     offset: self.offset,
                     lhs: lhs,
@@ -297,7 +297,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_flatten(&mut self, lhs: Box<Ast>) -> ParseResult {
-        let rhs = Box::new(try!(self.projection_rhs(Token::Flatten.lbp())));
+        let rhs = Box::new(self.projection_rhs(Token::Flatten.lbp())?);
         Ok(Ast::Projection {
             offset: self.offset,
             lhs: Box::new(Ast::Flatten {
@@ -310,7 +310,7 @@ impl<'a> Parser<'a> {
 
     /// Parses a comparator token into a Comparison (e.g., foo == bar)
     fn parse_comparator(&mut self, cmp: Comparator, lhs: Box<Ast>) -> ParseResult {
-        let rhs = Box::new(try!(self.expr(Token::Eq.lbp())));
+        let rhs = Box::new(self.expr(Token::Eq.lbp())?);
         Ok(Ast::Comparison {
             offset: self.offset,
             comparator: cmp,
@@ -367,7 +367,7 @@ impl<'a> Parser<'a> {
     fn parse_wildcard_index(&mut self, lhs: Box<Ast>) -> ParseResult {
         match self.advance() {
             Token::Rbracket => {
-                let rhs = Box::new(try!(self.projection_rhs(Token::Star.lbp())));
+                let rhs = Box::new(self.projection_rhs(Token::Star.lbp())?);
                 Ok(Ast::Projection {
                     offset: self.offset,
                     lhs: lhs,
@@ -380,7 +380,7 @@ impl<'a> Parser<'a> {
 
     /// Creates a projection for "*"
     fn parse_wildcard_values(&mut self, lhs: Box<Ast>) -> ParseResult {
-        let rhs = Box::new(try!(self.projection_rhs(Token::Star.lbp())));
+        let rhs = Box::new(self.projection_rhs(Token::Star.lbp())?);
         Ok(Ast::Projection {
             offset: self.offset,
             lhs: Box::new(Ast::ObjectValues {
@@ -435,7 +435,7 @@ impl<'a> Parser<'a> {
                     stop: parts[1],
                     step: parts[2].unwrap_or(1),
                 }),
-                rhs: Box::new(try!(self.projection_rhs(Token::Star.lbp()))),
+                rhs: Box::new(self.projection_rhs(Token::Star.lbp())?),
             })
         }
     }
@@ -444,7 +444,7 @@ impl<'a> Parser<'a> {
     fn parse_multi_list(&mut self) -> ParseResult {
         Ok(Ast::MultiList {
             offset: self.offset,
-            elements: try!(self.parse_list(Token::Rbracket)),
+            elements: self.parse_list(Token::Rbracket)?,
         })
     }
 
@@ -458,7 +458,7 @@ impl<'a> Parser<'a> {
     fn parse_list(&mut self, closing: Token) -> Result<Vec<Ast>, JmespathError> {
         let mut nodes = vec![];
         while self.peek(0) != &closing {
-            nodes.push(try!(self.expr(0)));
+            nodes.push(self.expr(0)?);
             // Skip commas
             if self.peek(0) == &Token::Comma {
                 self.advance();

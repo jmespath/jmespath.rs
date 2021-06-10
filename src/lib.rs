@@ -99,12 +99,11 @@ extern crate lazy_static;
 
 #[macro_use]
 extern crate serde;
-extern crate serde_json;
 
-pub use errors::{ErrorReason, JmespathError, RuntimeError};
-pub use parser::{parse, ParseResult};
-pub use runtime::Runtime;
-pub use variable::{to_variable, Variable};
+pub use crate::errors::{ErrorReason, JmespathError, RuntimeError};
+pub use crate::parser::{parse, ParseResult};
+pub use crate::runtime::Runtime;
+pub use crate::variable::{to_variable, Variable};
 
 pub mod ast;
 pub mod functions;
@@ -114,9 +113,9 @@ use serde::ser;
 use serde_json::Value;
 use std::fmt;
 
-use ast::Ast;
-use interpreter::{interpret, SearchResult};
-use variable::Serializer;
+use crate::ast::Ast;
+use crate::interpreter::{interpret, SearchResult};
+use crate::variable::Serializer;
 
 mod errors;
 mod interpreter;
@@ -414,19 +413,19 @@ impl<'a> Expression<'a> {
 
 impl<'a> fmt::Display for Expression<'a> {
     /// Shows the jmespath expression as a string.
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.as_str())
     }
 }
 
 impl<'a> fmt::Debug for Expression<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(self, f)
     }
 }
 
 impl<'a> PartialEq for Expression<'a> {
-    fn eq(&self, other: &Expression) -> bool {
+    fn eq(&self, other: &Expression<'_>) -> bool {
         self.as_str() == other.as_str()
     }
 }

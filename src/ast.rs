@@ -17,8 +17,8 @@
 
 use std::fmt;
 
-use lexer::Token;
-use Rcvar;
+use crate::lexer::Token;
+use crate::Rcvar;
 
 /// A JMESPath expression abstract syntax tree.
 #[derive(Clone, PartialEq, Debug)]
@@ -171,7 +171,7 @@ pub enum Ast {
 }
 
 impl fmt::Display for Ast {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(fmt, "{:#?}", self)
     }
 }

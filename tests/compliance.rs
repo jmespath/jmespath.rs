@@ -3,8 +3,7 @@
 //! Test cases are generated using build.rs. This may eventually be exposed
 //! as a library (leading to possibilities like a compliance test runner CLI).
 
-extern crate jmespath;
-extern crate serde_json;
+use serde_json;
 
 use serde_json::Value;
 use std::fmt;
@@ -38,7 +37,7 @@ impl BenchType {
 }
 
 impl fmt::Display for BenchType {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
             &BenchType::Parse => write!(fmt, "parse"),
             &BenchType::Interpret => write!(fmt, "interpret"),
@@ -79,7 +78,7 @@ impl ErrorType {
 }
 
 impl fmt::Display for ErrorType {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         use self::ErrorType::*;
         match self {
             &InvalidArity => write!(fmt, "invalid-arity"),
@@ -107,7 +106,7 @@ impl Assertion {
         match self {
             &Assertion::Bench(_) => Ok(()),
             &Assertion::ValidResult(ref expected_result) => {
-                let expr = try!(self.try_parse(suite, case));
+                let expr = self.try_parse(suite, case)?;
                 match expr.search(given) {
                     Err(e) => Err(self.err_message(suite, case, format!("{}", e))),
                     Ok(r) => {
@@ -127,31 +126,25 @@ impl Assertion {
                 use jmespath::ErrorReason::*;
                 let result = self.try_parse(suite, case);
                 match error_type {
-                    &ErrorType::InvalidArity => {
-                        match try!(result).search(given).map_err(|e| e.reason) {
-                            Err(Runtime(RuntimeError::NotEnoughArguments { .. })) => Ok(()),
-                            Err(Runtime(RuntimeError::TooManyArguments { .. })) => Ok(()),
-                            Err(e) => Err(self.err_message(suite, case, format!("{}", e))),
-                            Ok(r) => Err(self.err_message(suite, case, r.to_string())),
-                        }
-                    }
-                    &ErrorType::InvalidType => {
-                        match try!(result).search(given).map_err(|e| e.reason) {
-                            Err(Runtime(RuntimeError::InvalidType { .. })) => Ok(()),
-                            Err(Runtime(RuntimeError::InvalidReturnType { .. })) => Ok(()),
-                            Err(e) => Err(self.err_message(suite, case, format!("{}", e))),
-                            Ok(r) => Err(self.err_message(suite, case, r.to_string())),
-                        }
-                    }
-                    &ErrorType::InvalidSlice => {
-                        match try!(result).search(given).map_err(|e| e.reason) {
-                            Err(Runtime(RuntimeError::InvalidSlice)) => Ok(()),
-                            Err(e) => Err(self.err_message(suite, case, format!("{}", e))),
-                            Ok(r) => Err(self.err_message(suite, case, r.to_string())),
-                        }
-                    }
+                    &ErrorType::InvalidArity => match result?.search(given).map_err(|e| e.reason) {
+                        Err(Runtime(RuntimeError::NotEnoughArguments { .. })) => Ok(()),
+                        Err(Runtime(RuntimeError::TooManyArguments { .. })) => Ok(()),
+                        Err(e) => Err(self.err_message(suite, case, format!("{}", e))),
+                        Ok(r) => Err(self.err_message(suite, case, r.to_string())),
+                    },
+                    &ErrorType::InvalidType => match result?.search(given).map_err(|e| e.reason) {
+                        Err(Runtime(RuntimeError::InvalidType { .. })) => Ok(()),
+                        Err(Runtime(RuntimeError::InvalidReturnType { .. })) => Ok(()),
+                        Err(e) => Err(self.err_message(suite, case, format!("{}", e))),
+                        Ok(r) => Err(self.err_message(suite, case, r.to_string())),
+                    },
+                    &ErrorType::InvalidSlice => match result?.search(given).map_err(|e| e.reason) {
+                        Err(Runtime(RuntimeError::InvalidSlice)) => Ok(()),
+                        Err(e) => Err(self.err_message(suite, case, format!("{}", e))),
+                        Ok(r) => Err(self.err_message(suite, case, r.to_string())),
+                    },
                     &ErrorType::UnknownFunction => {
-                        match try!(result).search(given).map_err(|e| e.reason) {
+                        match result?.search(given).map_err(|e| e.reason) {
                             Err(Runtime(RuntimeError::UnknownFunction(_))) => Ok(()),
                             Err(e) => Err(self.err_message(suite, case, format!("{}", e))),
                             Ok(r) => Err(self.err_message(suite, case, r.to_string())),
@@ -169,7 +162,7 @@ impl Assertion {
     }
 
     /// Attempts to parse an expression for a case, returning the expression or an error string.
-    fn try_parse(&self, suite: &str, case: &TestCase) -> Result<Expression, String> {
+    fn try_parse(&self, suite: &str, case: &TestCase) -> Result<Expression<'_>, String> {
         match compile(&case.expression) {
             Err(e) => Err(self.err_message(suite, case, format!("{}", e))),
             Ok(expr) => Ok(expr),
@@ -187,7 +180,7 @@ impl Assertion {
 }
 
 impl fmt::Display for Assertion {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
             &Assertion::Error(ref e) => write!(fmt, "expects error({})", e),
             &Assertion::Bench(ref b) => write!(fmt, "expects bench({})", b),
@@ -217,17 +210,20 @@ impl<'a> TestSuite<'a> {
 
     /// Creates a test suite from parsed JSON data.
     fn from_json(filename: &'a str, suite: &Value) -> Result<TestSuite<'a>, String> {
-        let suite = try!(suite.as_object().ok_or("test suite is not an object"));
-        let test_case = try!(suite.get("cases").ok_or("No cases value".to_string()));
-        let case_array = try!(test_case
+        let suite = suite.as_object().ok_or("test suite is not an object")?;
+        let test_case = suite.get("cases").ok_or("No cases value".to_string())?;
+        let case_array = test_case
             .as_array()
-            .ok_or("cases is not an array".to_string()));
+            .ok_or("cases is not an array".to_string())?;
         let mut cases = vec![];
         for case in case_array {
-            cases.push(try!(TestCase::from_json(case).map_err(|e| e.to_string())));
+            cases.push(TestCase::from_json(case).map_err(|e| e.to_string())?);
         }
-        let value = try!(suite.get("given").ok_or("No given value".to_string())).clone();
-        let given = try!(serde_json::from_value::<Variable>(value).map_err(|e| format!("{}", e)));
+        let value = suite
+            .get("given")
+            .ok_or("No given value".to_string())?
+            .clone();
+        let given = serde_json::from_value::<Variable>(value).map_err(|e| format!("{}", e))?;
         Ok(TestSuite {
             filename: filename,
             given: Rcvar::new(given),
@@ -251,7 +247,7 @@ pub enum TestCaseError {
 }
 
 impl fmt::Display for TestCaseError {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         use self::TestCaseError::*;
         match self {
             &InvalidJSON(ref msg) => write!(fmt, "invalid test case JSON: {}", msg),
@@ -275,7 +271,7 @@ impl fmt::Display for TestCaseError {
 }
 
 impl fmt::Debug for TestCaseError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self)
     }
 }
@@ -298,12 +294,12 @@ impl TestCase {
 
     /// Creates a test case from parsed JSON data.
     fn from_json(case: &Value) -> Result<TestCase, TestCaseError> {
-        use TestCaseError::*;
-        let case = try!(case
+        use crate::TestCaseError::*;
+        let case = case
             .as_object()
-            .ok_or(InvalidJSON("not an object".to_string())));
+            .ok_or(InvalidJSON("not an object".to_string()))?;
         Ok(TestCase {
-            expression: try!(case
+            expression: case
                 .get("expression")
                 .ok_or(NoExpression)
                 .and_then(|expression| {
@@ -311,16 +307,16 @@ impl TestCase {
                         .as_str()
                         .ok_or(ExpressionIsNotString)
                         .map(|expression_str| expression_str.to_string())
-                })),
+                })?,
             assertion: match case.get("error") {
-                Some(err) => Assertion::Error(try!(ErrorType::from_json(err))),
+                Some(err) => Assertion::Error(ErrorType::from_json(err)?),
                 None if case.contains_key("result") => {
                     let value = case.get("result").unwrap();
                     let var = serde_json::from_value::<Variable>(value.clone()).unwrap();
                     Assertion::ValidResult(Rcvar::new(var))
                 }
                 None if case.contains_key("bench") => {
-                    Assertion::Bench(try!(BenchType::from_json(case.get("bench").unwrap())))
+                    Assertion::Bench(BenchType::from_json(case.get("bench").unwrap())?)
                 }
                 _ => return Err(NoCaseType),
             },

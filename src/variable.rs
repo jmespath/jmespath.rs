@@ -1,7 +1,7 @@
 //! Module for JMESPath runtime variables.
 
-extern crate serde;
-extern crate serde_json;
+use serde;
+use serde_json;
 
 use serde::de::IntoDeserializer;
 use serde::{de, ser};
@@ -14,9 +14,9 @@ use std::iter::Iterator;
 use std::string::ToString;
 use std::vec;
 
-use ast::{Ast, Comparator};
-use Rcvar;
-use ToJmespath;
+use crate::ast::{Ast, Comparator};
+use crate::Rcvar;
+use crate::ToJmespath;
 
 /// JMESPath types.
 #[derive(Debug, PartialEq, PartialOrd, Eq, Ord)]
@@ -31,7 +31,7 @@ pub enum JmespathType {
 }
 
 impl fmt::Display for JmespathType {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(
             fmt,
             "{}",
@@ -152,7 +152,7 @@ impl Ord for Variable {
 /// Write the JSON representation of a value, converting expref to a JSON
 /// string containing the debug dump of the expref variable.
 impl fmt::Display for Variable {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(fmt, "{}", serde_json::to_string(self).unwrap())
     }
 }
@@ -397,7 +397,7 @@ impl Variable {
 }
 
 impl Variable {
-    fn unexpected(&self) -> de::Unexpected {
+    fn unexpected(&self) -> de::Unexpected<'_> {
         match *self {
             Variable::Null => de::Unexpected::Unit,
             Variable::Bool(b) => de::Unexpected::Bool(b),
@@ -494,7 +494,7 @@ impl<'de> de::Deserialize<'de> for Variable {
         impl<'de> de::Visitor<'de> for VariableVisitor {
             type Value = Variable;
 
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
                 formatter.write_str("any valid JMESPath variable")
             }
 
@@ -556,7 +556,7 @@ impl<'de> de::Deserialize<'de> for Variable {
             {
                 let mut values = vec![];
 
-                while let Some(elem) = try!(visitor.next_element()) {
+                while let Some(elem) = visitor.next_element()? {
                     values.push(elem);
                 }
 
@@ -570,7 +570,7 @@ impl<'de> de::Deserialize<'de> for Variable {
             {
                 let mut values = BTreeMap::new();
 
-                while let Some((key, value)) = try!(visitor.next_entry()) {
+                while let Some((key, value)) = visitor.next_entry()? {
                     values.insert(key, value);
                 }
 
@@ -1281,9 +1281,9 @@ impl ser::SerializeStructVariant for StructVariantState {
 mod tests {
     use super::serde_json::{self, Value};
     use super::{JmespathType, Variable};
-    use ast::{Ast, Comparator};
+    use crate::ast::{Ast, Comparator};
+    use crate::Rcvar;
     use std::collections::BTreeMap;
-    use Rcvar;
 
     #[test]
     fn creates_variable_from_str() {

@@ -3,7 +3,7 @@
 use std::error::Error;
 use std::fmt;
 
-use Context;
+use crate::Context;
 
 /// JMESPath error.
 #[derive(Clone, Debug, PartialEq)]
@@ -45,7 +45,7 @@ impl JmespathError {
     }
 
     /// Create a new JMESPath Error from a Context struct.
-    pub fn from_ctx(ctx: &Context, reason: ErrorReason) -> JmespathError {
+    pub fn from_ctx(ctx: &Context<'_>, reason: ErrorReason) -> JmespathError {
         JmespathError::new(ctx.expression, ctx.offset, reason)
     }
 }
@@ -62,7 +62,7 @@ fn inject_carat(column: usize, buff: &mut String) {
 }
 
 impl fmt::Display for JmespathError {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let mut error_location = String::new();
         let mut matched = false;
         let mut current_line = 0;
@@ -99,7 +99,7 @@ pub enum ErrorReason {
 }
 
 impl fmt::Display for ErrorReason {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match *self {
             ErrorReason::Parse(ref e) => write!(fmt, "Parse error: {}", e),
             ErrorReason::Runtime(ref e) => write!(fmt, "Runtime error: {}", e),
@@ -151,7 +151,7 @@ pub enum RuntimeError {
 }
 
 impl fmt::Display for RuntimeError {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         use self::RuntimeError::*;
         match *self {
             UnknownFunction(ref function) => write!(fmt, "Call to undefined function {}", function),
