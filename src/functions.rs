@@ -1,12 +1,12 @@
 //! JMESPath functions.
 
-use std::collections::BTreeMap;
 use std::cmp::{max, min};
+use std::collections::BTreeMap;
 use std::fmt;
 
-use {Context, JmespathError, ErrorReason, Rcvar, RuntimeError};
 use interpreter::{interpret, SearchResult};
-use variable::{Variable, JmespathType};
+use variable::{JmespathType, Variable};
+use {Context, ErrorReason, JmespathError, Rcvar, RuntimeError};
 
 /// Represents a JMESPath function.
 pub trait Function: Sync {
@@ -67,7 +67,11 @@ impl fmt::Display for ArgumentType {
             Expref => write!(fmt, "expref"),
             TypedArray(ref t) => write!(fmt, "array[{}]", t),
             Union(ref types) => {
-                let str_value = types.iter().map(|t| t.to_string()).collect::<Vec<_>>().join("|");
+                let str_value = types
+                    .iter()
+                    .map(|t| t.to_string())
+                    .collect::<Vec<_>>()
+                    .join("|");
                 write!(fmt, "{}", str_value)
             }
         }
@@ -98,9 +102,10 @@ pub struct CustomFunction {
 
 impl CustomFunction {
     /// Creates a new custom function.
-    pub fn new(fn_signature: Signature,
-               f: Box<Fn(&[Rcvar], &mut Context) -> SearchResult + Sync>)
-               -> CustomFunction {
+    pub fn new(
+        fn_signature: Signature,
+        f: Box<Fn(&[Rcvar], &mut Context) -> SearchResult + Sync>,
+    ) -> CustomFunction {
         CustomFunction {
             signature: fn_signature,
             f: f,
@@ -121,7 +126,8 @@ impl Function for CustomFunction {
 /// If you wish to utilize Signatures or more complex argument
 /// validation, it is recommended to use CustomFunction.
 impl<F> Function for F
-    where F: Sync + Fn(&[Rcvar], &mut Context) -> SearchResult
+where
+    F: Sync + Fn(&[Rcvar], &mut Context) -> SearchResult,
 {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
         (self)(args, ctx)
@@ -192,12 +198,13 @@ impl Signature {
         Ok(())
     }
 
-    fn validate_arg(&self,
-                    ctx: &Context,
-                    position: usize,
-                    value: &Rcvar,
-                    validator: &ArgumentType)
-                    -> Result<(), JmespathError> {
+    fn validate_arg(
+        &self,
+        ctx: &Context,
+        position: usize,
+        value: &Rcvar,
+        validator: &ArgumentType,
+    ) -> Result<(), JmespathError> {
         if validator.is_valid(value) {
             Ok(())
         } else {
@@ -230,66 +237,64 @@ macro_rules! defn {
 
 /// Macro used to implement max_by and min_by functions.
 macro_rules! min_and_max_by {
-    ($ctx:expr, $operator:ident, $args:expr) => (
-        {
-            let vals = $args[0].as_array().unwrap();
-            // Return null when there are not values in the array
-            if vals.is_empty() {
-                return Ok(Rcvar::new(Variable::Null));
-            }
-            let ast = $args[1].as_expref().unwrap();
-            // Map over the first value to get the homogeneous required return type
-            let initial = try!(interpret(&vals[0], &ast, $ctx));
-            let entered_type = initial.get_type();
-            if entered_type != JmespathType::String && entered_type != JmespathType::Number {
-                return Err(JmespathError::from_ctx($ctx,
-                    ErrorReason::Runtime(RuntimeError::InvalidReturnType {
-                        expected: "expression->number|expression->string".to_owned(),
-                        actual: entered_type.to_string(),
-                        position: 1,
-                        invocation: 1
-                    }
-                )));
-            }
-            // Map over each value, finding the best candidate value and fail on error.
-            let mut candidate = (vals[0].clone(), initial.clone());
-            for (invocation, v) in vals.iter().enumerate().skip(1) {
-                let mapped = try!(interpret(v, &ast, $ctx));
-                if mapped.get_type() != entered_type {
-                    return Err(JmespathError::from_ctx($ctx,
-                        ErrorReason::Runtime(RuntimeError::InvalidReturnType {
-                            expected: format!("expression->{}", entered_type),
-                            actual: mapped.get_type().to_string(),
-                            position: 1,
-                            invocation: invocation
-                        }
-                    )));
-                }
-                if mapped.$operator(&candidate.1) {
-                    candidate = (v.clone(), mapped);
-                }
-            }
-            Ok(candidate.0)
+    ($ctx:expr, $operator:ident, $args:expr) => {{
+        let vals = $args[0].as_array().unwrap();
+        // Return null when there are not values in the array
+        if vals.is_empty() {
+            return Ok(Rcvar::new(Variable::Null));
         }
-    )
+        let ast = $args[1].as_expref().unwrap();
+        // Map over the first value to get the homogeneous required return type
+        let initial = try!(interpret(&vals[0], &ast, $ctx));
+        let entered_type = initial.get_type();
+        if entered_type != JmespathType::String && entered_type != JmespathType::Number {
+            return Err(JmespathError::from_ctx(
+                $ctx,
+                ErrorReason::Runtime(RuntimeError::InvalidReturnType {
+                    expected: "expression->number|expression->string".to_owned(),
+                    actual: entered_type.to_string(),
+                    position: 1,
+                    invocation: 1,
+                }),
+            ));
+        }
+        // Map over each value, finding the best candidate value and fail on error.
+        let mut candidate = (vals[0].clone(), initial.clone());
+        for (invocation, v) in vals.iter().enumerate().skip(1) {
+            let mapped = try!(interpret(v, &ast, $ctx));
+            if mapped.get_type() != entered_type {
+                return Err(JmespathError::from_ctx(
+                    $ctx,
+                    ErrorReason::Runtime(RuntimeError::InvalidReturnType {
+                        expected: format!("expression->{}", entered_type),
+                        actual: mapped.get_type().to_string(),
+                        position: 1,
+                        invocation: invocation,
+                    }),
+                ));
+            }
+            if mapped.$operator(&candidate.1) {
+                candidate = (v.clone(), mapped);
+            }
+        }
+        Ok(candidate.0)
+    }};
 }
 
 /// Macro used to implement max and min functions.
 macro_rules! min_and_max {
-    ($operator:ident, $args:expr) => (
-        {
-            let values = $args[0].as_array().unwrap();
-            if values.is_empty() {
-                Ok(Rcvar::new(Variable::Null))
-            } else {
-                let result: Rcvar = values
-                    .iter()
-                    .skip(1)
-                    .fold(values[0].clone(), |acc, item| $operator(acc, item.clone()));
-                Ok(result)
-            }
+    ($operator:ident, $args:expr) => {{
+        let values = $args[0].as_array().unwrap();
+        if values.is_empty() {
+            Ok(Rcvar::new(Variable::Null))
+        } else {
+            let result: Rcvar = values
+                .iter()
+                .skip(1)
+                .fold(values[0].clone(), |acc, item| $operator(acc, item.clone()));
+            Ok(result)
         }
-    )
+    }};
 }
 
 defn!(AbsFn, vec![arg!(number)], None);
@@ -310,7 +315,8 @@ impl Function for AvgFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
         try!(self.signature.validate(args, ctx));
         let values = args[0].as_array().unwrap();
-        let sum = values.iter()
+        let sum = values
+            .iter()
             .map(|n| n.as_number().unwrap())
             .fold(0f64, |a, ref b| a + b);
         Ok(Rcvar::new(Variable::Number(sum / (values.len() as f64))))
@@ -336,12 +342,10 @@ impl Function for ContainsFn {
         let needle = &args[1];
         match **haystack {
             Variable::Array(ref a) => Ok(Rcvar::new(Variable::Bool(a.contains(&needle)))),
-            Variable::String(ref subj) => {
-                match needle.as_string() {
-                    None => Ok(Rcvar::new(Variable::Bool(false))),
-                    Some(s) => Ok(Rcvar::new(Variable::Bool(subj.contains(s)))),
-                }
-            }
+            Variable::String(ref subj) => match needle.as_string() {
+                None => Ok(Rcvar::new(Variable::Bool(false))),
+                Some(s) => Ok(Rcvar::new(Variable::Bool(subj.contains(s)))),
+            },
             _ => unreachable!(),
         }
     }
@@ -375,7 +379,8 @@ impl Function for JoinFn {
         try!(self.signature.validate(args, ctx));
         let glue = args[0].as_string().unwrap();
         let values = args[1].as_array().unwrap();
-        let result = values.iter()
+        let result = values
+            .iter()
             .map(|v| v.as_string().unwrap())
             .cloned()
             .collect::<Vec<String>>()
@@ -390,7 +395,8 @@ impl Function for KeysFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
         try!(self.signature.validate(args, ctx));
         let object = args[0].as_object().unwrap();
-        let keys = object.keys()
+        let keys = object
+            .keys()
             .map(|k| Rcvar::new(Variable::String((*k).clone())))
             .collect::<Vec<Rcvar>>();
         Ok(Rcvar::new(Variable::Array(keys)))
@@ -543,14 +549,15 @@ impl Function for SortByFn {
         for (invocation, v) in vals.iter().enumerate().skip(1) {
             let mapped_value = try!(interpret(v, &ast, ctx));
             if mapped_value.get_type() != first_type {
-                return Err(JmespathError::from_ctx(ctx,
+                return Err(JmespathError::from_ctx(
+                    ctx,
                     ErrorReason::Runtime(RuntimeError::InvalidReturnType {
                         expected: format!("expression->{}", first_type),
                         actual: mapped_value.get_type().to_string(),
                         position: 1,
-                        invocation: invocation
-                    }
-                )));
+                        invocation: invocation,
+                    }),
+                ));
             }
             mapped.push((v.clone(), mapped_value));
         }
@@ -604,20 +611,20 @@ impl Function for ToNumberFn {
         try!(self.signature.validate(args, ctx));
         match *args[0] {
             Variable::Number(_) => Ok(args[0].clone()),
-            Variable::String(ref s) => {
-                match Variable::from_json(s) {
-                    Ok(f) => Ok(Rcvar::new(f)),
-                    Err(_) => Ok(Rcvar::new(Variable::Null)),
-                }
-            }
+            Variable::String(ref s) => match Variable::from_json(s) {
+                Ok(f) => Ok(Rcvar::new(f)),
+                Err(_) => Ok(Rcvar::new(Variable::Null)),
+            },
             _ => Ok(Rcvar::new(Variable::Null)),
         }
     }
 }
 
-defn!(ToStringFn,
-      vec![arg!(object | array | bool | number | string | null)],
-      None);
+defn!(
+    ToStringFn,
+    vec![arg!(object | array | bool | number | string | null)],
+    None
+);
 
 impl Function for ToStringFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
@@ -644,6 +651,8 @@ impl Function for ValuesFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context) -> SearchResult {
         try!(self.signature.validate(args, ctx));
         let map = args[0].as_object().unwrap();
-        Ok(Rcvar::new(Variable::Array(map.values().cloned().collect::<Vec<Rcvar>>())))
+        Ok(Rcvar::new(Variable::Array(
+            map.values().cloned().collect::<Vec<Rcvar>>(),
+        )))
     }
 }

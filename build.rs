@@ -4,9 +4,9 @@ extern crate serde_json;
 extern crate slug;
 
 use std::env;
-use std::path::Path;
 use std::fs::{self, File};
 use std::io::{Read, Write};
+use std::path::Path;
 
 use self::serde_json::Value;
 
@@ -22,16 +22,35 @@ pub fn main() {
         let suite_obj = suite.as_object().expect("Suite not object");
         let given = suite_obj.get("given").expect("No given value");
         let cases = suite_obj.get("cases").expect("No cases value");
-        let short_filename = filename.replace(".json", "").replace("tests/compliance/", "");
+        let short_filename = filename
+            .replace(".json", "")
+            .replace("tests/compliance/", "");
         let given_string = serde_json::to_string(given).unwrap();
-        for (case_num, case) in cases.as_array().expect("cases not array").iter().enumerate() {
+        for (case_num, case) in cases
+            .as_array()
+            .expect("cases not array")
+            .iter()
+            .enumerate()
+        {
             let case_obj = case.as_object().expect("case not object");
             if case_obj.get("bench").is_some() {
-                generate_bench(&short_filename, suite_num, case_num, case_obj,
-                    &given_string, &mut bench_file);
+                generate_bench(
+                    &short_filename,
+                    suite_num,
+                    case_num,
+                    case_obj,
+                    &given_string,
+                    &mut bench_file,
+                );
             } else {
-                generate_test(&short_filename, suite_num, case_num, case_obj,
-                    &given_string, &mut compliance_file);
+                generate_test(
+                    &short_filename,
+                    suite_num,
+                    case_num,
+                    case_obj,
+                    &given_string,
+                    &mut compliance_file,
+                );
             }
         }
     }
@@ -46,9 +65,12 @@ pub fn load_test_suites() -> Vec<(String, Value)> {
         let file_path = path.to_str().expect("Could not to_str file").to_string();
         let mut f = File::open(path).expect("Unable to open file");
         let mut file_data = String::new();
-        f.read_to_string(&mut file_data).expect("Could to read JSON to string");
+        f.read_to_string(&mut file_data)
+            .expect("Could to read JSON to string");
         let mut suite_json: Value = serde_json::from_str(&file_data).expect("invalid JSON");
-        let suites = suite_json.as_array_mut().expect("Test suite is not a JSON array");
+        let suites = suite_json
+            .as_array_mut()
+            .expect("Test suite is not a JSON array");
         while let Some(suite) = suites.pop() {
             result.push((file_path.clone(), suite));
         }
@@ -78,33 +100,47 @@ fn slugify(s: &str) -> String {
 
 /// Generates a function name for a test suite's test case.
 #[inline]
-fn generate_fn_name(filename: &str,
-                    suite_num: usize,
-                    case_num: usize,
-                    case: &serde_json::Map<String, Value>) -> String {
+fn generate_fn_name(
+    filename: &str,
+    suite_num: usize,
+    case_num: usize,
+    case: &serde_json::Map<String, Value>,
+) -> String {
     let expr = get_expr(case);
     // Use the comment as the fn description if it is present.
     let description = match case.get("comment") {
         Some(ref c) => c.as_str().expect("comment is not a string"),
-        None => expr
+        None => expr,
     };
-    format!("{}_{}_{}_{}", slugify(filename), suite_num, case_num, slugify(description))
+    format!(
+        "{}_{}_{}_{}",
+        slugify(filename),
+        suite_num,
+        case_num,
+        slugify(description)
+    )
 }
 
 /// Generates a benchmark to be run with cargo bench.
 ///
 /// Each test case will generate a case for parsing and a case for both
 /// parsing and interpreting.
-fn generate_bench(filename: &str,
-                  suite_num: usize,
-                  case_num: usize,
-                  case: &serde_json::Map<String, Value>,
-                  given_string: &str,
-                  f: &mut File) {
+fn generate_bench(
+    filename: &str,
+    suite_num: usize,
+    case_num: usize,
+    case: &serde_json::Map<String, Value>,
+    given_string: &str,
+    f: &mut File,
+) {
     let expr = get_expr(case);
     let expr_string = expr.replace("\"", "\\\"");
     let fn_suffix = generate_fn_name(filename, suite_num, case_num, case);
-    let bench_type = case.get("bench").unwrap().as_str().expect("bench is not a string");
+    let bench_type = case
+        .get("bench")
+        .unwrap()
+        .as_str()
+        .expect("bench is not a string");
 
     // Validate that the bench attribute is an expected type.
     if bench_type != "parse" && bench_type != "full" && bench_type != "interpret" {
@@ -113,18 +149,27 @@ fn generate_bench(filename: &str,
 
     // Create the parsing benchmark if "parse" or "full"
     if bench_type == "parse" || bench_type == "full" {
-        f.write_all(format!("\
+        f.write_all(
+            format!(
+                "\
 #[bench]
 fn {}_parse_lex(b: &mut Bencher) {{
     b.iter(|| {{ parse({:?}).ok() }});
 }}
 
-", fn_suffix, expr_string).as_bytes()).expect("Error writing parse benchmark");
+",
+                fn_suffix, expr_string
+            )
+            .as_bytes(),
+        )
+        .expect("Error writing parse benchmark");
     }
 
     // Create the interpreter benchmark if "interpret" or "full"
     if bench_type == "interpret" || bench_type == "full" {
-        f.write_all(format!("\
+        f.write_all(
+            format!(
+                "\
 #[bench]
 fn {}_interpret(b: &mut Bencher) {{
     let data = Rcvar::new(Variable::from_json({:?}).expect(\"Invalid JSON given\"));
@@ -132,33 +177,49 @@ fn {}_interpret(b: &mut Bencher) {{
     b.iter(|| {{ expr.search(&data).ok() }});
 }}
 
-", fn_suffix, given_string, expr_string).as_bytes()).expect("Error writing interpret benchmark");
+",
+                fn_suffix, given_string, expr_string
+            )
+            .as_bytes(),
+        )
+        .expect("Error writing interpret benchmark");
     }
 
     // Create the "full" benchmark if "full"
     if bench_type == "full" {
-        f.write_all(format!("\
+        f.write_all(
+            format!(
+                "\
 #[bench]
 fn {}_full(b: &mut Bencher) {{
     let data = Rcvar::new(Variable::from_json({:?}).expect(\"Invalid JSON given\"));
     b.iter(|| {{ compile({:?}).unwrap().search(&data).ok() }});
 }}
 
-", fn_suffix, given_string, expr_string).as_bytes()).expect("Error writing interpret benchmark");
+",
+                fn_suffix, given_string, expr_string
+            )
+            .as_bytes(),
+        )
+        .expect("Error writing interpret benchmark");
     }
 }
 
 /// Generates a benchmark for a test case.
-fn generate_test(filename: &str,
-                 suite_num: usize,
-                 case_num: usize,
-                 case: &serde_json::Map<String, Value>,
-                 given_string: &str,
-                 f: &mut File) {
+fn generate_test(
+    filename: &str,
+    suite_num: usize,
+    case_num: usize,
+    case: &serde_json::Map<String, Value>,
+    given_string: &str,
+    f: &mut File,
+) {
     let fn_suffix = generate_fn_name(filename, suite_num, case_num, case);
     let case_string = serde_json::to_string(case).expect("Could not encode case");
 
-    f.write_all(format!("\
+    f.write_all(
+        format!(
+            "\
 #[test]
 fn test_{}() {{
     let case: TestCase = TestCase::from_str({:?}).unwrap();
@@ -166,5 +227,10 @@ fn test_{}() {{
     case.assert({:?}, data).unwrap();
 }}
 
-", fn_suffix, case_string, given_string, filename).as_bytes()).expect("Unable to write test");
+",
+            fn_suffix, case_string, given_string, filename
+        )
+        .as_bytes(),
+    )
+    .expect("Unable to write test");
 }
