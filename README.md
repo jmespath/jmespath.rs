@@ -1,6 +1,6 @@
 # JMESPath for Rust
 
-[![Build Status](https://travis-ci.org/mtdowling/jmespath.rs.svg?branch=master)](https://travis-ci.org/mtdowling/jmespath.rs)
+[![GitHub Actions](https://github.com/jmespath/jmespath.rs/workflows/CI/badge.svg)](https://github.com/jmespath/jmespath.rs/actions?query=workflow%3ACI)
 [![Coverage Status](https://coveralls.io/repos/github/mtdowling/jmespath.rs/badge.svg?branch=master)](https://coveralls.io/github/mtdowling/jmespath.rs?branch=master)
 [![Current Version](http://meritbadge.herokuapp.com/jmespath)](https://crates.io/crates/jmespath)
 [![Gitter](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/jmespath/chat)
