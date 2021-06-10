@@ -174,6 +174,7 @@ a number of additional specialized implementations for `ToJmespath`
 built into the library that should work for most cases.)"
 )]
 pub trait ToJmespath {
+    #[allow(clippy::wrong_self_convention)]
     fn to_jmespath(self) -> Rcvar;
 }
 
@@ -379,8 +380,8 @@ impl<'a> Expression<'a> {
     {
         Expression {
             expression: expression.into(),
-            ast: ast,
-            runtime: runtime,
+            ast,
+            runtime,
         }
     }
 
@@ -449,8 +450,8 @@ impl<'a> Context<'a> {
     #[inline]
     pub fn new(expression: &'a str, runtime: &'a Runtime) -> Context<'a> {
         Context {
-            expression: expression,
-            runtime: runtime,
+            expression,
+            runtime,
             offset: 0,
         }
     }
@@ -471,7 +472,7 @@ mod test {
     fn implements_partial_eq() {
         let a = compile("@").unwrap();
         let b = compile("@").unwrap();
-        assert!(a == b);
+        assert_eq!(a, b);
     }
 
     #[test]

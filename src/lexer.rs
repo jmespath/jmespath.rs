@@ -95,7 +95,7 @@ struct Lexer<'a> {
 impl<'a> Lexer<'a> {
     fn new(expr: &'a str) -> Lexer<'a> {
         Lexer {
-            expr: expr,
+            expr,
             iter: expr.char_indices().peekable(),
         }
     }
@@ -193,10 +193,10 @@ impl<'a> Lexer<'a> {
     // Consume identifiers: ( ALPHA / "_" ) *( DIGIT / ALPHA / "_" )
     #[inline]
     fn consume_identifier(&mut self, first_char: char) -> Token {
-        Identifier(self.consume_while(first_char.to_string(), |c| match c {
-            'a'..='z' | '_' | 'A'..='Z' | '0'..='9' => true,
-            _ => false,
-        }))
+        Identifier(self.consume_while(
+            first_char.to_string(),
+            |c| matches!(c, 'a'..='z' | '_' | 'A'..='Z' | '0'..='9'),
+        ))
     }
 
     // Consumes numbers: *"-" "0" / ( %x31-39 *DIGIT )
@@ -205,7 +205,7 @@ impl<'a> Lexer<'a> {
         let lexeme = self.consume_while(first_char.to_string(), |c| c.is_digit(10));
         let numeric_value: i32 = lexeme.parse().expect("Expected valid number");
         if is_negative {
-            Number(numeric_value * -1)
+            Number(-numeric_value)
         } else {
             Number(numeric_value)
         }

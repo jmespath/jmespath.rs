@@ -27,7 +27,7 @@ impl Runtime {
     /// The provided expression is expected to adhere to the JMESPath
     /// grammar: http://jmespath.org/specification.html
     #[inline]
-    pub fn compile<'a>(&'a self, expression: &str) -> Result<Expression<'a>, JmespathError> {
+    pub fn compile(&self, expression: &str) -> Result<Expression, JmespathError> {
         parse(expression).map(|ast| Expression::new(expression, ast, self))
     }
 
@@ -45,6 +45,7 @@ impl Runtime {
     }
 
     /// Gets a function by name from the runtime.
+    #[allow(clippy::borrowed_box)]
     #[inline]
     pub fn get_function<'a>(&'a self, name: &str) -> Option<&'a Box<dyn Function>> {
         self.functions.get(name)
@@ -78,5 +79,11 @@ impl Runtime {
         self.register_function("to_string", Box::new(ToStringFn::new()));
         self.register_function("type", Box::new(TypeFn::new()));
         self.register_function("values", Box::new(ValuesFn::new()));
+    }
+}
+
+impl Default for Runtime {
+    fn default() -> Self {
+        Self::new()
     }
 }

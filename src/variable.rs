@@ -1,8 +1,5 @@
 //! Module for JMESPath runtime variables.
 
-use serde;
-use serde_json;
-
 use serde::de::IntoDeserializer;
 use serde::{de, ser};
 use serde_json::error::Error;
@@ -69,7 +66,6 @@ impl Eq for Variable {}
 ///
 /// Based on http://stackoverflow.com/a/4915891
 fn float_eq(a: f64, b: f64) -> bool {
-    use std::f64;
     let abs_a = a.abs();
     let abs_b = b.abs();
     let diff = (a - b).abs();
@@ -251,10 +247,7 @@ impl Variable {
 
     /// Returns true if the value is a Number. Returns false otherwise.
     pub fn is_number(&self) -> bool {
-        match *self {
-            Variable::Number(_) => true,
-            _ => false,
-        }
+        matches!(*self, Variable::Number(_))
     }
 
     /// If the value is a number, return or cast it to a f64.
@@ -375,10 +368,11 @@ impl Variable {
     /// Compares two Variable values using a comparator.
     pub fn compare(&self, cmp: &Comparator, value: &Variable) -> Option<bool> {
         // Ordering requires numeric values.
-        if !(*cmp == Comparator::Equal || *cmp == Comparator::NotEqual) {
-            if !self.is_number() || !value.is_number() {
-                return None;
-            }
+        if !(*cmp == Comparator::Equal
+            || *cmp == Comparator::NotEqual
+            || self.is_number() && value.is_number())
+        {
+            return None;
         }
         match *cmp {
             Comparator::Equal => Some(*self == *value),
@@ -599,7 +593,7 @@ impl<'de> de::Deserializer<'de> for Variable {
                 let len = v.len();
                 visitor.visit_seq(SeqDeserializer {
                     iter: v.into_iter(),
-                    len: len,
+                    len,
                 })
             }
             Variable::Object(v) => visitor.visit_map(MapDeserializer {
@@ -619,6 +613,18 @@ impl<'de> de::Deserializer<'de> for Variable {
             Variable::Null => visitor.visit_none(),
             _ => visitor.visit_some(self),
         }
+    }
+
+    #[inline]
+    fn deserialize_newtype_struct<V>(
+        self,
+        _name: &'static str,
+        visitor: V,
+    ) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        visitor.visit_newtype_struct(self)
     }
 
     #[inline]
@@ -663,20 +669,8 @@ impl<'de> de::Deserializer<'de> for Variable {
 
         visitor.visit_enum(EnumDeserializer {
             val: value,
-            variant: variant,
+            variant,
         })
-    }
-
-    #[inline]
-    fn deserialize_newtype_struct<V>(
-        self,
-        _name: &'static str,
-        visitor: V,
-    ) -> Result<V::Value, Self::Error>
-    where
-        V: de::Visitor<'de>,
-    {
-        visitor.visit_newtype_struct(self)
     }
 
     forward_to_deserialize_any! {
@@ -846,7 +840,7 @@ impl<'de> de::MapAccess<'de> for MapDeserializer {
         match self.iter.next() {
             Some((key, value)) => {
                 self.value = Some(Variable::clone(&value));
-                seed.deserialize(Variable::String(key.to_owned())).map(Some)
+                seed.deserialize(Variable::String(key)).map(Some)
             }
             None => Ok(None),
         }
@@ -900,7 +894,7 @@ impl ser::Serialize for Variable {
             Variable::Bool(v) => serializer.serialize_bool(v),
             Variable::Number(v) => {
                 // Serializes as an integer when the decimal is 0 (i.e., 0.0).
-                if v.floor() == v {
+                if (v.floor() - v).abs() < f64::EPSILON {
                     serializer.serialize_i64(v as i64)
                 } else {
                     serializer.serialize_f64(v)
@@ -1031,6 +1025,19 @@ impl ser::Serializer for Serializer {
     }
 
     #[inline]
+    fn serialize_none(self) -> Result<Variable, Error> {
+        self.serialize_unit()
+    }
+
+    #[inline]
+    fn serialize_some<V: ?Sized>(self, value: &V) -> Result<Variable, Error>
+    where
+        V: ser::Serialize,
+    {
+        value.serialize(self)
+    }
+
+    #[inline]
     fn serialize_unit(self) -> Result<Variable, Error> {
         Ok(Variable::Null)
     }
@@ -1075,19 +1082,6 @@ impl ser::Serializer for Serializer {
         let mut values = BTreeMap::new();
         values.insert(String::from(variant), Rcvar::new(to_variable(&value)?));
         Ok(Variable::Object(values))
-    }
-
-    #[inline]
-    fn serialize_none(self) -> Result<Variable, Error> {
-        self.serialize_unit()
-    }
-
-    #[inline]
-    fn serialize_some<V: ?Sized>(self, value: &V) -> Result<Variable, Error>
-    where
-        V: ser::Serialize,
-    {
-        value.serialize(self)
     }
 
     fn serialize_seq(self, len: Option<usize>) -> Result<SeqState, Error> {
@@ -1279,10 +1273,10 @@ impl ser::SerializeStructVariant for StructVariantState {
 
 #[cfg(test)]
 mod tests {
-    use super::serde_json::{self, Value};
     use super::{JmespathType, Variable};
     use crate::ast::{Ast, Comparator};
     use crate::Rcvar;
+    use serde_json::Value;
     use std::collections::BTreeMap;
 
     #[test]
@@ -1525,13 +1519,22 @@ mod tests {
 
     #[test]
     fn test_compares_float_equality() {
-        assert!(Variable::Number(1.0) == Variable::Number(1.0));
-        assert!(Variable::Number(0.0) == Variable::Number(0.0));
-        assert!(Variable::Number(0.00001) != Variable::Number(0.0));
-        assert!(Variable::Number(999.999) == Variable::Number(999.999));
-        assert!(Variable::Number(1.000000000001) == Variable::Number(1.000000000001));
-        assert!(Variable::Number(0.7100000000000002) == Variable::Number(0.71));
-        assert!(Variable::Number(0.0000000000000002) == Variable::Number(0.0000000000000002));
-        assert!(Variable::Number(0.0000000000000002) != Variable::Number(0.0000000000000003));
+        assert_eq!(Variable::Number(1.0), Variable::Number(1.0));
+        assert_eq!(Variable::Number(0.0), Variable::Number(0.0));
+        assert_ne!(Variable::Number(0.00001), Variable::Number(0.0));
+        assert_eq!(Variable::Number(999.999), Variable::Number(999.999));
+        assert_eq!(
+            Variable::Number(1.000000000001),
+            Variable::Number(1.000000000001)
+        );
+        assert_eq!(Variable::Number(0.7100000000000002), Variable::Number(0.71));
+        assert_eq!(
+            Variable::Number(0.0000000000000002),
+            Variable::Number(0.0000000000000002)
+        );
+        assert_ne!(
+            Variable::Number(0.0000000000000002),
+            Variable::Number(0.0000000000000003)
+        );
     }
 }

@@ -26,7 +26,7 @@ pub fn interpret(data: &Rcvar, node: &Ast, ctx: &mut Context<'_>) -> SearchResul
             if idx >= 0 {
                 Ok(data.get_index(idx as usize))
             } else {
-                Ok(data.get_negative_index((-1 * idx) as usize))
+                Ok(data.get_negative_index((-idx) as usize))
             }
         }
         Ast::Or {
