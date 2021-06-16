@@ -22,6 +22,7 @@ before_script:
 # the main build
 script:
   - |
+      cd jmespath &&
       travis-cargo build &&
       travis-cargo test &&
       travis-cargo --only nightly test -- --features specialized &&

@@ -17,8 +17,8 @@
 
 use std::fmt;
 
-use Rcvar;
-use lexer::Token;
+use crate::lexer::Token;
+use crate::Rcvar;
 
 /// A JMESPath expression abstract syntax tree.
 #[derive(Clone, PartialEq, Debug)]
@@ -171,7 +171,7 @@ pub enum Ast {
 }
 
 impl fmt::Display for Ast {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(fmt, "{:#?}", self)
     }
 }
@@ -223,7 +223,9 @@ mod test {
             name: "abc".to_string(),
             offset: 4,
         };
-        assert_eq!("Field {\n    offset: 4,\n    name: \"abc\",\n}",
-                   format!("{}", node));
+        assert_eq!(
+            "Field {\n    offset: 4,\n    name: \"abc\",\n}",
+            format!("{}", node)
+        );
     }
 }

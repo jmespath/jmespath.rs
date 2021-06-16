@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
-use parse;
-use JmespathError;
-use Expression;
-use functions::*;
+use crate::functions::*;
+use crate::parse;
+use crate::Expression;
+use crate::JmespathError;
 
 /// Compiles JMESPath expressions.
 ///
@@ -11,13 +11,21 @@ use functions::*;
 /// You really only need to create your own Runtimes if you are
 /// utilizing custom functions in your expressions.
 pub struct Runtime {
-    functions: HashMap<String, Box<Function>>,
+    functions: HashMap<String, Box<dyn Function>>,
+}
+
+impl Default for Runtime {
+    fn default() -> Self {
+        Runtime {
+            functions: HashMap::with_capacity(26),
+        }
+    }
 }
 
 impl Runtime {
     /// Creates a new Runtime.
     pub fn new() -> Runtime {
-        Runtime { functions: HashMap::with_capacity(26) }
+        Default::default()
     }
 
     /// Creates a new JMESPath expression from an expression string.
@@ -31,21 +39,21 @@ impl Runtime {
 
     /// Adds a new function to the runtime.
     #[inline]
-    pub fn register_function(&mut self, name: &str, f: Box<Function>) {
+    pub fn register_function(&mut self, name: &str, f: Box<dyn Function>) {
         self.functions.insert(name.to_owned(), f);
     }
 
     /// Removes a function from the runtime.
     ///
     /// Returns the function that was removed if it was found.
-    pub fn deregister_function(&mut self, name: &str) -> Option<Box<Function>> {
+    pub fn deregister_function(&mut self, name: &str) -> Option<Box<dyn Function>> {
         self.functions.remove(name)
     }
 
     /// Gets a function by name from the runtime.
     #[inline]
-    pub fn get_function<'a>(&'a self, name: &str) -> Option<&'a Box<Function>> {
-        self.functions.get(name)
+    pub fn get_function<'a>(&'a self, name: &str) -> Option<&'a dyn Function> {
+        self.functions.get(name).map(AsRef::as_ref)
     }
 
     /// Registers all of the builtin JMESPath functions with the runtime.

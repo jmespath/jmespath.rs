@@ -3,7 +3,7 @@
 use std::error::Error;
 use std::fmt;
 
-use Context;
+use crate::Context;
 
 /// JMESPath error.
 #[derive(Clone, Debug, PartialEq)]
@@ -37,15 +37,15 @@ impl JmespathError {
         }
         JmespathError {
             expression: expr.to_owned(),
-            offset: offset,
-            line: line,
-            column: column,
-            reason: reason,
+            offset,
+            line,
+            column,
+            reason,
         }
     }
 
     /// Create a new JMESPath Error from a Context struct.
-    pub fn from_ctx(ctx: &Context, reason: ErrorReason) -> JmespathError {
+    pub fn from_ctx(ctx: &Context<'_>, reason: ErrorReason) -> JmespathError {
         JmespathError::new(ctx.expression, ctx.offset, reason)
     }
 }
@@ -56,13 +56,23 @@ impl Error for JmespathError {
     }
 }
 
+impl From<serde_json::Error> for JmespathError {
+    fn from(err: serde_json::Error) -> Self {
+        JmespathError::new(
+            "",
+            0,
+            ErrorReason::Parse(format!("Serde parse error: {}", err)),
+        )
+    }
+}
+
 fn inject_carat(column: usize, buff: &mut String) {
     buff.push_str(&(0..column).map(|_| ' ').collect::<String>());
     buff.push_str(&"^\n");
 }
 
 impl fmt::Display for JmespathError {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let mut error_location = String::new();
         let mut matched = false;
         let mut current_line = 0;
@@ -81,12 +91,11 @@ impl fmt::Display for JmespathError {
             inject_carat(self.column, &mut error_location);
         }
 
-        write!(fmt,
-               "{} (line {}, column {})\n{}",
-               self.reason,
-               self.line,
-               self.column,
-               error_location)
+        write!(
+            fmt,
+            "{} (line {}, column {})\n{}",
+            self.reason, self.line, self.column, error_location
+        )
     }
 }
 
@@ -100,7 +109,7 @@ pub enum ErrorReason {
 }
 
 impl fmt::Display for ErrorReason {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match *self {
             ErrorReason::Parse(ref e) => write!(fmt, "Parse error: {}", e),
             ErrorReason::Runtime(ref e) => write!(fmt, "Runtime error: {}", e),
@@ -152,38 +161,46 @@ pub enum RuntimeError {
 }
 
 impl fmt::Display for RuntimeError {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         use self::RuntimeError::*;
         match *self {
             UnknownFunction(ref function) => write!(fmt, "Call to undefined function {}", function),
-            TooManyArguments { ref expected, ref actual } => {
-                write!(fmt,
-                       "Too many arguments: expected {}, found {}",
-                       expected,
-                       actual)
-            }
-            NotEnoughArguments { ref expected, ref actual } => {
-                write!(fmt,
-                       "Not enough arguments: expected {}, found {}",
-                       expected,
-                       actual)
-            }
-            InvalidType { ref expected, ref actual, ref position } => {
-                write!(fmt,
-                       "Argument {} expects type {}, given {}",
-                       position,
-                       expected,
-                       actual)
-            }
+            TooManyArguments {
+                ref expected,
+                ref actual,
+            } => write!(
+                fmt,
+                "Too many arguments: expected {}, found {}",
+                expected, actual
+            ),
+            NotEnoughArguments {
+                ref expected,
+                ref actual,
+            } => write!(
+                fmt,
+                "Not enough arguments: expected {}, found {}",
+                expected, actual
+            ),
+            InvalidType {
+                ref expected,
+                ref actual,
+                ref position,
+            } => write!(
+                fmt,
+                "Argument {} expects type {}, given {}",
+                position, expected, actual
+            ),
             InvalidSlice => write!(fmt, "Invalid slice"),
-            InvalidReturnType { ref expected, ref actual, ref position, ref invocation } => {
-                write!(fmt,
-                       "Argument {} must return {} but invocation {} returned {}",
-                       position,
-                       expected,
-                       invocation,
-                       actual)
-            }
+            InvalidReturnType {
+                ref expected,
+                ref actual,
+                ref position,
+                ref invocation,
+            } => write!(
+                fmt,
+                "Argument {} must return {} but invocation {} returned {}",
+                position, expected, invocation, actual
+            ),
         }
     }
 }
@@ -199,8 +216,10 @@ mod test {
         assert_eq!(1, err.line);
         assert_eq!(1, err.column);
         assert_eq!(5, err.offset);
-        assert_eq!("Parse error: Test (line 1, column 1)\nfoo\n..bar\n ^\n",
-                   err.to_string());
+        assert_eq!(
+            "Parse error: Test (line 1, column 1)\nfoo\n..bar\n ^\n",
+            err.to_string()
+        );
     }
 
     #[test]
@@ -210,8 +229,10 @@ mod test {
         assert_eq!(1, err.line);
         assert_eq!(1, err.column);
         assert_eq!(5, err.offset);
-        assert_eq!("Parse error: Test (line 1, column 1)\nfoo\n..bar\n ^\nbaz",
-                   err.to_string());
+        assert_eq!(
+            "Parse error: Test (line 1, column 1)\nfoo\n..bar\n ^\nbaz",
+            err.to_string()
+        );
     }
 
     #[test]
@@ -221,8 +242,10 @@ mod test {
         assert_eq!(0, err.line);
         assert_eq!(4, err.column);
         assert_eq!(4, err.offset);
-        assert_eq!("Parse error: Test (line 0, column 4)\nfoo..bar\n    ^\n",
-                   err.to_string());
+        assert_eq!(
+            "Parse error: Test (line 0, column 4)\nfoo..bar\n    ^\n",
+            err.to_string()
+        );
     }
 
     #[test]
@@ -234,8 +257,10 @@ mod test {
     #[test]
     fn reason_displays_runtime_errors() {
         let reason = ErrorReason::Runtime(RuntimeError::UnknownFunction("a".to_owned()));
-        assert_eq!("Runtime error: Call to undefined function a",
-                   reason.to_string());
+        assert_eq!(
+            "Runtime error: Call to undefined function a",
+            reason.to_string()
+        );
     }
 
     #[test]
@@ -245,8 +270,10 @@ mod test {
             actual: "boolean".to_owned(),
             position: 0,
         };
-        assert_eq!("Argument 0 expects type string, given boolean",
-                   error.to_string());
+        assert_eq!(
+            "Argument 0 expects type string, given boolean",
+            error.to_string()
+        );
     }
 
     #[test]
@@ -270,8 +297,10 @@ mod test {
             expected: 2,
             actual: 1,
         };
-        assert_eq!("Not enough arguments: expected 2, found 1",
-                   error.to_string());
+        assert_eq!(
+            "Not enough arguments: expected 2, found 1",
+            error.to_string()
+        );
     }
 
     #[test]
@@ -282,7 +311,9 @@ mod test {
             position: 0,
             invocation: 2,
         };
-        assert_eq!("Argument 0 must return string but invocation 2 returned boolean",
-                   error.to_string());
+        assert_eq!(
+            "Argument 0 must return string but invocation 2 returned boolean",
+            error.to_string()
+        );
     }
 }
