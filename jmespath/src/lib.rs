@@ -142,7 +142,7 @@ pub type Rcvar = std::sync::Arc<Variable>;
 /// by using the `lazy_static` macro.
 ///
 /// The provided expression is expected to adhere to the JMESPath
-/// grammar: http://jmespath.org/specification.html
+/// grammar: <https://jmespath.org/specification.html>
 #[inline]
 pub fn compile(expression: &str) -> Result<Expression<'static>, JmespathError> {
     DEFAULT_RUNTIME.compile(expression)

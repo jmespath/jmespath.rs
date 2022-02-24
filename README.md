@@ -1,10 +1,5 @@
 # JMESPath for Rust
 
-[![Build Status](https://travis-ci.org/mtdowling/jmespath.rs.svg?branch=master)](https://travis-ci.org/mtdowling/jmespath.rs)
-[![Coverage Status](https://coveralls.io/repos/github/mtdowling/jmespath.rs/badge.svg?branch=master)](https://coveralls.io/github/mtdowling/jmespath.rs?branch=master)
-[![Current Version](http://meritbadge.herokuapp.com/jmespath)](https://crates.io/crates/jmespath)
-[![Gitter](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/jmespath/chat)
-
 Rust implementation of [JMESPath](http://jmespath.org), a query language for JSON.
 
 [Documentation](https://docs.rs/jmespath/)
@@ -16,7 +11,7 @@ by adding `jmespath` to the dependencies in your project's `Cargo.toml`.
 
 ```toml
 [dependencies]
-jmespath = "^0.2.0"
+jmespath = "^0.3.0"
 ```
 
 If you are using a nightly compiler, or reading this when specialization in Rust
@@ -26,7 +21,7 @@ efficient code:
 
 ```toml
 [dependencies.jmespath]
-version = "^0.2.0"
+version = "^0.3.0"
 features = ["specialized"]
 ```
 

@@ -2,7 +2,7 @@
 //!
 //! This JMESPath parser is implemented using a Pratt parser,
 //! or top down operator precedence parser:
-//! http://hall.org.ua/halls/wizzard/pdf/Vaughan.Pratt.TDOP.pdf
+//! <https://tdop.github.io/>
 
 use std::collections::VecDeque;
 

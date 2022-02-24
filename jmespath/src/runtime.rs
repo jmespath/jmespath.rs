@@ -31,7 +31,7 @@ impl Runtime {
     /// Creates a new JMESPath expression from an expression string.
     ///
     /// The provided expression is expected to adhere to the JMESPath
-    /// grammar: http://jmespath.org/specification.html
+    /// grammar: <https://jmespath.org/specification.html>
     #[inline]
     pub fn compile<'a>(&'a self, expression: &str) -> Result<Expression<'a>, JmespathError> {
         parse(expression).map(|ast| Expression::new(expression, ast, self))
