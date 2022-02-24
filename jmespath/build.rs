@@ -121,7 +121,7 @@ fn generate_fn_name(
     let expr = get_expr(case);
     // Use the comment as the fn description if it is present.
     let description = match case.get("comment") {
-        Some(ref c) => c.as_str().expect("comment is not a string"),
+        Some(c) => c.as_str().expect("comment is not a string"),
         None => expr,
     };
     format!(

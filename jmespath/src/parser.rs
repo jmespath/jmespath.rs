@@ -88,7 +88,7 @@ impl<'a> Parser<'a> {
                 actual_pos = p;
             }
         }
-        JmespathError::new(&self.expr, actual_pos, ErrorReason::Parse(buff))
+        JmespathError::new(self.expr, actual_pos, ErrorReason::Parse(buff))
     }
 
     /// Main parse function of the Pratt parser that parses while RBP < LBP
@@ -339,12 +339,12 @@ impl<'a> Parser<'a> {
         if match self.peek(0) {
             &Token::Dot => true,
             &Token::Lbracket | &Token::Filter => false,
-            ref t if t.lbp() < PROJECTION_STOP => {
+            t if t.lbp() < PROJECTION_STOP => {
                 return Ok(Ast::Identity {
                     offset: self.offset,
                 });
             }
-            ref t => {
+            t => {
                 return Err(self.err(t, "Expected '.', '[', or '[?'", true));
             }
         } {
@@ -404,7 +404,7 @@ impl<'a> Parser<'a> {
                     pos += 1;
                     match self.peek(0) {
                         &Token::Number(_) | &Token::Colon | &Token::Rbracket => continue,
-                        ref t => return Err(self.err(t, "Expected number, ':', or ']'", true)),
+                        t => return Err(self.err(t, "Expected number, ':', or ']'", true)),
                     };
                 }
                 ref t => return Err(self.err(t, "Expected number, ':', or ']'", false)),
@@ -417,7 +417,7 @@ impl<'a> Parser<'a> {
                 offset: self.offset,
                 idx: parts[0].ok_or_else(|| {
                     JmespathError::new(
-                        &self.expr,
+                        self.expr,
                         self.offset,
                         ErrorReason::Parse(
                             "Expected parts[0] to be Some; but found None".to_owned(),

@@ -178,12 +178,12 @@ pub trait ToJmespath {
 impl<'a, T: ser::Serialize> ToJmespath for T {
     #[cfg(not(feature = "specialized"))]
     fn to_jmespath(self) -> Result<Rcvar, JmespathError> {
-        Ok(Variable::from_serializable(self).map(Rcvar::new)?)
+        Variable::from_serializable(self).map(Rcvar::new)
     }
 
     #[cfg(feature = "specialized")]
     default fn to_jmespath(self) -> Result<Rcvar, JmespathError> {
-        Ok(Variable::from_serializable(self).map(|var| Rcvar::new(var))?)
+        Variable::from_serializable(self).map(|var| Rcvar::new(var))
     }
 }
 

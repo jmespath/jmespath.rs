@@ -193,10 +193,10 @@ impl<'a> Lexer<'a> {
     // Consume identifiers: ( ALPHA / "_" ) *( DIGIT / ALPHA / "_" )
     #[inline]
     fn consume_identifier(&mut self, first_char: char) -> Token {
-        Identifier(self.consume_while(first_char.to_string(), |c| match c {
-            'a'..='z' | '_' | 'A'..='Z' | '0'..='9' => true,
-            _ => false,
-        }))
+        Identifier(self.consume_while(
+            first_char.to_string(),
+            |c| matches!(c, 'a'..='z' | '_' | 'A'..='Z' | '0'..='9'),
+        ))
     }
 
     // Consumes numbers: *"-" "0" / ( %x31-39 *DIGIT )

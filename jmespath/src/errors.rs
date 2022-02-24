@@ -68,7 +68,7 @@ impl From<serde_json::Error> for JmespathError {
 
 fn inject_carat(column: usize, buff: &mut String) {
     buff.push_str(&(0..column).map(|_| ' ').collect::<String>());
-    buff.push_str(&"^\n");
+    buff.push_str("^\n");
 }
 
 impl fmt::Display for JmespathError {

@@ -282,7 +282,7 @@ macro_rules! min_and_max_by {
                         expected: format!("expression->{}", entered_type),
                         actual: mapped.get_type().to_string(),
                         position: 1,
-                        invocation: invocation,
+                        invocation,
                     }),
                 ));
             }
@@ -416,7 +416,7 @@ impl Function for ContainsFn {
         let haystack = &args[0];
         let needle = &args[1];
         match **haystack {
-            Variable::Array(ref a) => Ok(Rcvar::new(Variable::Bool(a.contains(&needle)))),
+            Variable::Array(ref a) => Ok(Rcvar::new(Variable::Bool(a.contains(needle)))),
             Variable::String(ref subj) => match needle.as_string() {
                 None => Ok(Rcvar::new(Variable::Bool(false))),
                 Some(s) => Ok(Rcvar::new(Variable::Bool(subj.contains(s)))),
@@ -504,7 +504,7 @@ impl Function for JoinFn {
                 })
             })
             .collect::<Result<Vec<String>, JmespathError>>()?
-            .join(&glue);
+            .join(glue);
         Ok(Rcvar::new(Variable::String(result)))
     }
 }
@@ -567,7 +567,7 @@ impl Function for MapFn {
         })?;
         let mut results = vec![];
         for value in values {
-            results.push(interpret(&value, &ast, ctx)?);
+            results.push(interpret(value, ast, ctx)?);
         }
         Ok(Rcvar::new(Variable::Array(results)))
     }
@@ -728,7 +728,7 @@ impl Function for SortByFn {
             )
         })?;
         let mut mapped: Vec<(Rcvar, Rcvar)> = vec![];
-        let first_value = interpret(&vals[0], &ast, ctx)?;
+        let first_value = interpret(&vals[0], ast, ctx)?;
         let first_type = first_value.get_type();
         if first_type != JmespathType::String && first_type != JmespathType::Number {
             let reason = ErrorReason::Runtime(RuntimeError::InvalidReturnType {
@@ -741,7 +741,7 @@ impl Function for SortByFn {
         }
         mapped.push((vals[0].clone(), first_value));
         for (invocation, v) in vals.iter().enumerate().skip(1) {
-            let mapped_value = interpret(v, &ast, ctx)?;
+            let mapped_value = interpret(v, ast, ctx)?;
             if mapped_value.get_type() != first_type {
                 return Err(JmespathError::from_ctx(
                     ctx,

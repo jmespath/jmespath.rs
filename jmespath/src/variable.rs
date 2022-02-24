@@ -289,10 +289,7 @@ impl Variable {
 
     /// Returns true if the value is a Number. Returns false otherwise.
     pub fn is_number(&self) -> bool {
-        match self {
-            Variable::Number(_) => true,
-            _ => false,
-        }
+        matches!(self, Variable::Number(_))
     }
 
     /// If the value is a number, return or cast it to a f64.
@@ -1615,7 +1612,7 @@ mod tests {
         #[derive(serde_derive::Serialize)]
         struct Map {
             num: usize,
-        };
+        }
 
         let map = Map { num: 231 };
 
@@ -1630,7 +1627,7 @@ mod tests {
         #[derive(serde_derive::Serialize)]
         struct Map {
             num: isize,
-        };
+        }
 
         let map = Map { num: -2141 };
 
@@ -1645,7 +1642,7 @@ mod tests {
         #[derive(serde_derive::Serialize)]
         struct Map {
             num: f64,
-        };
+        }
 
         let map = Map { num: 41.0 };
 
