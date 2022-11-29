@@ -5,6 +5,6 @@
 //extern crate bencher;
 
 use bencher::*;
-use jmespath::{compile, parse, Rcvar, Variable};
+use jmespath::{parse, Rcvar, Variable};
 
 include!(concat!(env!("OUT_DIR"), "/benches.rs"));

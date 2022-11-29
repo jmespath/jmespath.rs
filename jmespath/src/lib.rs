@@ -61,11 +61,7 @@
 //! # Custom Functions
 //!
 //! You can register custom functions with a JMESPath expression by using
-//! a custom `Runtime`. When you call `jmespath::compile`, you are using a
-//! shared `Runtime` instance that is created lazily using `lazy_static`.
-//! This shared `Runtime` utilizes all of the builtin JMESPath functions
-//! by default. However, custom functions may be utilized by creating a custom
-//! `Runtime` and compiling expressions directly from the `Runtime`.
+//! a custom `Runtime`.
 //!
 //! ```
 //! use jmespath::{Runtime, Context, Rcvar};
@@ -109,8 +105,6 @@ use serde_json::Value;
 use std::convert::TryInto;
 use std::fmt;
 
-use lazy_static::*;
-
 use crate::ast::Ast;
 use crate::interpreter::{interpret, SearchResult};
 
@@ -121,12 +115,10 @@ mod parser;
 mod runtime;
 mod variable;
 
-lazy_static! {
-    pub static ref DEFAULT_RUNTIME: Runtime = {
-        let mut runtime = Runtime::new();
-        runtime.register_builtin_functions();
-        runtime
-    };
+pub fn create_default_runtime() -> Runtime {
+    let mut runtime = Runtime::new();
+    runtime.register_builtin_functions();
+    runtime
 }
 
 /// `Rc` reference counted JMESPath `Variable`.
@@ -135,18 +127,6 @@ pub type Rcvar = std::rc::Rc<Variable>;
 /// `Arc` reference counted JMESPath `Variable`.
 #[cfg(feature = "sync")]
 pub type Rcvar = std::sync::Arc<Variable>;
-
-/// Compiles a JMESPath expression using the default Runtime.
-///
-/// The default Runtime is created lazily the first time it is dereferenced
-/// by using the `lazy_static` macro.
-///
-/// The provided expression is expected to adhere to the JMESPath
-/// grammar: <https://jmespath.org/specification.html>
-#[inline]
-pub fn compile(expression: &str) -> Result<Expression<'static>, JmespathError> {
-    DEFAULT_RUNTIME.compile(expression)
-}
 
 /// Converts a value into a reference-counted JMESPath Variable.
 ///
@@ -466,27 +446,31 @@ mod test {
 
     #[test]
     fn formats_expression_as_string_or_debug() {
-        let expr = compile("foo | baz").unwrap();
+        let runtime = create_default_runtime();
+        let expr = runtime.compile("foo | baz").unwrap();
         assert_eq!("foo | baz/foo | baz", format!("{}/{:?}", expr, expr));
     }
 
     #[test]
     fn implements_partial_eq() {
-        let a = compile("@").unwrap();
-        let b = compile("@").unwrap();
+        let runtime = create_default_runtime();
+        let a = runtime.compile("@").unwrap();
+        let b = runtime.compile("@").unwrap();
         assert!(a == b);
     }
 
     #[test]
     fn can_evaluate_jmespath_expression() {
-        let expr = compile("foo.bar").unwrap();
+        let runtime = create_default_runtime();
+        let expr = runtime.compile("foo.bar").unwrap();
         let var = Variable::from_json("{\"foo\":{\"bar\":true}}").unwrap();
         assert_eq!(Rcvar::new(Variable::Bool(true)), expr.search(var).unwrap());
     }
 
     #[test]
     fn can_get_expression_ast() {
-        let expr = compile("foo").unwrap();
+        let runtime = create_default_runtime();
+        let expr = runtime.compile("foo").unwrap();
         assert_eq!(
             &Ast::Field {
                 offset: 0,
@@ -505,7 +489,8 @@ mod test {
 
     #[test]
     fn expression_clone() {
-        let expr = compile("foo").unwrap();
+        let runtime = create_default_runtime();
+        let expr = runtime.compile("foo").unwrap();
         let _ = expr.clone();
     }
 }
