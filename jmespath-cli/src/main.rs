@@ -19,7 +19,7 @@ macro_rules! die(
 
 fn main() {
     let matches = App::new("jp")
-        .version("0.0.1")
+        .version(env!("CARGO_PKG_VERSION"))
         .about("JMESPath command line interface")
         .arg(
             Arg::with_name("filename")
