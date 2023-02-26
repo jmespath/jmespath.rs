@@ -5,8 +5,8 @@ use std::process::exit;
 use std::rc::Rc;
 
 use clap::{App, Arg};
-use jmespath::Rcvar;
-use jmespath::{compile, Variable};
+use jmespath::{Rcvar};
+use jmespath::{Variable};
 
 macro_rules! die(
     ($msg:expr) => (
@@ -66,10 +66,12 @@ fn main() {
         .value_of("expr-file")
         .map(|f| read_file("expression", f));
 
+    let runtime = jmespath::create_default_runtime();
+
     let expr = if let Some(ref e) = file_expression {
-        compile(e)
+        runtime.compile(e)
     } else {
-        compile(matches.value_of("expression").unwrap())
+        runtime.compile(matches.value_of("expression").unwrap())
     }
     .map_err(|e| die!(e.to_string()))
     .unwrap();

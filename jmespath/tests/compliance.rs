@@ -6,7 +6,7 @@
 use serde_json::Value;
 use std::fmt;
 
-use jmespath::{compile, Expression, Rcvar, RuntimeError, Variable};
+use jmespath::{Expression, Rcvar, RuntimeError, Variable, Runtime};
 
 /// Avaliable benchmark types.
 pub enum BenchType {
@@ -101,10 +101,16 @@ pub enum Assertion {
 impl Assertion {
     /// Runs the assertion of a test case
     pub fn assert(&self, suite: &str, case: &TestCase, given: Rcvar) -> Result<(), String> {
+        let runtime = jmespath::create_default_runtime();
+
         match self {
             &Assertion::Bench(_) => Ok(()),
             &Assertion::ValidResult(ref expected_result) => {
-                let expr = self.try_parse(suite, case)?;
+                let expr = match runtime.compile(&case.expression) {
+                    Err(e) => Err(self.err_message(suite, case, format!("{}", e))),
+                    Ok(expr) => Ok(expr),
+                }?;
+                
                 match expr.search(given) {
                     Err(e) => Err(self.err_message(suite, case, format!("{}", e))),
                     Ok(r) => {
@@ -122,7 +128,11 @@ impl Assertion {
             }
             &Assertion::Error(ref error_type) => {
                 use jmespath::ErrorReason::*;
-                let result = self.try_parse(suite, case);
+                let result = match runtime.compile(&case.expression) {
+                    Err(e) => Err(self.err_message(suite, case, format!("{}", e))),
+                    Ok(expr) => Ok(expr),
+                };
+
                 match error_type {
                     &ErrorType::InvalidArity => match result?.search(given).map_err(|e| e.reason) {
                         Err(Runtime(RuntimeError::NotEnoughArguments { .. })) => Ok(()),
@@ -156,14 +166,6 @@ impl Assertion {
                     },
                 }
             }
-        }
-    }
-
-    /// Attempts to parse an expression for a case, returning the expression or an error string.
-    fn try_parse(&self, suite: &str, case: &TestCase) -> Result<Expression<'_>, String> {
-        match compile(&case.expression) {
-            Err(e) => Err(self.err_message(suite, case, format!("{}", e))),
-            Ok(expr) => Ok(expr),
         }
     }
 
