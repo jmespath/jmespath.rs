@@ -137,7 +137,7 @@ impl<'a> Lexer<'a> {
                         '>' => tokens.push_back((pos, self.alt('=', Gte, Gt))),
                         '<' => tokens.push_back((pos, self.alt('=', Lte, Lt))),
                         '!' => tokens.push_back((pos, self.alt('=', Ne, Not))),
-                        '0'..='9' => tokens.push_back((pos, self.consume_number(ch, false))),
+                        '0'..='9' => tokens.push_back((pos, self.consume_number(pos,ch, false)?)),
                         '-' => tokens.push_back((pos, self.consume_negative_number(pos)?)),
                         // Skip whitespace tokens
                         ' ' | '\n' | '\t' | '\r' => {}
@@ -201,14 +201,17 @@ impl<'a> Lexer<'a> {
 
     // Consumes numbers: *"-" "0" / ( %x31-39 *DIGIT )
     #[inline]
-    fn consume_number(&mut self, first_char: char, is_negative: bool) -> Token {
+    fn consume_number(&mut self, pos: usize, first_char: char, is_negative: bool) -> Result<Token, JmespathError> {
         let lexeme = self.consume_while(first_char.to_string(), |c| c.is_digit(10));
-        let numeric_value: i32 = lexeme.parse().expect("Expected valid number");
-        if is_negative {
+        let numeric_value: i32 = lexeme.parse().map_err(|_| {
+            let reason = ErrorReason::Parse("Expected valid number".to_owned());
+            JmespathError::new(self.expr, pos, reason)
+        })?;
+        Ok(if is_negative {
             Number(-numeric_value)
         } else {
             Number(numeric_value)
-        }
+        })
     }
 
     // Consumes a negative number
@@ -216,7 +219,7 @@ impl<'a> Lexer<'a> {
     fn consume_negative_number(&mut self, pos: usize) -> Result<Token, JmespathError> {
         // Ensure that the next value is a number > 0
         match self.iter.next() {
-            Some((_, c)) if c.is_numeric() && c != '0' => Ok(self.consume_number(c, true)),
+            Some((_, c)) if c.is_numeric() && c != '0' => Ok(self.consume_number(pos, c, true)?),
             _ => {
                 let reason = ErrorReason::Parse("'-' must be followed by numbers 1-9".to_owned());
                 Err(JmespathError::new(self.expr, pos, reason))

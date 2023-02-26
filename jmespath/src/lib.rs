@@ -508,4 +508,9 @@ mod test {
         let expr = compile("foo").unwrap();
         let _ = expr.clone();
     }
+
+    #[test]
+    fn test_invalid_number() {
+        let _ = compile("6455555524");
+    }
 }
