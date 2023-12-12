@@ -10,7 +10,7 @@ use crate::{Context, ErrorReason, JmespathError, Rcvar, RuntimeError};
 use serde_json::Number;
 
 /// Represents a JMESPath function.
-pub trait Function: Sync {
+pub trait Function: Sync + Send {
     /// Evaluates the function against an in-memory variable.
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context<'_>) -> SearchResult;
 }
@@ -102,14 +102,14 @@ pub struct CustomFunction {
     /// Signature used to validate the function.
     signature: Signature,
     /// Function to invoke after validating the signature.
-    f: Box<dyn Fn(&[Rcvar], &mut Context<'_>) -> SearchResult + Sync>,
+    f: Box<dyn Fn(&[Rcvar], &mut Context<'_>) -> SearchResult + Sync + Send>,
 }
 
 impl CustomFunction {
     /// Creates a new custom function.
     pub fn new(
         fn_signature: Signature,
-        f: Box<dyn Fn(&[Rcvar], &mut Context<'_>) -> SearchResult + Sync>,
+        f: Box<dyn Fn(&[Rcvar], &mut Context<'_>) -> SearchResult + Sync + Send>,
     ) -> CustomFunction {
         CustomFunction {
             signature: fn_signature,
@@ -132,7 +132,7 @@ impl Function for CustomFunction {
 /// validation, it is recommended to use CustomFunction.
 impl<F> Function for F
 where
-    F: Sync + Fn(&[Rcvar], &mut Context<'_>) -> SearchResult,
+    F: Send + Sync + Fn(&[Rcvar], &mut Context<'_>) -> SearchResult,
 {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context<'_>) -> SearchResult {
         (self)(args, ctx)
