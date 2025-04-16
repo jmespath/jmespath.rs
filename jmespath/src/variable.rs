@@ -1260,6 +1260,21 @@ impl ser::SerializeMap for MapState {
     }
 
     fn end(self) -> Result<Variable, Error> {
+        // When serde_json has arbitrary_precision feature enabled, it represents numbers as an object
+        // with a single key "$serde_json::private::Number" and a string value.
+        // This is a workaround to convert it back to a number.
+        let bignum_serde_key = "$serde_json::private::Number";
+        if self.map.len() == 1 {
+            match self.map.get(bignum_serde_key) {
+                Some(ref value) => {
+                    match value.as_ref() {
+                        Variable::String(s) => {return Ok(Variable::Number(s.parse()?));}
+                        _ => unreachable!("{} should be a string", bignum_serde_key)
+                    }
+                }
+                None => ()
+            }
+        }
         Ok(Variable::Object(self.map))
     }
 }
