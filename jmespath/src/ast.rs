@@ -17,8 +17,8 @@
 
 use std::fmt;
 
-use crate::lexer::Token;
 use crate::Rcvar;
+use crate::lexer::Token;
 
 /// A JMESPath expression abstract syntax tree.
 #[derive(Clone, PartialEq, Debug)]
@@ -172,7 +172,7 @@ pub enum Ast {
 
 impl fmt::Display for Ast {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(fmt, "{:#?}", self)
+        write!(fmt, "{self:#?}")
     }
 }
 
@@ -208,7 +208,7 @@ impl From<Token> for Comparator {
             Token::Gte => Comparator::GreaterThanEqual,
             Token::Eq => Comparator::Equal,
             Token::Ne => Comparator::NotEqual,
-            _ => panic!("Invalid token for comparator: {:?}", token),
+            _ => panic!("Invalid token for comparator: {token:?}"),
         }
     }
 }
@@ -225,7 +225,7 @@ mod test {
         };
         assert_eq!(
             "Field {\n    offset: 4,\n    name: \"abc\",\n}",
-            format!("{}", node)
+            format!("{node}")
         );
     }
 }

@@ -61,7 +61,7 @@ impl From<serde_json::Error> for JmespathError {
         JmespathError::new(
             "",
             0,
-            ErrorReason::Parse(format!("Serde parse error: {}", err)),
+            ErrorReason::Parse(format!("Serde parse error: {err}")),
         )
     }
 }
@@ -111,8 +111,8 @@ pub enum ErrorReason {
 impl fmt::Display for ErrorReason {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match *self {
-            ErrorReason::Parse(ref e) => write!(fmt, "Parse error: {}", e),
-            ErrorReason::Runtime(ref e) => write!(fmt, "Runtime error: {}", e),
+            ErrorReason::Parse(ref e) => write!(fmt, "Parse error: {e}"),
+            ErrorReason::Runtime(ref e) => write!(fmt, "Runtime error: {e}"),
         }
     }
 }
@@ -164,22 +164,20 @@ impl fmt::Display for RuntimeError {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         use self::RuntimeError::*;
         match *self {
-            UnknownFunction(ref function) => write!(fmt, "Call to undefined function {}", function),
+            UnknownFunction(ref function) => write!(fmt, "Call to undefined function {function}"),
             TooManyArguments {
                 ref expected,
                 ref actual,
             } => write!(
                 fmt,
-                "Too many arguments: expected {}, found {}",
-                expected, actual
+                "Too many arguments: expected {expected}, found {actual}"
             ),
             NotEnoughArguments {
                 ref expected,
                 ref actual,
             } => write!(
                 fmt,
-                "Not enough arguments: expected {}, found {}",
-                expected, actual
+                "Not enough arguments: expected {expected}, found {actual}"
             ),
             InvalidType {
                 ref expected,
@@ -187,8 +185,7 @@ impl fmt::Display for RuntimeError {
                 ref position,
             } => write!(
                 fmt,
-                "Argument {} expects type {}, given {}",
-                position, expected, actual
+                "Argument {position} expects type {expected}, given {actual}"
             ),
             InvalidSlice => write!(fmt, "Invalid slice"),
             InvalidReturnType {
@@ -198,8 +195,7 @@ impl fmt::Display for RuntimeError {
                 ref invocation,
             } => write!(
                 fmt,
-                "Argument {} must return {} but invocation {} returned {}",
-                position, expected, invocation, actual
+                "Argument {position} must return {expected} but invocation {invocation} returned {actual}"
             ),
         }
     }
@@ -212,7 +208,7 @@ mod test {
     #[test]
     fn coordinates_can_be_created_from_string_with_new_lines() {
         let expr = "foo\n..bar";
-        let err = JmespathError::new(&expr, 5, ErrorReason::Parse("Test".to_owned()));
+        let err = JmespathError::new(expr, 5, ErrorReason::Parse("Test".to_owned()));
         assert_eq!(1, err.line);
         assert_eq!(1, err.column);
         assert_eq!(5, err.offset);
@@ -225,7 +221,7 @@ mod test {
     #[test]
     fn coordinates_can_be_created_from_string_with_new_lines_pointing_to_non_last() {
         let expr = "foo\n..bar\nbaz";
-        let err = JmespathError::new(&expr, 5, ErrorReason::Parse("Test".to_owned()));
+        let err = JmespathError::new(expr, 5, ErrorReason::Parse("Test".to_owned()));
         assert_eq!(1, err.line);
         assert_eq!(1, err.column);
         assert_eq!(5, err.offset);
@@ -238,7 +234,7 @@ mod test {
     #[test]
     fn coordinates_can_be_created_from_string_with_no_new_lines() {
         let expr = "foo..bar";
-        let err = JmespathError::new(&expr, 4, ErrorReason::Parse("Test".to_owned()));
+        let err = JmespathError::new(expr, 4, ErrorReason::Parse("Test".to_owned()));
         assert_eq!(0, err.line);
         assert_eq!(4, err.column);
         assert_eq!(4, err.offset);

@@ -127,7 +127,7 @@ impl<'a> Lexer<'a> {
                         '\'' => tokens.push_back((pos, self.consume_raw_string(pos)?)),
                         '`' => tokens.push_back((pos, self.consume_literal(pos)?)),
                         '=' => match self.iter.next() {
-                            Some((_, c)) if c == '=' => tokens.push_back((pos, Eq)),
+                            Some((_, '=')) => tokens.push_back((pos, Eq)),
                             _ => {
                                 let message = "'=' is not valid. Did you mean '=='?";
                                 let reason = ErrorReason::Parse(message.to_owned());
@@ -137,12 +137,12 @@ impl<'a> Lexer<'a> {
                         '>' => tokens.push_back((pos, self.alt('=', Gte, Gt))),
                         '<' => tokens.push_back((pos, self.alt('=', Lte, Lt))),
                         '!' => tokens.push_back((pos, self.alt('=', Ne, Not))),
-                        '0'..='9' => tokens.push_back((pos, self.consume_number(pos,ch, false)?)),
+                        '0'..='9' => tokens.push_back((pos, self.consume_number(pos, ch, false)?)),
                         '-' => tokens.push_back((pos, self.consume_negative_number(pos)?)),
                         // Skip whitespace tokens
                         ' ' | '\n' | '\t' | '\r' => {}
                         c => {
-                            let reason = ErrorReason::Parse(format!("Invalid character: {}", c));
+                            let reason = ErrorReason::Parse(format!("Invalid character: {c}"));
                             return Err(JmespathError::new(self.expr, pos, reason));
                         }
                     }
@@ -201,8 +201,13 @@ impl<'a> Lexer<'a> {
 
     // Consumes numbers: *"-" "0" / ( %x31-39 *DIGIT )
     #[inline]
-    fn consume_number(&mut self, pos: usize, first_char: char, is_negative: bool) -> Result<Token, JmespathError> {
-        let lexeme = self.consume_while(first_char.to_string(), |c| c.is_digit(10));
+    fn consume_number(
+        &mut self,
+        pos: usize,
+        first_char: char,
+        is_negative: bool,
+    ) -> Result<Token, JmespathError> {
+        let lexeme = self.consume_while(first_char.to_string(), |c| c.is_ascii_digit());
         let numeric_value: i32 = lexeme.parse().map_err(|_| {
             let reason = ErrorReason::Parse("Expected valid number".to_owned());
             JmespathError::new(self.expr, pos, reason)
@@ -255,7 +260,7 @@ impl<'a> Lexer<'a> {
         }
         // The token was not closed, so error with the string, including the
         // wrapper (e.g., '"foo').
-        let message = format!("Unclosed {} delimiter: {}{}", wrapper, wrapper, buffer);
+        let message = format!("Unclosed {wrapper} delimiter: {wrapper}{buffer}");
         Err(JmespathError::new(
             self.expr,
             pos,
@@ -268,12 +273,12 @@ impl<'a> Lexer<'a> {
     fn consume_quoted_identifier(&mut self, pos: usize) -> Result<Token, JmespathError> {
         self.consume_inside(pos, '"', |s| {
             // JSON decode the string to expand escapes
-            match Variable::from_json(format!(r##""{}""##, s).as_ref()) {
+            match Variable::from_json(format!(r##""{s}""##).as_ref()) {
                 // Convert the JSON value into a string literal.
                 Ok(j) => Ok(QuotedIdentifier(j.as_string().cloned().ok_or_else(
                     || "consume_quoted_identifier expected a string".to_owned(),
                 )?)),
-                Err(e) => Err(format!("Unable to parse quoted identifier {}: {}", s, e)),
+                Err(e) => Err(format!("Unable to parse quoted identifier {s}: {e}")),
             }
         })
     }
@@ -293,7 +298,7 @@ impl<'a> Lexer<'a> {
             let unescaped = s.replace("\\`", "`");
             match Variable::from_json(unescaped.as_ref()) {
                 Ok(j) => Ok(Literal(Rcvar::new(j))),
-                Err(err) => Err(format!("Unable to parse literal JSON {}: {}", s, err)),
+                Err(err) => Err(format!("Unable to parse literal JSON {s}: {err}")),
             }
         })
     }
@@ -313,8 +318,8 @@ impl<'a> Lexer<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::variable::Variable;
     use crate::Rcvar;
+    use crate::variable::Variable;
 
     fn tokenize_queue(expr: &str) -> Vec<TokenTuple> {
         let mut result = tokenize(expr).unwrap();
@@ -385,22 +390,28 @@ mod tests {
 
     #[test]
     fn tokenize_single_error_test() {
-        assert!(tokenize("~")
-            .unwrap_err()
-            .to_string()
-            .contains("Invalid character: ~"));
+        assert!(
+            tokenize("~")
+                .unwrap_err()
+                .to_string()
+                .contains("Invalid character: ~")
+        );
     }
 
     #[test]
     fn tokenize_unclosed_errors_test() {
-        assert!(tokenize("\"foo")
-            .unwrap_err()
-            .to_string()
-            .contains("Unclosed \" delimiter: \"foo"));
-        assert!(tokenize("`foo")
-            .unwrap_err()
-            .to_string()
-            .contains("Unclosed ` delimiter: `foo"));
+        assert!(
+            tokenize("\"foo")
+                .unwrap_err()
+                .to_string()
+                .contains("Unclosed \" delimiter: \"foo")
+        );
+        assert!(
+            tokenize("`foo")
+                .unwrap_err()
+                .to_string()
+                .contains("Unclosed ` delimiter: `foo")
+        );
     }
 
     #[test]
@@ -474,10 +485,12 @@ mod tests {
     #[test]
     fn tokenize_literal_test() {
         // Must enclose in quotes. See JEP 12.
-        assert!(tokenize("`a`")
-            .unwrap_err()
-            .to_string()
-            .contains("Unable to parse"));
+        assert!(
+            tokenize("`a`")
+                .unwrap_err()
+                .to_string()
+                .contains("Unable to parse")
+        );
         assert_eq!(
             tokenize_queue("`\"a\"`"),
             vec![
@@ -534,7 +547,7 @@ mod tests {
         assert_eq!(
             "[(0, Identifier(\"foo\")), (3, Lbracket), (4, Number(0)), (5, Colon), \
                      (6, Colon), (7, Number(-1)), (9, Rbracket), (10, Eof)]",
-            format!("{:?}", tokens)
+            format!("{tokens:?}")
         );
     }
 }

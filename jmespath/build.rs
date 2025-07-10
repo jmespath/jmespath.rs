@@ -17,7 +17,7 @@ pub fn main() {
 
     let mut all_benches_test = vec![];
 
-    for (suite_num, &(ref filename, ref suite)) in suites.iter().enumerate() {
+    for (suite_num, (filename, suite)) in suites.iter().enumerate() {
         let suite_obj = suite.as_object().expect("Suite not object");
         let given = suite_obj.get("given").expect("No given value");
         let cases = suite_obj.get("cases").expect("No cases value");
@@ -157,22 +157,21 @@ fn generate_bench(
 
     // Validate that the bench attribute is an expected type.
     if bench_type != "parse" && bench_type != "full" && bench_type != "interpret" {
-        panic!("invalid bench type: {}", bench_type);
+        panic!("invalid bench type: {bench_type}");
     }
 
     // Create the parsing benchmark if "parse" or "full"
     if bench_type == "parse" || bench_type == "full" {
-        let test_fn_name = format!("{}_parse_lex", fn_suffix);
+        let test_fn_name = format!("{fn_suffix}_parse_lex");
         f.write_all(
             format!(
                 r##"
 
-fn {}(b: &mut Bencher) {{
-    b.iter(|| {{ parse({:?}).ok() }});
+fn {test_fn_name}(b: &mut Bencher) {{
+    b.iter(|| {{ parse({expr_string:?}).ok() }});
 }}
 
-"##,
-                test_fn_name, expr_string
+"##
             )
             .as_bytes(),
         )
@@ -182,19 +181,18 @@ fn {}(b: &mut Bencher) {{
 
     // Create the interpreter benchmark if "interpret" or "full"
     if bench_type == "interpret" || bench_type == "full" {
-        let test_fn_name = format!("{}_interpret", fn_suffix);
+        let test_fn_name = format!("{fn_suffix}_interpret");
         f.write_all(
             format!(
                 r##"
 
-fn {}(b: &mut Bencher) {{
-    let data = Rcvar::new(Variable::from_json({:?}).expect("Invalid JSON given"));
-    let expr = compile({:?}).unwrap();
+fn {test_fn_name}(b: &mut Bencher) {{
+    let data = Rcvar::new(Variable::from_json({given_string:?}).expect("Invalid JSON given"));
+    let expr = compile({expr_string:?}).unwrap();
     b.iter(|| {{ expr.search(&data).ok() }});
 }}
 
-"##,
-                test_fn_name, given_string, expr_string
+"##
             )
             .as_bytes(),
         )
@@ -204,18 +202,17 @@ fn {}(b: &mut Bencher) {{
 
     // Create the "full" benchmark if "full"
     if bench_type == "full" {
-        let test_fn_name = format!("{}_full", fn_suffix);
+        let test_fn_name = format!("{fn_suffix}_full");
         f.write_all(
             format!(
                 r##"
 
-fn {}(b: &mut Bencher) {{
-    let data = Rcvar::new(Variable::from_json({:?}).expect("Invalid JSON given"));
-    b.iter(|| {{ compile({:?}).unwrap().search(&data).ok() }});
+fn {test_fn_name}(b: &mut Bencher) {{
+    let data = Rcvar::new(Variable::from_json({given_string:?}).expect("Invalid JSON given"));
+    b.iter(|| {{ compile({expr_string:?}).unwrap().search(&data).ok() }});
 }}
 
-"##,
-                test_fn_name, given_string, expr_string
+"##
             )
             .as_bytes(),
         )
@@ -240,14 +237,13 @@ fn generate_test(
         format!(
             r##"
 #[test]
-fn test_{}() {{
-    let case: TestCase = TestCase::from_str({:?}).unwrap();
-    let data = Rcvar::new(Variable::from_json({:?}).unwrap());
-    case.assert({:?}, data).unwrap();
+fn test_{fn_suffix}() {{
+    let case: TestCase = TestCase::from_str({case_string:?}).unwrap();
+    let data = Rcvar::new(Variable::from_json({given_string:?}).unwrap());
+    case.assert({filename:?}, data).unwrap();
 }}
 
-"##,
-            fn_suffix, case_string, given_string, filename
+"##
         )
         .as_bytes(),
     )

@@ -7,7 +7,7 @@
 use std::collections::VecDeque;
 
 use crate::ast::{Ast, Comparator, KeyValuePair};
-use crate::lexer::{tokenize, Token, TokenTuple};
+use crate::lexer::{Token, TokenTuple, tokenize};
 use crate::{ErrorReason, JmespathError};
 
 /// Result of parsing an expression.
@@ -73,7 +73,7 @@ impl<'a> Parser<'a> {
     #[inline]
     fn peek(&self, lookahead: usize) -> &Token {
         match self.token_queue.get(lookahead) {
-            Some(&(_, ref t)) => t,
+            Some((_, t)) => t,
             None => &self.eof_token,
         }
     }
@@ -82,9 +82,9 @@ impl<'a> Parser<'a> {
     fn err(&self, current_token: &Token, error_msg: &str, is_peek: bool) -> JmespathError {
         let mut actual_pos = self.offset;
         let mut buff = error_msg.to_string();
-        buff.push_str(&format!(" -- found {:?}", current_token));
+        buff.push_str(&format!(" -- found {current_token:?}"));
         if is_peek {
-            if let Some(&(p, _)) = self.token_queue.get(0) {
+            if let Some(&(p, _)) = self.token_queue.front() {
                 actual_pos = p;
             }
         }
@@ -179,7 +179,6 @@ impl<'a> Parser<'a> {
                     self.advance();
                     self.parse_wildcard_values(left)
                 } else {
-                    let offset = offset;
                     let rhs = self.parse_dot(t.lbp())?;
                     Ok(Ast::Subexpr {
                         offset,
@@ -205,7 +204,6 @@ impl<'a> Parser<'a> {
                 }
             }
             t @ Token::Or => {
-                let offset = offset;
                 let rhs = self.expr(t.lbp())?;
                 Ok(Ast::Or {
                     offset,
@@ -214,7 +212,6 @@ impl<'a> Parser<'a> {
                 })
             }
             t @ Token::And => {
-                let offset = offset;
                 let rhs = self.expr(t.lbp())?;
                 Ok(Ast::And {
                     offset,
@@ -223,7 +220,6 @@ impl<'a> Parser<'a> {
                 })
             }
             t @ Token::Pipe => {
-                let offset = offset;
                 let rhs = self.expr(t.lbp())?;
                 Ok(Ast::Subexpr {
                     offset,

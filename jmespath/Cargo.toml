@@ -1,6 +1,6 @@
 [package]
 name = "jmespath"
-version = "0.3.0"
+version = "0.4.0"
 authors = ["Michael Dowling <mtdowling@gmail.com>"]
 description = "Rust implementation of JMESPath, a query language for JSON"
 readme = "../README.md"
@@ -10,12 +10,11 @@ repository = "https://github.com/jmespath/jmespath.rs"
 documentation = "https://docs.rs/jmespath/"
 license = "MIT"
 build = "build.rs"
-edition = "2018"
+edition = "2024"
 
 [dependencies]
 serde = { version = "1", features = ["rc"] }
 serde_json = "1"
-lazy_static = "1.4"
 
 [build-dependencies]
 serde_json = "1"

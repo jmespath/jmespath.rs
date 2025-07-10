@@ -4,7 +4,7 @@ use std::cmp::{max, min};
 use std::collections::BTreeMap;
 use std::fmt;
 
-use crate::interpreter::{interpret, SearchResult};
+use crate::interpreter::{SearchResult, interpret};
 use crate::variable::{JmespathType, Variable};
 use crate::{Context, ErrorReason, JmespathError, Rcvar, RuntimeError};
 use serde_json::Number;
@@ -70,14 +70,14 @@ impl fmt::Display for ArgumentType {
             Object => write!(fmt, "object"),
             Null => write!(fmt, "null"),
             Expref => write!(fmt, "expref"),
-            TypedArray(ref t) => write!(fmt, "array[{}]", t),
+            TypedArray(ref t) => write!(fmt, "array[{t}]"),
             Union(ref types) => {
                 let str_value = types
                     .iter()
                     .map(|t| t.to_string())
                     .collect::<Vec<_>>()
                     .join("|");
-                write!(fmt, "{}", str_value)
+                write!(fmt, "{str_value}")
             }
         }
     }
@@ -97,20 +97,19 @@ macro_rules! arg {
     ($($x:ident) | *) => (ArgumentType::Union(vec![$(arg!($x)), *]));
 }
 
+type InvokedFunction = dyn Fn(&[Rcvar], &mut Context<'_>) -> SearchResult + Sync + Send;
+
 /// Custom function that allows the creation of runtime functions with signature validation.
 pub struct CustomFunction {
     /// Signature used to validate the function.
     signature: Signature,
     /// Function to invoke after validating the signature.
-    f: Box<dyn Fn(&[Rcvar], &mut Context<'_>) -> SearchResult + Sync + Send>,
+    f: Box<InvokedFunction>,
 }
 
 impl CustomFunction {
     /// Creates a new custom function.
-    pub fn new(
-        fn_signature: Signature,
-        f: Box<dyn Fn(&[Rcvar], &mut Context<'_>) -> SearchResult + Sync + Send>,
-    ) -> CustomFunction {
+    pub fn new(fn_signature: Signature, f: Box<InvokedFunction>) -> CustomFunction {
         CustomFunction {
             signature: fn_signature,
             f,
@@ -535,10 +534,10 @@ impl Function for LengthFn {
     fn evaluate(&self, args: &[Rcvar], ctx: &mut Context<'_>) -> SearchResult {
         self.signature.validate(args, ctx)?;
         match args[0].as_ref() {
-            Variable::Array(ref a) => Ok(Rcvar::new(Variable::Number(Number::from(a.len())))),
-            Variable::Object(ref m) => Ok(Rcvar::new(Variable::Number(Number::from(m.len())))),
+            Variable::Array(a) => Ok(Rcvar::new(Variable::Number(Number::from(a.len())))),
+            Variable::Object(m) => Ok(Rcvar::new(Variable::Number(Number::from(m.len())))),
             // Note that we need to count the code points not the number of unicode characters
-            Variable::String(ref s) => Ok(Rcvar::new(Variable::Number(Number::from(
+            Variable::String(s) => Ok(Rcvar::new(Variable::Number(Number::from(
                 s.chars().count(),
             )))),
             _ => unreachable!(),
@@ -746,7 +745,7 @@ impl Function for SortByFn {
                 return Err(JmespathError::from_ctx(
                     ctx,
                     ErrorReason::Runtime(RuntimeError::InvalidReturnType {
-                        expected: format!("expression->{}", first_type),
+                        expected: format!("expression->{first_type}"),
                         actual: mapped_value.get_type().to_string(),
                         position: 1,
                         invocation,

@@ -2,9 +2,9 @@
 
 use std::collections::BTreeMap;
 
+use super::Context;
 use super::ast::Ast;
 use super::variable::Variable;
-use super::Context;
 use super::{ErrorReason, JmespathError, Rcvar, RuntimeError};
 
 /// Result of searching data using a JMESPath Expression.
@@ -75,7 +75,7 @@ pub fn interpret(data: &Rcvar, node: &Ast, ctx: &mut Context<'_>) -> SearchResul
             let left = interpret(data, lhs, ctx)?;
             let right = interpret(data, rhs, ctx)?;
             Ok(left
-                .compare(comparator, &*right)
+                .compare(comparator, &right)
                 .map_or(Rcvar::new(Variable::Null), |result| {
                     Rcvar::new(Variable::Bool(result))
                 }))

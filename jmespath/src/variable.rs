@@ -4,15 +4,15 @@ use serde::de::IntoDeserializer;
 use serde::*;
 use serde_json::error::Error;
 use serde_json::value::Value;
-use std::cmp::{max, Ordering};
+use std::cmp::{Ordering, max};
 use std::collections::BTreeMap;
 use std::fmt;
 use std::iter::Iterator;
 use std::string::ToString;
 use std::vec;
 
-use crate::ast::{Ast, Comparator};
 use crate::ToJmespath;
+use crate::ast::{Ast, Comparator};
 use crate::{JmespathError, Rcvar};
 use serde_json::Number;
 use std::convert::TryFrom;
@@ -98,11 +98,11 @@ impl PartialEq for Variable {
                         false
                     }
                 }
-                Variable::String(ref s) => Some(s) == other.as_string(),
+                Variable::String(s) => Some(s) == other.as_string(),
                 Variable::Bool(b) => Some(*b) == other.as_boolean(),
-                Variable::Array(ref a) => Some(a) == other.as_array(),
-                Variable::Object(ref o) => Some(o) == other.as_object(),
-                Variable::Expref(ref e) => Some(e) == other.as_expref(),
+                Variable::Array(a) => Some(a) == other.as_array(),
+                Variable::Object(o) => Some(o) == other.as_object(),
+                Variable::Expref(e) => Some(e) == other.as_expref(),
                 Variable::Null => true,
             }
         }
@@ -170,7 +170,7 @@ impl fmt::Display for Variable {
             fmt,
             "{}",
             serde_json::to_string(self)
-                .unwrap_or_else(|err| format!("unable to stringify Variable. Err: {}", err))
+                .unwrap_or_else(|err| format!("unable to stringify Variable. Err: {err}"))
         )
     }
 }
@@ -282,7 +282,7 @@ impl Variable {
     /// Returns None otherwise.
     pub fn as_string(&self) -> Option<&String> {
         match self {
-            Variable::String(ref s) => Some(s),
+            Variable::String(s) => Some(s),
             _ => None,
         }
     }
@@ -348,7 +348,7 @@ impl Variable {
     /// Otherwise, returns Null.
     #[inline]
     pub fn get_field(&self, key: &str) -> Rcvar {
-        if let Variable::Object(ref map) = self {
+        if let Variable::Object(map) = self {
             if let Some(result) = map.get(key) {
                 return result.clone();
             }
@@ -359,7 +359,7 @@ impl Variable {
     /// If the value is an array, then gets an array value by index. Otherwise returns Null.
     #[inline]
     pub fn get_index(&self, index: usize) -> Rcvar {
-        if let Variable::Array(ref array) = self {
+        if let Variable::Array(array) = self {
             if let Some(result) = array.get(index) {
                 return result.clone();
             }
@@ -373,7 +373,7 @@ impl Variable {
     /// The formula for determining the index position is length - index (i.e., an
     /// index of 0 or 1 is treated as the end of the array).
     pub fn get_negative_index(&self, index: usize) -> Rcvar {
-        if let Variable::Array(ref array) = self {
+        if let Variable::Array(array) = self {
             let adjusted_index = max(index, 1);
             if array.len() >= adjusted_index {
                 return array[array.len() - adjusted_index].clone();
@@ -386,9 +386,9 @@ impl Variable {
     pub fn is_truthy(&self) -> bool {
         match self {
             Variable::Bool(b) => *b,
-            Variable::String(ref s) => !s.is_empty(),
-            Variable::Array(ref a) => !a.is_empty(),
-            Variable::Object(ref o) => !o.is_empty(),
+            Variable::String(s) => !s.is_empty(),
+            Variable::Array(a) => !a.is_empty(),
+            Variable::Object(o) => !o.is_empty(),
             Variable::Number(_) => true,
             _ => false,
         }
@@ -642,7 +642,7 @@ impl<'de> de::Deserializer<'de> for Variable {
                 iter: v.into_iter(),
                 value: None,
             }),
-            Variable::Expref(v) => visitor.visit_string(format!("<expression: {:?}>", v)),
+            Variable::Expref(v) => visitor.visit_string(format!("<expression: {v:?}>")),
         }
     }
 
@@ -676,7 +676,7 @@ impl<'de> de::Deserializer<'de> for Variable {
                         return Err(de::Error::invalid_value(
                             de::Unexpected::Map,
                             &"map with a single key",
-                        ))
+                        ));
                     }
                 };
                 // enums are encoded in json as maps with a single key:value pair
@@ -935,10 +935,10 @@ impl ser::Serialize for Variable {
             Variable::Null => serializer.serialize_unit(),
             Variable::Bool(v) => serializer.serialize_bool(*v),
             Variable::Number(v) => v.serialize(serializer),
-            Variable::String(ref v) => serializer.serialize_str(v),
-            Variable::Array(ref v) => v.serialize(serializer),
-            Variable::Object(ref v) => v.serialize(serializer),
-            Variable::Expref(ref e) => serializer.serialize_str(&format!("<expression: {:?}>", e)),
+            Variable::String(v) => serializer.serialize_str(v),
+            Variable::Array(v) => v.serialize(serializer),
+            Variable::Object(v) => v.serialize(serializer),
+            Variable::Expref(e) => serializer.serialize_str(&format!("<expression: {e:?}>")),
         }
     }
 }
@@ -1075,29 +1075,23 @@ impl ser::Serializer for Serializer {
     }
 
     #[inline]
-    fn serialize_newtype_struct<T: ?Sized>(
+    fn serialize_newtype_struct<T: ser::Serialize + ?Sized>(
         self,
         _name: &'static str,
         value: &T,
-    ) -> Result<Variable, Error>
-    where
-        T: ser::Serialize,
-    {
+    ) -> Result<Variable, Error> {
         value.serialize(self)
     }
 
-    fn serialize_newtype_variant<T: ?Sized>(
+    fn serialize_newtype_variant<T: ser::Serialize + ?Sized>(
         self,
         _name: &'static str,
         _variant_index: u32,
         variant: &'static str,
         value: &T,
-    ) -> Result<Variable, Error>
-    where
-        T: ser::Serialize,
-    {
+    ) -> Result<Variable, Error> {
         let mut values = BTreeMap::new();
-        values.insert(String::from(variant), Rcvar::new(to_variable(&value)?));
+        values.insert(String::from(variant), Rcvar::new(to_variable(value)?));
         Ok(Variable::Object(values))
     }
 
@@ -1107,10 +1101,7 @@ impl ser::Serializer for Serializer {
     }
 
     #[inline]
-    fn serialize_some<V: ?Sized>(self, value: &V) -> Result<Variable, Error>
-    where
-        V: ser::Serialize,
-    {
+    fn serialize_some<V: ser::Serialize + ?Sized>(self, value: &V) -> Result<Variable, Error> {
         value.serialize(self)
     }
 
@@ -1168,10 +1159,7 @@ impl ser::SerializeSeq for SeqState {
     type Ok = Variable;
     type Error = Error;
 
-    fn serialize_element<T: ?Sized>(&mut self, value: &T) -> Result<(), Error>
-    where
-        T: ser::Serialize,
-    {
+    fn serialize_element<T: ser::Serialize + ?Sized>(&mut self, value: &T) -> Result<(), Error> {
         self.0.push(Rcvar::new(to_variable(value)?));
         Ok(())
     }
@@ -1185,10 +1173,7 @@ impl ser::SerializeTuple for SeqState {
     type Ok = Variable;
     type Error = Error;
 
-    fn serialize_element<T: ?Sized>(&mut self, value: &T) -> Result<(), Error>
-    where
-        T: ser::Serialize,
-    {
+    fn serialize_element<T: ser::Serialize + ?Sized>(&mut self, value: &T) -> Result<(), Error> {
         ser::SerializeSeq::serialize_element(self, value)
     }
 
@@ -1201,10 +1186,7 @@ impl ser::SerializeTupleStruct for SeqState {
     type Ok = Variable;
     type Error = Error;
 
-    fn serialize_field<T: ?Sized>(&mut self, value: &T) -> Result<(), Error>
-    where
-        T: ser::Serialize,
-    {
+    fn serialize_field<T: ser::Serialize + ?Sized>(&mut self, value: &T) -> Result<(), Error> {
         ser::SerializeSeq::serialize_element(self, value)
     }
 
@@ -1217,11 +1199,8 @@ impl ser::SerializeTupleVariant for TupleVariantState {
     type Ok = Variable;
     type Error = Error;
 
-    fn serialize_field<T: ?Sized>(&mut self, value: &T) -> Result<(), Error>
-    where
-        T: ser::Serialize,
-    {
-        self.vec.push(Rcvar::new(to_variable(&value)?));
+    fn serialize_field<T: ser::Serialize + ?Sized>(&mut self, value: &T) -> Result<(), Error> {
+        self.vec.push(Rcvar::new(to_variable(value)?));
         Ok(())
     }
 
@@ -1236,10 +1215,7 @@ impl ser::SerializeMap for MapState {
     type Ok = Variable;
     type Error = Error;
 
-    fn serialize_key<T: ?Sized>(&mut self, key: &T) -> Result<(), Error>
-    where
-        T: ser::Serialize,
-    {
+    fn serialize_key<T: ser::Serialize + ?Sized>(&mut self, key: &T) -> Result<(), Error> {
         match to_variable(key)? {
             Variable::String(s) => self.next_key = Some(s),
             _ => return Err(de::Error::custom("KeyMustBeAString")),
@@ -1247,10 +1223,7 @@ impl ser::SerializeMap for MapState {
         Ok(())
     }
 
-    fn serialize_value<T: ?Sized>(&mut self, value: &T) -> Result<(), Error>
-    where
-        T: ser::Serialize,
-    {
+    fn serialize_value<T: ser::Serialize + ?Sized>(&mut self, value: &T) -> Result<(), Error> {
         let key = self
             .next_key
             .take()
@@ -1268,10 +1241,11 @@ impl ser::SerializeStruct for MapState {
     type Ok = Variable;
     type Error = Error;
 
-    fn serialize_field<T: ?Sized>(&mut self, key: &'static str, value: &T) -> Result<(), Error>
-    where
-        T: ser::Serialize,
-    {
+    fn serialize_field<T: ser::Serialize + ?Sized>(
+        &mut self,
+        key: &'static str,
+        value: &T,
+    ) -> Result<(), Error> {
         ser::SerializeMap::serialize_key(self, key)?;
         ser::SerializeMap::serialize_value(self, value)
     }
@@ -1285,10 +1259,11 @@ impl ser::SerializeStructVariant for StructVariantState {
     type Ok = Variable;
     type Error = Error;
 
-    fn serialize_field<T: ?Sized>(&mut self, key: &'static str, value: &T) -> Result<(), Error>
-    where
-        T: ser::Serialize,
-    {
+    fn serialize_field<T: ser::Serialize + ?Sized>(
+        &mut self,
+        key: &'static str,
+        value: &T,
+    ) -> Result<(), Error> {
         self.map
             .insert(String::from(key), Rcvar::new(to_variable(value)?));
         Ok(())
@@ -1304,8 +1279,8 @@ impl ser::SerializeStructVariant for StructVariantState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{Ast, Comparator};
     use crate::Rcvar;
+    use crate::ast::{Ast, Comparator};
     use serde_json::{self, Number, Value};
     use std::collections::BTreeMap;
 
@@ -1322,13 +1297,13 @@ mod tests {
     fn test_determines_types() {
         assert_eq!(
             JmespathType::Object,
-            Variable::from_json(&"{\"foo\": \"bar\"}")
+            Variable::from_json("{\"foo\": \"bar\"}")
                 .unwrap()
                 .get_type()
         );
         assert_eq!(
             JmespathType::Array,
-            Variable::from_json(&"[\"foo\"]").unwrap().get_type()
+            Variable::from_json("[\"foo\"]").unwrap().get_type()
         );
         assert_eq!(JmespathType::Null, Variable::Null.get_type());
         assert_eq!(JmespathType::Boolean, Variable::Bool(true).get_type());
@@ -1344,28 +1319,21 @@ mod tests {
 
     #[test]
     fn test_is_truthy() {
-        assert_eq!(
-            true,
-            Variable::from_json(&"{\"foo\": \"bar\"}")
+        assert!(
+            Variable::from_json("{\"foo\": \"bar\"}")
                 .unwrap()
                 .is_truthy()
         );
-        assert_eq!(false, Variable::from_json(&"{}").unwrap().is_truthy());
-        assert_eq!(true, Variable::from_json(&"[\"foo\"]").unwrap().is_truthy());
-        assert_eq!(false, Variable::from_json(&"[]").unwrap().is_truthy());
-        assert_eq!(false, Variable::Null.is_truthy());
-        assert_eq!(true, Variable::Bool(true).is_truthy());
-        assert_eq!(false, Variable::Bool(false).is_truthy());
-        assert_eq!(true, Variable::String("foo".to_string()).is_truthy());
-        assert_eq!(false, Variable::String("".to_string()).is_truthy());
-        assert_eq!(
-            true,
-            Variable::Number(Number::from_f64(10.0).unwrap()).is_truthy()
-        );
-        assert_eq!(
-            true,
-            Variable::Number(Number::from_f64(0.0).unwrap()).is_truthy()
-        );
+        assert!(!Variable::from_json("{}").unwrap().is_truthy());
+        assert!(Variable::from_json("[\"foo\"]").unwrap().is_truthy());
+        assert!(!Variable::from_json("[]").unwrap().is_truthy());
+        assert!(!Variable::Null.is_truthy());
+        assert!(Variable::Bool(true).is_truthy());
+        assert!(!Variable::Bool(false).is_truthy());
+        assert!(Variable::String("foo".to_string()).is_truthy());
+        assert!(!Variable::String("".to_string()).is_truthy());
+        assert!(Variable::Number(Number::from_f64(10.0).unwrap()).is_truthy());
+        assert!(Variable::Number(Number::from_f64(0.0).unwrap()).is_truthy());
     }
 
     #[test]
@@ -1411,8 +1379,8 @@ mod tests {
 
     #[test]
     fn determines_if_null() {
-        assert_eq!(false, Variable::Bool(true).is_null());
-        assert_eq!(true, Variable::Null.is_null());
+        assert!(!Variable::Bool(true).is_null());
+        assert!(Variable::Null.is_null());
     }
 
     #[test]
@@ -1423,8 +1391,8 @@ mod tests {
 
     #[test]
     fn determines_if_boolean() {
-        assert_eq!(true, Variable::Bool(true).is_boolean());
-        assert_eq!(false, Variable::Null.is_boolean());
+        assert!(Variable::Bool(true).is_boolean());
+        assert!(!Variable::Null.is_boolean());
     }
 
     #[test]
@@ -1435,8 +1403,8 @@ mod tests {
 
     #[test]
     fn determines_if_string() {
-        assert_eq!(false, Variable::Bool(true).is_string());
-        assert_eq!(true, Variable::String("foo".to_string()).is_string());
+        assert!(!Variable::Bool(true).is_string());
+        assert!(Variable::String("foo".to_string()).is_string());
     }
 
     #[test]
@@ -1488,10 +1456,7 @@ mod tests {
 
     #[test]
     fn test_is_expref() {
-        assert_eq!(
-            true,
-            Variable::Expref(Ast::Identity { offset: 0 }).is_expref()
-        );
+        assert!(Variable::Expref(Ast::Identity { offset: 0 }).is_expref());
         assert_eq!(
             &Ast::Identity { offset: 0 },
             Variable::Expref(Ast::Identity { offset: 0 })

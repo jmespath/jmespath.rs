@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
-use crate::functions::*;
-use crate::parse;
 use crate::Expression;
 use crate::JmespathError;
+use crate::functions::*;
+use crate::parse;
 
 /// Compiles JMESPath expressions.
 ///
