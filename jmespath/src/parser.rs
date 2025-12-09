@@ -83,11 +83,10 @@ impl<'a> Parser<'a> {
         let mut actual_pos = self.offset;
         let mut buff = error_msg.to_string();
         buff.push_str(&format!(" -- found {current_token:?}"));
-        if is_peek {
-            if let Some(&(p, _)) = self.token_queue.front() {
+        if is_peek
+            && let Some(&(p, _)) = self.token_queue.front() {
                 actual_pos = p;
             }
-        }
         JmespathError::new(self.expr, actual_pos, ErrorReason::Parse(buff))
     }
 

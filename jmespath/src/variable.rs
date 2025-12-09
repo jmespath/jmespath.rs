@@ -348,22 +348,20 @@ impl Variable {
     /// Otherwise, returns Null.
     #[inline]
     pub fn get_field(&self, key: &str) -> Rcvar {
-        if let Variable::Object(map) = self {
-            if let Some(result) = map.get(key) {
+        if let Variable::Object(map) = self
+            && let Some(result) = map.get(key) {
                 return result.clone();
             }
-        }
         Rcvar::new(Variable::Null)
     }
 
     /// If the value is an array, then gets an array value by index. Otherwise returns Null.
     #[inline]
     pub fn get_index(&self, index: usize) -> Rcvar {
-        if let Variable::Array(array) = self {
-            if let Some(result) = array.get(index) {
+        if let Variable::Array(array) = self
+            && let Some(result) = array.get(index) {
                 return result.clone();
             }
-        }
         Rcvar::new(Variable::Null)
     }
 
