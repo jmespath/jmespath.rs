@@ -111,8 +111,7 @@ use std::fmt;
 use std::sync::LazyLock;
 
 use crate::ast::Ast;
-use crate::interpreter::SearchResult;
-pub use crate::interpreter::interpret;
+pub use crate::interpreter::{SearchResult, interpret};
 
 mod errors;
 mod interpreter;
