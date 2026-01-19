@@ -1,5 +1,10 @@
 # CHANGELOG
 
+## 0.5.0 - 2026-01-20
+
+* Moved to a Cargo workspace
+* Added `interpret` as a public function: https://github.com/jmespath/jmespath.rs/pull/60
+
 ## 0.4.0 - 2025-07-10
 
 * Upgrade to Rust 2024 edition
