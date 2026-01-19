@@ -6,9 +6,6 @@ on:
   pull_request:
     branches: [master]
 
-env:
-  CARGO_TERM_COLOR: always
-
 jobs:
   test:
     name: Test (${{ matrix.rust }})
@@ -19,88 +16,72 @@ jobs:
         rust: [stable, beta, nightly]
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Install Rust ${{ matrix.rust }}
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.rust }}
-      
+
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            jmespath
-            jmespath-cli
-      
-      - name: Build jmespath
-        run: cargo build --manifest-path jmespath/Cargo.toml
-      
+
+      - name: Check jmespath
+        run: cargo check
+
       - name: Test jmespath
-        run: cargo test --manifest-path jmespath/Cargo.toml
-      
+        run: cargo test
+
       - name: Test jmespath with specialized feature (nightly only)
         if: matrix.rust == 'nightly'
-        run: cargo test --manifest-path jmespath/Cargo.toml --features specialized
-      
-      - name: Build jmespath-cli
-        run: cargo build --manifest-path jmespath-cli/Cargo.toml
-      
-      - name: Test jmespath-cli
-        run: cargo test --manifest-path jmespath-cli/Cargo.toml
+        run: cargo +nightly test --features specialized
 
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-      
+
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            jmespath
-            jmespath-cli
-      
+
       - name: Run clippy on jmespath
-        run: cargo clippy --manifest-path jmespath/Cargo.toml -- -D warnings
-      
+        run: cargo clippy -- -D warnings
+
       - name: Run clippy on jmespath-cli
-        run: cargo clippy --manifest-path jmespath-cli/Cargo.toml -- -D warnings
+        run: cargo clippy -- -D warnings
 
   fmt:
     name: Rustfmt
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-      
+
       - name: Check formatting
-        run: |
-          cargo fmt --manifest-path jmespath/Cargo.toml -- --check
-          cargo fmt --manifest-path jmespath-cli/Cargo.toml -- --check
+        run: cargo fmt -- --check
 
   bench:
     name: Benchmarks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Install Rust nightly
         uses: dtolnay/rust-toolchain@nightly
-      
+
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: jmespath
-      
+
       - name: Run benchmarks
-        run: cargo bench --manifest-path jmespath/Cargo.toml --no-run
+        run: cargo bench
