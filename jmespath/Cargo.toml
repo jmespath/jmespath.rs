@@ -36,3 +36,7 @@ sync = []
 # however at time of writing it is unstable & so requires a nightly compiler.
 # See https://github.com/rust-lang/rust/issues/31844 for the latest status.
 specialized = []
+# `let-expr` enables JEP-18 lexical scoping with let expressions.
+# Syntax: let $var = expr in body
+# See: https://github.com/jmespath/jmespath.jep/blob/main/proposals/0018-lexical-scope.md
+let-expr = []
