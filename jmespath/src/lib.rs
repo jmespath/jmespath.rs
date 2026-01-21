@@ -91,6 +91,38 @@
 //! let expr = runtime.compile("identity('bar')").unwrap();
 //! assert_eq!("bar", expr.search(()).unwrap().as_string().unwrap());
 //! ```
+//!
+//! # Raw String Literals (JEP-12)
+//!
+//! Raw string literals are delimited by single quotes and do not interpret
+//! escape sequences, making them useful for strings containing special characters.
+//! This implementation follows [JEP-12](https://github.com/jmespath/jmespath.jep/blob/main/proposals/0012-raw-string-literals.md).
+//!
+//! ## Escape Handling
+//!
+//! - `\'` produces a literal single quote (to avoid delimiter collision)
+//! - All other backslashes are preserved literally
+//!
+//! ## Examples
+//!
+//! ```
+//! use jmespath;
+//!
+//! // Raw strings preserve backslashes literally
+//! let expr = jmespath::compile(r#"'foo\nbar'"#).unwrap();
+//! let result = expr.search(()).unwrap();
+//! assert_eq!(r"foo\nbar", result.as_string().unwrap());
+//!
+//! // Use \' to include a single quote in the string
+//! let expr = jmespath::compile(r#"'it\'s working'"#).unwrap();
+//! let result = expr.search(()).unwrap();
+//! assert_eq!("it's working", result.as_string().unwrap());
+//!
+//! // Double backslashes are preserved as-is (both backslashes kept)
+//! let expr = jmespath::compile(r#"'C:\\Users\\name'"#).unwrap();
+//! let result = expr.search(()).unwrap();
+//! assert_eq!(r"C:\\Users\\name", result.as_string().unwrap());
+//! ```
 
 #![cfg_attr(feature = "specialized", feature(specialization))]
 
