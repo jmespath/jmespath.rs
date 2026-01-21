@@ -102,6 +102,9 @@ impl<'a> Parser<'a> {
         let (offset, token) = self.advance_with_pos();
         match token {
             Token::At => Ok(Ast::Identity { offset }),
+            // Check for "let" keyword (contextual, not reserved)
+            #[cfg(feature = "let-expr")]
+            Token::Identifier(ref value) if value == "let" => self.parse_let(offset),
             Token::Identifier(value) => Ok(Ast::Field {
                 name: value,
                 offset,
@@ -164,6 +167,8 @@ impl<'a> Parser<'a> {
                     ref t => Err(self.err(t, "Expected ')' to close '('", false)),
                 }
             }
+            #[cfg(feature = "let-expr")]
+            Token::Variable(name) => Ok(Ast::VariableRef { name, offset }),
             ref t => Err(self.err(t, "Unexpected nud token", false)),
         }
     }
@@ -243,6 +248,109 @@ impl<'a> Parser<'a> {
             Token::Lte => self.parse_comparator(Comparator::LessThanEqual, left),
             ref t => Err(self.err(t, "Unexpected led token", false)),
         }
+    }
+
+    /// Parses a let expression per JEP-18 (Lexical Scope).
+    ///
+    /// Syntax: let $x = expr1, $y = expr2 in body
+    /// - One or more variable bindings: $name = expression (comma separated)
+    /// - "in" keyword followed by body expression
+    #[cfg(feature = "let-expr")]
+    fn parse_let(&mut self, offset: usize) -> ParseResult {
+        let mut bindings = vec![];
+
+        // Parse at least one binding
+        loop {
+            // Expect a variable
+            match self.peek(0) {
+                Token::Variable(_) => {
+                    let var_name = match self.advance() {
+                        Token::Variable(name) => name,
+                        _ => unreachable!(),
+                    };
+
+                    // Expect '='
+                    match self.advance() {
+                        Token::Assign => {}
+                        ref t => {
+                            return Err(self.err(
+                                t,
+                                "Expected '=' after variable in let binding",
+                                false,
+                            ));
+                        }
+                    }
+
+                    // Parse the value expression (stop at comma or 'in')
+                    let value = self.parse_let_binding_expr()?;
+                    bindings.push((var_name, value));
+
+                    // Check for comma (more bindings) or 'in' (body)
+                    match self.peek(0) {
+                        Token::Comma => {
+                            self.advance(); // consume comma, continue to next binding
+                        }
+                        Token::Identifier(s) if s == "in" => {
+                            break; // done with bindings
+                        }
+                        t => {
+                            return Err(self.err(
+                                t,
+                                "Expected ',' or 'in' after let binding",
+                                true,
+                            ));
+                        }
+                    }
+                }
+                t => {
+                    return Err(self.err(t, "Expected variable binding ($name) after 'let'", true));
+                }
+            }
+        }
+
+        // Consume 'in' keyword
+        match self.advance() {
+            Token::Identifier(s) if s == "in" => {}
+            ref t => {
+                return Err(self.err(t, "Expected 'in' keyword after let bindings", false));
+            }
+        }
+
+        // Parse the body expression
+        let body = self.expr(0)?;
+
+        Ok(Ast::Let {
+            offset,
+            bindings,
+            expr: Box::new(body),
+        })
+    }
+
+    /// Parse an expression for a let binding value.
+    /// Stops at comma or 'in' keyword to allow proper binding separation.
+    #[cfg(feature = "let-expr")]
+    fn parse_let_binding_expr(&mut self) -> ParseResult {
+        // We need to parse an expression but stop before comma or 'in'
+        // Use a lower binding power approach
+        self.parse_let_binding_expr_bp(0)
+    }
+
+    #[cfg(feature = "let-expr")]
+    fn parse_let_binding_expr_bp(&mut self, rbp: usize) -> ParseResult {
+        let mut left = self.nud();
+        loop {
+            // Stop if we see comma or 'in'
+            match self.peek(0) {
+                Token::Comma => break,
+                Token::Identifier(s) if s == "in" => break,
+                _ => {}
+            }
+            if rbp >= self.peek(0).lbp() {
+                break;
+            }
+            left = self.led(Box::new(left?));
+        }
+        left
     }
 
     fn parse_kvp(&mut self) -> Result<KeyValuePair, JmespathError> {

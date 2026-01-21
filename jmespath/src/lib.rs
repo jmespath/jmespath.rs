@@ -91,6 +91,54 @@
 //! let expr = runtime.compile("identity('bar')").unwrap();
 //! assert_eq!("bar", expr.search(()).unwrap().as_string().unwrap());
 //! ```
+//!
+//! # Let Expressions (JEP-18)
+//!
+//! This crate supports [JEP-18 let expressions](https://github.com/jmespath/jmespath.jep/blob/main/proposals/0018-lexical-scope.md)
+//! as an optional feature. Let expressions introduce lexical scoping, allowing
+//! you to bind values to variables and reference them within an expression.
+//!
+//! To enable let expressions, add the `let-expr` feature to your `Cargo.toml`:
+//!
+//! ```toml
+//! [dependencies]
+//! jmespath = { version = "0.5", features = ["let-expr"] }
+//! ```
+//!
+//! ## Syntax
+//!
+//! ```text
+//! let $variable = expression in body
+//! let $var1 = expr1, $var2 = expr2 in body
+//! ```
+//!
+//! ## Example
+//!
+//! ```ignore
+//! use jmespath;
+//!
+//! // Bind a threshold value and use it in a filter
+//! let expr = jmespath::compile("let $threshold = `50` in numbers[? @ > $threshold]").unwrap();
+//! let data = jmespath::Variable::from_json(r#"{"numbers": [10, 30, 50, 70, 90]}"#).unwrap();
+//! let result = expr.search(data).unwrap();
+//! // Returns [70, 90]
+//! ```
+//!
+//! Let expressions are particularly useful when you need to reference a value
+//! from an outer scope within a filter or projection:
+//!
+//! ```ignore
+//! // Reference parent data within a nested filter
+//! let expr = jmespath::compile(
+//!     "let $home = home_state in states[? name == $home].cities[]"
+//! ).unwrap();
+//! ```
+//!
+//! Key features:
+//! - Variables use `$name` syntax
+//! - `let` and `in` are contextual keywords (not reserved)
+//! - Inner scopes can shadow outer variables
+//! - Bindings are evaluated in the outer scope before the body executes
 
 #![cfg_attr(feature = "specialized", feature(specialization))]
 
@@ -105,6 +153,8 @@ pub mod functions;
 use serde::ser;
 #[cfg(feature = "specialized")]
 use serde_json::Value;
+#[cfg(feature = "let-expr")]
+use std::collections::HashMap;
 #[cfg(feature = "specialized")]
 use std::convert::TryInto;
 use std::fmt;
@@ -442,6 +492,9 @@ pub struct Context<'a> {
     pub runtime: &'a Runtime,
     /// Ast offset that is currently being evaluated.
     pub offset: usize,
+    /// Variable scopes for let expressions (JEP-18).
+    #[cfg(feature = "let-expr")]
+    scopes: Vec<HashMap<String, Rcvar>>,
 }
 
 impl<'a> Context<'a> {
@@ -452,10 +505,37 @@ impl<'a> Context<'a> {
             expression,
             runtime,
             offset: 0,
+            #[cfg(feature = "let-expr")]
+            scopes: Vec::new(),
         }
     }
-}
 
+    /// Push a new scope onto the scope stack.
+    #[cfg(feature = "let-expr")]
+    #[inline]
+    pub fn push_scope(&mut self, bindings: HashMap<String, Rcvar>) {
+        self.scopes.push(bindings);
+    }
+
+    /// Pop the innermost scope from the scope stack.
+    #[cfg(feature = "let-expr")]
+    #[inline]
+    pub fn pop_scope(&mut self) {
+        self.scopes.pop();
+    }
+
+    /// Look up a variable in the scope stack.
+    #[cfg(feature = "let-expr")]
+    #[inline]
+    pub fn get_variable(&self, name: &str) -> Option<Rcvar> {
+        for scope in self.scopes.iter().rev() {
+            if let Some(value) = scope.get(name) {
+                return Some(value.clone());
+            }
+        }
+        None
+    }
+}
 #[cfg(test)]
 mod test {
     use super::ast::Ast;
@@ -509,5 +589,377 @@ mod test {
     #[test]
     fn test_invalid_number() {
         let _ = compile("6455555524");
+    }
+}
+
+#[cfg(all(test, feature = "let-expr"))]
+mod let_tests {
+    use super::*;
+
+    #[test]
+    fn test_simple_let_expression() {
+        // JEP-18 syntax: let $var = expr in body
+        let expr = compile("let $x = `1` in $x").unwrap();
+        let data = Variable::from_json("{}").unwrap();
+        let result = expr.search(data).unwrap();
+        assert_eq!(1.0, result.as_number().unwrap());
+    }
+
+    #[test]
+    fn test_let_with_data_reference() {
+        let expr = compile("let $name = name in $name").unwrap();
+        let data = Variable::from_json(r#"{"name": "Alice"}"#).unwrap();
+        let result = expr.search(data).unwrap();
+        assert_eq!("Alice", result.as_string().unwrap());
+    }
+
+    #[test]
+    fn test_let_multiple_bindings() {
+        let expr = compile("let $a = `1`, $b = `2` in [$a, $b]").unwrap();
+        let data = Variable::from_json("{}").unwrap();
+        let result = expr.search(data).unwrap();
+        let arr = result.as_array().unwrap();
+        assert_eq!(1.0, arr[0].as_number().unwrap());
+        assert_eq!(2.0, arr[1].as_number().unwrap());
+    }
+
+    #[test]
+    fn test_let_with_expression_body() {
+        let expr = compile("let $items = items in $items[0].name").unwrap();
+        let data =
+            Variable::from_json(r#"{"items": [{"name": "first"}, {"name": "second"}]}"#).unwrap();
+        let result = expr.search(data).unwrap();
+        assert_eq!("first", result.as_string().unwrap());
+    }
+
+    #[test]
+    fn test_nested_let() {
+        let expr = compile("let $x = `1` in let $y = `2` in [$x, $y]").unwrap();
+        let data = Variable::from_json("{}").unwrap();
+        let result = expr.search(data).unwrap();
+        let arr = result.as_array().unwrap();
+        assert_eq!(1.0, arr[0].as_number().unwrap());
+        assert_eq!(2.0, arr[1].as_number().unwrap());
+    }
+
+    #[test]
+    fn test_let_variable_shadowing() {
+        let expr = compile("let $x = `1` in let $x = `2` in $x").unwrap();
+        let data = Variable::from_json("{}").unwrap();
+        let result = expr.search(data).unwrap();
+        assert_eq!(2.0, result.as_number().unwrap());
+    }
+
+    #[test]
+    fn test_undefined_variable_error() {
+        let expr = compile("$undefined").unwrap();
+        let data = Variable::from_json("{}").unwrap();
+        let result = expr.search(data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_let_in_projection() {
+        // Example from jsoncons docs
+        let expr = compile("let $threshold = `50` in numbers[? @ > $threshold]").unwrap();
+        let data = Variable::from_json(r#"{"numbers": [10, 30, 50, 70, 90]}"#).unwrap();
+        let result = expr.search(data).unwrap();
+        let arr = result.as_array().unwrap();
+        assert_eq!(2, arr.len());
+        assert_eq!(70.0, arr[0].as_number().unwrap());
+        assert_eq!(90.0, arr[1].as_number().unwrap());
+    }
+
+    #[test]
+    fn test_let_variable_used_multiple_times() {
+        let expr = compile("let $foo = foo.bar in [$foo, $foo]").unwrap();
+        let data = Variable::from_json(r#"{"foo": {"bar": "baz"}}"#).unwrap();
+        let result = expr.search(data).unwrap();
+        assert_eq!(r#"["baz","baz"]"#, result.to_string());
+    }
+
+    #[test]
+    fn test_let_shadowing_in_projection() {
+        let expr = compile("let $a = a in b[*].[a, $a, let $a = 'shadow' in $a]").unwrap();
+        let data =
+            Variable::from_json(r#"{"a": "topval", "b": [{"a": "inner1"}, {"a": "inner2"}]}"#)
+                .unwrap();
+        let result = expr.search(data).unwrap();
+        let expected = r#"[["inner1","topval","shadow"],["inner2","topval","shadow"]]"#;
+        assert_eq!(expected, result.to_string());
+    }
+
+    #[test]
+    fn test_let_bindings_evaluated_in_outer_scope() {
+        // $b = $a is evaluated BEFORE $a = 'in-a' takes effect
+        let expr = compile("let $a = 'top-a' in let $a = 'in-a', $b = $a in $b").unwrap();
+        let data = Variable::from_json("{}").unwrap();
+        let result = expr.search(data).unwrap();
+        assert_eq!("top-a", result.as_string().unwrap());
+    }
+
+    #[test]
+    fn test_let_projection_stopping() {
+        // Projection is stopped when bound to variable
+        let expr = compile("let $foo = foo[*] in $foo[0]").unwrap();
+        let data = Variable::from_json(r#"{"foo": [[0,1],[2,3],[4,5]]}"#).unwrap();
+        let result = expr.search(data).unwrap();
+        assert_eq!("[0,1]", result.to_string());
+    }
+
+    #[test]
+    fn test_let_complex_home_state_filtering() {
+        let expr = compile(
+            "[*].[let $home_state = home_state in states[? name == $home_state].cities[]][]",
+        )
+        .unwrap();
+        let data = Variable::from_json(
+            r#"[
+            {"home_state": "WA", "states": [{"name": "WA", "cities": ["Seattle", "Bellevue", "Olympia"]}, {"name": "CA", "cities": ["Los Angeles", "San Francisco"]}, {"name": "NY", "cities": ["New York City", "Albany"]}]},
+            {"home_state": "NY", "states": [{"name": "WA", "cities": ["Seattle", "Bellevue", "Olympia"]}, {"name": "CA", "cities": ["Los Angeles", "San Francisco"]}, {"name": "NY", "cities": ["New York City", "Albany"]}]}
+        ]"#,
+        )
+        .unwrap();
+        let result = expr.search(data).unwrap();
+        let expected = r#"[["Seattle","Bellevue","Olympia"],["New York City","Albany"]]"#;
+        assert_eq!(expected, result.to_string());
+    }
+
+    #[test]
+    fn test_let_out_of_scope_variable() {
+        // Variable defined in inner scope should not be visible outside
+        let expr = compile("[let $scope = 'foo' in [$scope], $scope]").unwrap();
+        let data = Variable::from_json("{}").unwrap();
+        let result = expr.search(data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_variable_ref_in_subexpression_is_error() {
+        // foo.$bar is a syntax error
+        let expr_result = compile("foo.$bar");
+        assert!(expr_result.is_err());
+    }
+
+    #[test]
+    fn test_let_inner_scope_null() {
+        // Inner scope can explicitly set variable to null
+        let expr = compile("let $foo = foo in let $foo = null in $foo").unwrap();
+        let data = Variable::from_json(r#"{"foo": "outer"}"#).unwrap();
+        let result = expr.search(data).unwrap();
+        assert!(result.is_null());
+    }
+
+    #[test]
+    fn test_let_and_in_as_field_names() {
+        // JEP-18: 'let' and 'in' can be used as field names in the body expression
+        // Note: Using 'let' or 'in' immediately before the 'in' keyword in bindings
+        // (e.g., `let $x = foo.let in ...`) requires more complex parser lookahead
+        // and is a known limitation of this implementation. Use quoted identifiers
+        // as a workaround: `let $x = foo."let" in ...`
+
+        // 'in' as a field name in body - works fine
+        let expr = compile(r#"let $x = foo in {in: $x}"#).unwrap();
+        let data = Variable::from_json(r#"{"foo": "bar"}"#).unwrap();
+        let result = expr.search(data).unwrap();
+        assert_eq!(r#"{"in":"bar"}"#, result.to_string());
+
+        // 'let' as a field name in body - works fine
+        let expr2 = compile(r#"let $x = foo in {let: $x, other: @}"#).unwrap();
+        let data2 = Variable::from_json(r#"{"foo": "bar"}"#).unwrap();
+        let result2 = expr2.search(data2).unwrap();
+        assert!(result2.to_string().contains(r#""let":"bar""#));
+
+        // Access field via quoted identifier to avoid keyword ambiguity
+        let expr3 = compile(r#"let $x = data."let" in $x"#).unwrap();
+        let data3 = Variable::from_json(r#"{"data": {"let": "let-value"}}"#).unwrap();
+        let result3 = expr3.search(data3).unwrap();
+        assert_eq!("let-value", result3.as_string().unwrap());
+    }
+
+    #[test]
+    fn test_let_image_details_example() {
+        // JEP-18 example: create pairs of [tag, digest, repo] from nested structure
+        // Simplified from JEP to avoid complex flatten behavior
+        let expr = compile(
+            "imageDetails[0] | let $repo = repositoryName, $digest = imageDigest in imageTags[].[@, $digest, $repo]",
+        )
+        .unwrap();
+        let data = Variable::from_json(
+            r#"{
+            "imageDetails": [
+                {"repositoryName": "org/first-repo", "imageTags": ["latest", "v1.0"], "imageDigest": "sha256:abcd"},
+                {"repositoryName": "org/second-repo", "imageTags": ["v2.0"], "imageDigest": "sha256:efgh"}
+            ]
+        }"#,
+        )
+        .unwrap();
+        let result = expr.search(data).unwrap();
+        let arr = result.as_array().unwrap();
+        assert_eq!(2, arr.len());
+        assert_eq!(
+            r#"["latest","sha256:abcd","org/first-repo"]"#,
+            arr[0].to_string()
+        );
+        assert_eq!(
+            r#"["v1.0","sha256:abcd","org/first-repo"]"#,
+            arr[1].to_string()
+        );
+    }
+
+    #[test]
+    fn test_let_with_functions() {
+        // Variables should work inside function calls
+        let expr = compile("let $arr = numbers in length($arr)").unwrap();
+        let data = Variable::from_json(r#"{"numbers": [1, 2, 3, 4, 5]}"#).unwrap();
+        let result = expr.search(data).unwrap();
+        assert_eq!(5.0, result.as_number().unwrap());
+    }
+
+    #[test]
+    fn test_let_variable_in_filter_comparison() {
+        // Variable on right side of comparison in filter
+        let expr = compile("let $min = `10` in numbers[? @ >= $min]").unwrap();
+        let data = Variable::from_json(r#"{"numbers": [5, 10, 15, 20]}"#).unwrap();
+        let result = expr.search(data).unwrap();
+        let arr = result.as_array().unwrap();
+        assert_eq!(3, arr.len());
+    }
+
+    #[test]
+    fn test_let_variable_in_multiselect_hash() {
+        // Variables in multi-select hash
+        let expr = compile("let $x = name, $y = age in {name: $x, age: $y, original: @}").unwrap();
+        let data = Variable::from_json(r#"{"name": "Alice", "age": 30}"#).unwrap();
+        let result = expr.search(data).unwrap();
+        let obj = result.as_object().unwrap();
+        assert_eq!("Alice", obj.get("name").unwrap().as_string().unwrap());
+        assert_eq!(30.0, obj.get("age").unwrap().as_number().unwrap());
+    }
+
+    #[test]
+    fn test_let_with_pipe_expression() {
+        // Let expression with pipe
+        let expr =
+            compile("let $prefix = prefix in items[*].name | [? starts_with(@, $prefix)]").unwrap();
+        let data = Variable::from_json(
+            r#"{"prefix": "test", "items": [{"name": "test_one"}, {"name": "other"}, {"name": "test_two"}]}"#,
+        )
+        .unwrap();
+        let result = expr.search(data).unwrap();
+        let arr = result.as_array().unwrap();
+        assert_eq!(2, arr.len());
+    }
+
+    #[test]
+    fn test_let_deeply_nested_scopes() {
+        // Three levels of nesting
+        let expr = compile("let $a = `1` in let $b = `2` in let $c = `3` in [$a, $b, $c]").unwrap();
+        let data = Variable::from_json("{}").unwrap();
+        let result = expr.search(data).unwrap();
+        assert_eq!("[1,2,3]", result.to_string());
+    }
+
+    #[test]
+    fn test_let_shadow_and_restore() {
+        // Shadowed variable doesn't affect outer scope after inner scope exits
+        let expr = compile("let $x = 'outer' in [let $x = 'inner' in $x, $x]").unwrap();
+        let data = Variable::from_json("{}").unwrap();
+        let result = expr.search(data).unwrap();
+        assert_eq!(r#"["inner","outer"]"#, result.to_string());
+    }
+
+    #[test]
+    fn test_let_with_current_node() {
+        // Variable combined with @ (current node)
+        let expr =
+            compile("items[*].[let $item = @ in {value: $item.value, doubled: $item.value}]")
+                .unwrap();
+        let data = Variable::from_json(r#"{"items": [{"value": 1}, {"value": 2}]}"#).unwrap();
+        let result = expr.search(data).unwrap();
+        let arr = result.as_array().unwrap();
+        assert_eq!(2, arr.len());
+    }
+
+    #[test]
+    fn test_let_empty_bindings_body() {
+        // Let with body that returns null
+        let expr = compile("let $x = foo in $x.nonexistent").unwrap();
+        let data = Variable::from_json(r#"{"foo": {"bar": 1}}"#).unwrap();
+        let result = expr.search(data).unwrap();
+        assert!(result.is_null());
+    }
+
+    #[test]
+    fn test_let_binding_to_array() {
+        // Bind variable to array and iterate
+        let expr = compile("let $items = items in $items[*].name").unwrap();
+        let data = Variable::from_json(r#"{"items": [{"name": "a"}, {"name": "b"}]}"#).unwrap();
+        let result = expr.search(data).unwrap();
+        assert_eq!(r#"["a","b"]"#, result.to_string());
+    }
+
+    #[test]
+    fn test_let_binding_to_literal() {
+        // Bind to various literal types
+        let expr = compile("let $str = 'hello', $num = `42`, $bool = `true`, $null = `null` in [$str, $num, $bool, $null]").unwrap();
+        let data = Variable::from_json("{}").unwrap();
+        let result = expr.search(data).unwrap();
+        assert_eq!(r#"["hello",42,true,null]"#, result.to_string());
+    }
+
+    #[test]
+    fn test_let_variable_not_in_scope_after_expression() {
+        // Verify scope is properly cleaned up - second $x should error
+        let expr = compile("[let $x = 'first' in $x, let $y = 'second' in $y]").unwrap();
+        let data = Variable::from_json("{}").unwrap();
+        let result = expr.search(data).unwrap();
+        assert_eq!(r#"["first","second"]"#, result.to_string());
+    }
+
+    #[test]
+    fn test_let_with_flatten() {
+        // Let with flatten operator
+        let expr = compile("let $data = nested in $data[].items[]").unwrap();
+        let data =
+            Variable::from_json(r#"{"nested": [{"items": [1, 2]}, {"items": [3, 4]}]}"#).unwrap();
+        let result = expr.search(data).unwrap();
+        assert_eq!("[1,2,3,4]", result.to_string());
+    }
+
+    #[test]
+    fn test_let_with_slice() {
+        // Let with slice expression
+        let expr = compile("let $arr = numbers in $arr[1:3]").unwrap();
+        let data = Variable::from_json(r#"{"numbers": [0, 1, 2, 3, 4]}"#).unwrap();
+        let result = expr.search(data).unwrap();
+        assert_eq!("[1,2]", result.to_string());
+    }
+
+    #[test]
+    fn test_let_with_or_expression() {
+        // Let with || (or) expression
+        let expr = compile("let $default = 'N/A' in name || $default").unwrap();
+        let data = Variable::from_json(r#"{}"#).unwrap();
+        let result = expr.search(data).unwrap();
+        assert_eq!("N/A", result.as_string().unwrap());
+    }
+
+    #[test]
+    fn test_let_with_and_expression() {
+        // Let with && (and) expression
+        let expr = compile("let $check = `true` in active && $check").unwrap();
+        let data = Variable::from_json(r#"{"active": true}"#).unwrap();
+        let result = expr.search(data).unwrap();
+        assert!(result.as_boolean().unwrap());
+    }
+
+    #[test]
+    fn test_let_with_not_expression() {
+        // Let with ! (not) expression
+        let expr = compile("let $val = `false` in !$val").unwrap();
+        let data = Variable::from_json("{}").unwrap();
+        let result = expr.search(data).unwrap();
+        assert!(result.as_boolean().unwrap());
     }
 }

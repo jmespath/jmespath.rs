@@ -31,6 +31,9 @@ jobs:
       - name: Test jmespath
         run: cargo test
 
+      - name: Test jmespath with let-expr feature
+        run: cargo test --features let-expr
+
       - name: Test jmespath with specialized feature (nightly only)
         if: matrix.rust == 'nightly'
         run: cargo +nightly test --features specialized

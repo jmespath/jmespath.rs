@@ -46,6 +46,12 @@ pub enum Token {
     Lbrace,
     Rbrace,
     Eof,
+    #[cfg(feature = "let-expr")]
+    /// Assignment operator for let bindings (JEP-18): =
+    Assign,
+    #[cfg(feature = "let-expr")]
+    /// Variable reference (JEP-18): $name
+    Variable(String),
 }
 
 impl Token {
@@ -126,8 +132,14 @@ impl<'a> Lexer<'a> {
                         '"' => tokens.push_back((pos, self.consume_quoted_identifier(pos)?)),
                         '\'' => tokens.push_back((pos, self.consume_raw_string(pos)?)),
                         '`' => tokens.push_back((pos, self.consume_literal(pos)?)),
-                        '=' => match self.iter.next() {
-                            Some((_, '=')) => tokens.push_back((pos, Eq)),
+                        '=' => match self.iter.peek() {
+                            Some(&(_, '=')) => {
+                                self.iter.next();
+                                tokens.push_back((pos, Eq))
+                            }
+                            #[cfg(feature = "let-expr")]
+                            _ => tokens.push_back((pos, Assign)),
+                            #[cfg(not(feature = "let-expr"))]
                             _ => {
                                 let message = "'=' is not valid. Did you mean '=='?";
                                 let reason = ErrorReason::Parse(message.to_owned());
@@ -139,6 +151,8 @@ impl<'a> Lexer<'a> {
                         '!' => tokens.push_back((pos, self.alt('=', Ne, Not))),
                         '0'..='9' => tokens.push_back((pos, self.consume_number(pos, ch, false)?)),
                         '-' => tokens.push_back((pos, self.consume_negative_number(pos)?)),
+                        #[cfg(feature = "let-expr")]
+                        '$' => tokens.push_back((pos, self.consume_variable(pos)?)),
                         // Skip whitespace tokens
                         ' ' | '\n' | '\t' | '\r' => {}
                         c => {
@@ -227,6 +241,27 @@ impl<'a> Lexer<'a> {
             Some((_, c)) if c.is_numeric() && c != '0' => Ok(self.consume_number(pos, c, true)?),
             _ => {
                 let reason = ErrorReason::Parse("'-' must be followed by numbers 1-9".to_owned());
+                Err(JmespathError::new(self.expr, pos, reason))
+            }
+        }
+    }
+
+    // Consumes a variable reference: $identifier (JEP-18)
+    #[cfg(feature = "let-expr")]
+    #[inline]
+    fn consume_variable(&mut self, pos: usize) -> Result<Token, JmespathError> {
+        // Peek at the first character to start the identifier
+        match self.iter.peek() {
+            Some(&(_, 'a'..='z' | 'A'..='Z' | '_')) => {
+                let name = self.consume_while(
+                    String::new(),
+                    |c| matches!(c, 'a'..='z' | '_' | 'A'..='Z' | '0'..='9'),
+                );
+                Ok(Variable(name))
+            }
+            _ => {
+                let reason =
+                    ErrorReason::Parse("'$' must be followed by a valid identifier".to_owned());
                 Err(JmespathError::new(self.expr, pos, reason))
             }
         }
@@ -378,7 +413,16 @@ mod tests {
     }
 
     #[test]
-    fn ensures_eq_valid() {
+    #[cfg(feature = "let-expr")]
+    fn ensures_eq_valid_with_let_expr() {
+        // With JEP-18, single = is now valid (Assign token for let bindings)
+        assert!(tokenize("=").is_ok());
+    }
+
+    #[test]
+    #[cfg(not(feature = "let-expr"))]
+    fn ensures_eq_invalid_without_let_expr() {
+        // Without JEP-18, single = is an error
         assert!(tokenize("=").is_err());
     }
 

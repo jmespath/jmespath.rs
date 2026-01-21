@@ -1,6 +1,8 @@
 //! Interprets JMESPath expressions.
 
 use std::collections::BTreeMap;
+#[cfg(feature = "let-expr")]
+use std::collections::HashMap;
 
 use super::Context;
 use super::ast::Ast;
@@ -180,6 +182,44 @@ pub fn interpret(data: &Rcvar, node: &Ast, ctx: &mut Context<'_>) -> SearchResul
                     None => Ok(Rcvar::new(Variable::Null)),
                 }
             }
+        }
+        // JEP-18: Variable reference - look up variable in scope stack
+        #[cfg(feature = "let-expr")]
+        Ast::VariableRef { ref name, offset } => match ctx.get_variable(name) {
+            Some(value) => Ok(value),
+            None => {
+                ctx.offset = offset;
+                let reason = ErrorReason::Runtime(RuntimeError::UnknownFunction(format!(
+                    "Undefined variable: ${}",
+                    name
+                )));
+                Err(JmespathError::from_ctx(ctx, reason))
+            }
+        },
+        // JEP-18: Let expression - evaluate bindings and body with new scope
+        #[cfg(feature = "let-expr")]
+        Ast::Let {
+            ref bindings,
+            ref expr,
+            ..
+        } => {
+            // Evaluate all bindings and create a new scope
+            let mut scope = HashMap::new();
+            for (name, binding_expr) in bindings {
+                let value = interpret(data, binding_expr, ctx)?;
+                scope.insert(name.clone(), value);
+            }
+
+            // Push the new scope
+            ctx.push_scope(scope);
+
+            // Evaluate the body expression
+            let result = interpret(data, expr, ctx);
+
+            // Pop the scope (even if there was an error)
+            ctx.pop_scope();
+
+            result
         }
     }
 }

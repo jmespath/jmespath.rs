@@ -168,6 +168,24 @@ pub enum Ast {
         /// Right hand side of the expression.
         rhs: Box<Ast>,
     },
+    #[cfg(feature = "let-expr")]
+    /// Variable reference (JEP-18): $name
+    VariableRef {
+        /// Approximate absolute position in the parsed expression.
+        offset: usize,
+        /// Variable name (without the $ prefix)
+        name: String,
+    },
+    #[cfg(feature = "let-expr")]
+    /// Let expression (JEP-18): let $var = expr, ... in body
+    Let {
+        /// Approximate absolute position in the parsed expression.
+        offset: usize,
+        /// Variable bindings: name -> expression
+        bindings: Vec<(String, Ast)>,
+        /// Body expression to evaluate with bindings in scope
+        expr: Box<Ast>,
+    },
 }
 
 impl fmt::Display for Ast {
