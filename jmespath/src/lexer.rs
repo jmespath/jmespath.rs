@@ -283,11 +283,42 @@ impl<'a> Lexer<'a> {
         })
     }
 
+    /// Consume a raw string literal per JEP-12.
+    ///
+    /// Raw strings are delimited by single quotes and do not interpret escape
+    /// sequences, except for `\'` which produces a literal single quote.
+    /// All other backslashes are preserved literally.
+    ///
+    /// See: https://github.com/jmespath/jmespath.jep/blob/main/proposals/0012-raw-string-literals.md
     #[inline]
     fn consume_raw_string(&mut self, pos: usize) -> Result<Token, JmespathError> {
-        // Note: we need to unescape here because the backslashes are passed through.
+        // Read until closing quote, then process escapes
         self.consume_inside(pos, '\'', |s| {
-            Ok(Literal(Rcvar::new(Variable::String(s.replace("\\'", "'")))))
+            // Fast path: if no backslashes at all, return as-is
+            if !s.contains('\\') {
+                return Ok(Literal(Rcvar::new(Variable::String(s))));
+            }
+
+            // Only \' is an escape sequence - replace with literal quote
+            // All other backslashes are preserved literally
+            let mut result = String::with_capacity(s.len());
+            let mut chars = s.chars();
+
+            while let Some(c) = chars.next() {
+                if c == '\\' {
+                    match chars.next() {
+                        Some('\'') => result.push('\''),
+                        Some(other) => {
+                            result.push('\\');
+                            result.push(other);
+                        }
+                        None => result.push('\\'),
+                    }
+                } else {
+                    result.push(c);
+                }
+            }
+            Ok(Literal(Rcvar::new(Variable::String(result))))
         })
     }
 
@@ -480,6 +511,106 @@ mod tests {
                 (6, Eof)
             ]
         );
+        // JEP-12: \' produces a literal single quote
+        assert_eq!(
+            tokenize_queue("'foo\\'bar'"),
+            vec![
+                (
+                    0,
+                    Literal(Rcvar::new(Variable::String("foo'bar".to_string())))
+                ),
+                (10, Eof)
+            ]
+        );
+        // JEP-12: \\ is preserved literally (two backslashes stay as two)
+        assert_eq!(
+            tokenize_queue("'foo\\\\bar'"),
+            vec![
+                (
+                    0,
+                    Literal(Rcvar::new(Variable::String("foo\\\\bar".to_string())))
+                ),
+                (10, Eof)
+            ]
+        );
+        // JEP-12: other escapes preserved literally
+        assert_eq!(
+            tokenize_queue("'\\t\\r'"),
+            vec![
+                (
+                    0,
+                    Literal(Rcvar::new(Variable::String("\\t\\r".to_string())))
+                ),
+                (6, Eof)
+            ]
+        );
+        // Unclosed raw string error
+        assert!(
+            tokenize("'foo")
+                .unwrap_err()
+                .to_string()
+                .contains("Unclosed")
+        );
+    }
+
+    #[test]
+    fn tokenize_raw_string_comprehensive_test() {
+        // Comprehensive tests for JEP-12 raw string escape handling.
+        // These verify that the character-by-character parsing produces
+        // identical results to the simple replace approach.
+
+        let test_cases = vec![
+            // (input_after_quotes, expected_output)
+            // Note: In these tests, the Rust string literal becomes the content
+            // BETWEEN the single quotes. A trailing backslash would escape the
+            // closing quote, so we avoid those patterns.
+            ("", ""),
+            ("a", "a"),
+            ("foo", "foo"),
+            ("foo bar", "foo bar"),
+            // Backslash sequences (not at end, to avoid escaping closing quote)
+            ("\\a", "\\a"),
+            ("\\n", "\\n"),
+            ("\\t", "\\t"),
+            ("a\\b", "a\\b"),   // backslash in middle
+            ("\\\\a", "\\\\a"), // two backslashes then char
+            ("a\\\\", "a\\\\"), // char then two backslashes
+            // Escaped quotes (must not be at very end without something after)
+            ("x\\'x", "x'x"),
+            ("foo\\'bar", "foo'bar"),
+            ("\\'x", "'x"),
+            ("x\\'", "x'"), // escaped quote at end is ok - quote is consumed
+            // Backslash positions
+            ("\\foo", "\\foo"),
+            ("foo\\bar", "foo\\bar"),
+            // Multiple backslashes
+            ("a\\\\\\a", "a\\\\\\a"),     // char, 3 backslashes, char
+            ("a\\\\\\\\a", "a\\\\\\\\a"), // char, 4 backslashes, char
+            // Mixed backslash and quote escapes
+            ("\\'\\'x", "''x"),
+            ("x\\'\\'\\'x", "x'''x"),
+            // Windows-style paths
+            ("C:\\\\Users\\\\name", "C:\\\\Users\\\\name"),
+            // Unicode
+            ("日本語", "日本語"),
+            ("日本語\\'test", "日本語'test"),
+        ];
+
+        for (input, expected) in test_cases {
+            let expr = format!("'{}'", input);
+            let tokens = tokenize_queue(&expr);
+            match &tokens[0].1 {
+                Literal(var) => {
+                    let result = var.as_string().unwrap();
+                    assert_eq!(
+                        result, expected,
+                        "Raw string '{}' should produce {:?}, got {:?}",
+                        input, expected, result
+                    );
+                }
+                other => panic!("Expected Literal, got {:?}", other),
+            }
+        }
     }
 
     #[test]
