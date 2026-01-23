@@ -294,14 +294,26 @@ impl<'a> Lexer<'a> {
     fn consume_raw_string(&mut self, pos: usize) -> Result<Token, JmespathError> {
         // Read until closing quote, then process escapes
         self.consume_inside(pos, '\'', |s| {
+            // Fast path: if no backslashes at all, return as-is
+            if !s.contains('\\') {
+                return Ok(Literal(Rcvar::new(Variable::String(s))));
+            }
+
             // Only \' is an escape sequence - replace with literal quote
             // All other backslashes are preserved literally
             let mut result = String::with_capacity(s.len());
-            let mut chars = s.chars().peekable();
+            let mut chars = s.chars();
+
             while let Some(c) = chars.next() {
-                if c == '\\' && chars.peek() == Some(&'\'') {
-                    chars.next(); // consume the quote
-                    result.push('\'');
+                if c == '\\' {
+                    match chars.next() {
+                        Some('\'') => result.push('\''),
+                        Some(other) => {
+                            result.push('\\');
+                            result.push(other);
+                        }
+                        None => result.push('\\'),
+                    }
                 } else {
                     result.push(c);
                 }
